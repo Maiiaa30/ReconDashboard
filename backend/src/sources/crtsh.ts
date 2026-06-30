@@ -1,4 +1,4 @@
-import { getText } from '../util/http'
+import { getText, HttpError } from '../util/http'
 import { hostBelongsToDomain, normalizeHost } from '../util/validate'
 
 interface CrtShEntry {
@@ -6,11 +6,32 @@ interface CrtShEntry {
   common_name?: string
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
 // Passive subdomain discovery via crt.sh certificate transparency logs.
-// Returns normalized hosts that belong to `domain`.
+// crt.sh is frequently slow / returns 502s, so we retry a couple of times with
+// backoff. Returns normalized hosts that belong to `domain`.
 export async function crtShSubdomains(domain: string): Promise<string[]> {
   const url = `https://crt.sh/?q=%25.${encodeURIComponent(domain)}&output=json`
-  const text = await getText(url, { timeoutMs: 30_000, accept: 'application/json' })
+
+  let text = ''
+  let lastErr: unknown = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await sleep(2000 * attempt)
+    try {
+      text = await getText(url, { timeoutMs: 25_000, accept: 'application/json' })
+      lastErr = null
+      break
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  if (lastErr) {
+    // Surface a clean reason instead of the raw "operation was aborted".
+    if (lastErr instanceof HttpError) throw new Error(`crt.sh unavailable (HTTP ${lastErr.status})`)
+    const msg = lastErr instanceof Error ? lastErr.message : String(lastErr)
+    throw new Error(/abort/i.test(msg) ? 'crt.sh timed out' : `crt.sh error: ${msg}`)
+  }
 
   let entries: CrtShEntry[]
   try {

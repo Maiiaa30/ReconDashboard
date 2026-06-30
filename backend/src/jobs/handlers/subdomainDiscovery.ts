@@ -2,6 +2,7 @@ import { getDomain, updateDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
 import { safeJsonParse } from '../../util/json'
 import { alertSubdomains, type SubdomainAlert } from '../../notify/discord'
+import { certSpotterSubdomains } from '../../sources/certspotter'
 import { crtShSubdomains } from '../../sources/crtsh'
 import { probeHost } from '../../sources/httpProbe'
 import { detectTakeover } from '../../sources/takeover'
@@ -24,7 +25,7 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
   const discovered: { host: string; source: string }[] = []
   const sources: Record<string, number | string> = {}
 
-  // crt.sh
+  // crt.sh (certificate transparency)
   try {
     const crt = await crtShSubdomains(domain.host)
     for (const host of crt) discovered.push({ host, source: 'crtsh' })
@@ -32,6 +33,16 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
   } catch (err) {
     sources.crtsh = `error: ${err instanceof Error ? err.message : String(err)}`
     log.warn({ domain: domain.host, err }, 'crt.sh discovery failed')
+  }
+
+  // certspotter (redundant CT source — covers crt.sh outages)
+  try {
+    const cs = await certSpotterSubdomains(domain.host)
+    for (const host of cs) discovered.push({ host, source: 'certspotter' })
+    sources.certspotter = cs.length
+  } catch (err) {
+    sources.certspotter = `error: ${err instanceof Error ? err.message : String(err)}`
+    log.warn({ domain: domain.host, err }, 'certspotter discovery failed')
   }
 
   // subfinder (passive). Unavailable locally without the binary.
