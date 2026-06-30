@@ -16,6 +16,12 @@ export function Canvas() {
     elements: [],
     appState: {},
   })
+  // Refs so the autosave/unmount-flush always see the latest open drawing and
+  // whether there are unsaved edits, without stale closures.
+  const currentRef = useRef<Drawing | null>(null)
+  currentRef.current = current
+  const dirtyRef = useRef(false)
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const loadList = useCallback(async () => {
     const { drawings } = await api.drawings()
@@ -26,7 +32,40 @@ export function Canvas() {
     void loadList()
   }, [loadList])
 
+  // Bare persist (no React state) — safe to call from the unmount cleanup.
+  // Only writes when there are unsaved edits.
+  const persist = useCallback(async () => {
+    const cur = currentRef.current
+    if (!cur || !dirtyRef.current) return
+    const appState = sceneRef.current.appState as any
+    const clean = {
+      viewBackgroundColor: appState?.viewBackgroundColor,
+      theme: appState?.theme ?? 'dark', // remember the operator's theme choice
+    }
+    dirtyRef.current = false
+    try {
+      await api.updateDrawing(cur.id, { elements: sceneRef.current.elements, appState: clean })
+    } catch {
+      dirtyRef.current = true // keep dirty so a later flush retries
+    }
+  }, [])
+
+  function scheduleAutosave() {
+    dirtyRef.current = true
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
+    autosaveTimer.current = setTimeout(() => void persist(), 1500)
+  }
+
+  // Flush unsaved work when the Canvas page unmounts (e.g. switching tabs).
+  useEffect(() => {
+    return () => {
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
+      void persist()
+    }
+  }, [persist])
+
   async function open(id: number) {
+    await persist() // don't lose edits to the currently-open drawing
     const { drawing } = await api.drawing(id)
     // Seed the scene ref so a Save before any onChange writes THIS drawing's
     // scene, not the previously-open one.
@@ -34,12 +73,15 @@ export function Canvas() {
       elements: drawing.data?.elements ?? [],
       appState: drawing.data?.appState ?? {},
     }
+    dirtyRef.current = false
     setCurrent(drawing)
   }
 
   async function create() {
+    await persist()
     const { drawing } = await api.createDrawing('Untitled', { elements: [], appState: { theme: 'dark' } })
     sceneRef.current = { elements: [], appState: {} }
+    dirtyRef.current = false
     await loadList()
     setCurrent(drawing)
   }
@@ -48,16 +90,8 @@ export function Canvas() {
     if (!current) return
     setSaving(true)
     try {
-      // Persist elements + a minimal appState (drop non-serializable bits).
-      const appState = sceneRef.current.appState as any
-      const clean = {
-        viewBackgroundColor: appState?.viewBackgroundColor,
-        theme: appState?.theme ?? 'dark', // remember the operator's theme choice
-      }
-      await api.updateDrawing(current.id, {
-        elements: sceneRef.current.elements,
-        appState: clean,
-      })
+      dirtyRef.current = true // force a write even if no onChange fired
+      await persist()
       await loadList()
     } finally {
       setSaving(false)
@@ -75,7 +109,7 @@ export function Canvas() {
     <div className="flex h-[calc(100vh-3rem)] flex-col">
       <PageHeader
         title="Canvas"
-        subtitle="Excalidraw board, saved to the database"
+        subtitle="Excalidraw board — auto-saves as you draw and when you leave"
         actions={
           <>
             <Button variant="ghost" onClick={create}>
@@ -126,6 +160,7 @@ export function Canvas() {
                 }}
                 onChange={(elements, appState) => {
                   sceneRef.current = { elements, appState: appState as unknown as Record<string, unknown> }
+                  scheduleAutosave()
                 }}
               />
             </Suspense>
