@@ -2,6 +2,7 @@ import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { getDomain } from '../domains/store'
 import { listSubdomains } from '../subdomains/store'
 import { listFindings, type FindingType } from '../findings/store'
+import { buildDomainReport } from '../findings/report'
 import { toCsv } from '../util/csv'
 
 type Format = 'csv' | 'json' | 'txt'
@@ -44,6 +45,20 @@ function summarize(type: string, data: any): string {
 }
 
 export const exportRoutes: FastifyPluginAsync = async (app) => {
+  // Per-domain engagement report (Markdown): summary, findings by severity,
+  // confirmed findings with notes, live subdomains, tech, exposure.
+  app.get<{ Params: { id: string } }>('/api/domains/:id/report', async (request, reply) => {
+    const id = Number(request.params.id)
+    const domain = getDomain(id)
+    if (!domain) return reply.code(404).send({ error: 'domain not found' })
+    const md = buildDomainReport(id, new Date().toISOString())
+    if (md == null) return reply.code(404).send({ error: 'domain not found' })
+    reply
+      .header('Content-Type', 'text/markdown; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${domain.host}-report.md"`)
+    return reply.send(md)
+  })
+
   // Subdomains export: csv | txt (hosts only) | json (full rows).
   app.get<{ Params: { id: string }; Querystring: { format?: string } }>(
     '/api/domains/:id/subdomains/export',
