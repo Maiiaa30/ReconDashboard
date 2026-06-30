@@ -1,22 +1,28 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { DomainValidationError, getDomain, requireActiveAuthorized } from '../domains/store'
+import { DomainValidationError, getDomain } from '../domains/store'
 import { enqueueJob, type JobType } from '../jobs/queue'
 import { hostBelongsToDomain, isValidHostname } from '../util/validate'
 
-// ACTIVE / LOUD scans. Every route here is gated behind the domain being
-// active_authorized. These are default-off in the UI and clearly labelled loud.
+// ACTIVE / LOUD scans. active_authorized domains run freely; passive_only
+// domains require an explicit `confirm` (the UI shows a loud warning first), so
+// the operator can't run these by accident. The target must always belong to the
+// domain regardless.
 export const scanRoutes: FastifyPluginAsync = async (app) => {
-  function gate(idRaw: string, target: string | undefined): { domainHost: string; target: string } {
+  function gate(idRaw: string, target: string | undefined, confirm: boolean): { domainHost: string; target: string } {
     const id = Number(idRaw)
     const domain = getDomain(id)
     if (!domain) throw new DomainValidationError('domain not found')
-    requireActiveAuthorized(id) // throws if passive_only
+    if (domain.mode !== 'active_authorized' && !confirm) {
+      throw new DomainValidationError(
+        `domain "${domain.host}" is passive_only — confirm you are authorized to actively scan it`,
+      )
+    }
     const t = (target ?? domain.host).trim().toLowerCase()
     if (!isValidHostname(t) && t !== domain.host) {
       throw new DomainValidationError(`invalid target: ${target}`)
     }
     if (t !== domain.host && !hostBelongsToDomain(t, domain.host)) {
-      throw new DomainValidationError(`target ${t} is not within authorized domain ${domain.host}`)
+      throw new DomainValidationError(`target ${t} is not within domain ${domain.host}`)
     }
     return { domainHost: domain.host, target: t }
   }
@@ -27,7 +33,11 @@ export const scanRoutes: FastifyPluginAsync = async (app) => {
       async (request, reply) => {
         const id = Number(request.params.id)
         try {
-          const { target } = gate(request.params.id, request.body?.target as string | undefined)
+          const { target } = gate(
+            request.params.id,
+            request.body?.target as string | undefined,
+            request.body?.confirm === true,
+          )
           const params = { domainId: id, target, ...build(request.body ?? {}, target) }
           return reply.code(202).send({ jobId: enqueueJob(jobType, params) })
         } catch (err) {

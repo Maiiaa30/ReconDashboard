@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api, ApiError, type MetaStatus } from '../api'
-import { useApp, usePoll } from '../state'
+import { useApp, useHosts, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
 
 type Scheme = 'https' | 'http'
@@ -9,7 +9,6 @@ interface ScanResult {
   jobId: number | null
   error: string | null
 }
-
 const emptyResult: ScanResult = { jobId: null, error: null }
 
 function SchemeSelect({ value, onChange }: { value: Scheme; onChange: (v: Scheme) => void }) {
@@ -28,30 +27,25 @@ function SchemeSelect({ value, onChange }: { value: Scheme; onChange: (v: Scheme
 function ResultLine({ result }: { result: ScanResult }) {
   if (result.error) return <p className="mt-2 text-sm text-red-400">{result.error}</p>
   if (result.jobId != null)
-    return (
-      <p className="mt-2 text-sm text-green-400">
-        queued job #{result.jobId} — see Jobs tab
-      </p>
-    )
+    return <p className="mt-2 text-sm text-green-400">queued job #{result.jobId} — see Logs tab</p>
   return null
 }
 
 export function Scans() {
   const { selected } = useApp()
+  const hosts = useHosts(selected)
   const [meta, setMeta] = useState<MetaStatus | null>(null)
+  const [target, setTarget] = useState('')
 
-  // nmap state
   const [ports, setPorts] = useState('')
   const [nmapResult, setNmapResult] = useState<ScanResult>(emptyResult)
   const [nmapBusy, setNmapBusy] = useState(false)
 
-  // nuclei state
   const [severity, setSeverity] = useState('')
   const [nucleiScheme, setNucleiScheme] = useState<Scheme>('https')
   const [nucleiResult, setNucleiResult] = useState<ScanResult>(emptyResult)
   const [nucleiBusy, setNucleiBusy] = useState(false)
 
-  // ffuf state
   const [path, setPath] = useState('FUZZ')
   const [wordlist, setWordlist] = useState('')
   const [ffufScheme, setFfufScheme] = useState<Scheme>('https')
@@ -59,28 +53,37 @@ export function Scans() {
   const [ffufBusy, setFfufBusy] = useState(false)
 
   const loadMeta = useCallback(() => {
-    api
-      .meta()
-      .then(setMeta)
-      .catch(() => {})
+    api.meta().then(setMeta).catch(() => {})
   }, [])
-
-  // Fetch meta once (poll is inactive after first run; usePoll fires immediately).
   usePoll(loadMeta, 60000, meta == null)
+
+  useEffect(() => {
+    setTarget(selected?.host ?? '')
+  }, [selected])
 
   if (!selected) return <Empty>Select a domain to run scans.</Empty>
 
   const active = selected.mode === 'active_authorized'
 
+  // Run a scan. On a passive_only domain, warn and require confirmation first,
+  // then run with confirm:true (the server enforces the same gate).
   async function run(
+    toolName: string,
     setBusy: (b: boolean) => void,
     setResult: (r: ScanResult) => void,
-    call: () => Promise<{ jobId: number }>,
+    call: (confirm: boolean) => Promise<{ jobId: number }>,
   ): Promise<void> {
+    if (!selected) return
+    if (!active) {
+      const ok = confirm(
+        `⚠ ${selected.host} is passive_only.\n\n${toolName} is a LOUD, active scan. Only run it against ${target} if you are authorized to actively test this target.\n\nRun anyway?`,
+      )
+      if (!ok) return
+    }
     setBusy(true)
     setResult(emptyResult)
     try {
-      const { jobId } = await call()
+      const { jobId } = await call(!active)
       setResult({ jobId, error: null })
     } catch (err) {
       setResult({ jobId: null, error: err instanceof ApiError ? err.message : 'scan failed to enqueue' })
@@ -92,6 +95,7 @@ export function Scans() {
   const nmapInstalled = meta?.tools.nmap ?? false
   const nucleiInstalled = meta?.tools.nuclei ?? false
   const ffufInstalled = meta?.tools.ffuf ?? false
+  const runLabel = (busy: boolean, name: string) => (busy ? 'Queuing…' : active ? `Run ${name}` : `Run ${name} (confirm)`)
 
   return (
     <div>
@@ -102,30 +106,46 @@ export function Scans() {
       />
 
       {!active && (
-        <Card className="mb-6 border-amber-900/60 bg-amber-950/30">
+        <Card className="mb-4 border-amber-900/60 bg-amber-950/20">
           <div className="mb-1 flex items-center gap-2">
-            <Badge tone="amber">disabled</Badge>
-            <span className="text-sm font-medium text-amber-200">
-              Active scans are disabled for passive_only domains
-            </span>
+            <Badge tone="amber">passive_only</Badge>
+            <span className="text-sm font-medium text-amber-200">This domain is passive — scans need confirmation</span>
           </div>
           <p className="text-sm text-amber-200/80">
-            nmap, nuclei and ffuf are loud, active scans. The operator must mark{' '}
-            <span className="font-mono">{selected.host}</span> as{' '}
-            <span className="font-mono">active_authorized</span> (in the Domains tab) — and only for a
-            target you are authorized to actively test — before running these.
+            nmap, nuclei and ffuf are loud. You can run them here after a confirmation prompt, but only against a
+            target you are authorized to actively test. Set the domain to{' '}
+            <span className="font-mono">active_authorized</span> in Domains to skip the prompt.
           </p>
         </Card>
       )}
+
+      {/* Shared target host */}
+      <Card className="mb-4">
+        <label className="text-sm">
+          <span className="text-zinc-400">Target host</span>
+          <select
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            className="mt-1 block w-72 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-sm outline-none focus:border-zinc-500"
+          >
+            {hosts.length === 0 && <option value={selected.host}>{selected.host}</option>}
+            {hosts.map((h) => (
+              <option key={h.host} value={h.host}>
+                {h.host}
+                {h.live ? ' • live' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="mt-1 text-xs text-zinc-600">Pick the apex or any discovered subdomain to scan.</p>
+      </Card>
 
       <div className="space-y-4">
         {/* nmap */}
         <Card>
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-zinc-200">nmap</h2>
-            {!nmapInstalled && meta && (
-              <span className="text-xs text-zinc-500">nmap not installed in this image</span>
-            )}
+            {!nmapInstalled && meta && <span className="text-xs text-zinc-500">nmap not installed in this image</span>}
           </div>
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-sm">
@@ -139,12 +159,10 @@ export function Scans() {
             </label>
             <Button
               variant="loud"
-              disabled={!active || !nmapInstalled || nmapBusy}
-              onClick={() =>
-                run(setNmapBusy, setNmapResult, () => api.nmap(selected.id, ports || undefined))
-              }
+              disabled={!nmapInstalled || nmapBusy || !target}
+              onClick={() => run('nmap', setNmapBusy, setNmapResult, (confirm) => api.nmap(selected.id, { target, ports: ports || undefined, confirm }))}
             >
-              {nmapBusy ? 'Queuing…' : 'Run nmap'}
+              {runLabel(nmapBusy, 'nmap')}
             </Button>
           </div>
           <ResultLine result={nmapResult} />
@@ -154,9 +172,7 @@ export function Scans() {
         <Card>
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-zinc-200">nuclei</h2>
-            {!nucleiInstalled && meta && (
-              <span className="text-xs text-zinc-500">nuclei not installed in this image</span>
-            )}
+            {!nucleiInstalled && meta && <span className="text-xs text-zinc-500">nuclei not installed in this image</span>}
           </div>
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-sm">
@@ -174,14 +190,10 @@ export function Scans() {
             </label>
             <Button
               variant="loud"
-              disabled={!active || !nucleiInstalled || nucleiBusy}
-              onClick={() =>
-                run(setNucleiBusy, setNucleiResult, () =>
-                  api.nuclei(selected.id, severity || undefined, nucleiScheme),
-                )
-              }
+              disabled={!nucleiInstalled || nucleiBusy || !target}
+              onClick={() => run('nuclei', setNucleiBusy, setNucleiResult, (confirm) => api.nuclei(selected.id, { target, severity: severity || undefined, scheme: nucleiScheme, confirm }))}
             >
-              {nucleiBusy ? 'Queuing…' : 'Run nuclei'}
+              {runLabel(nucleiBusy, 'nuclei')}
             </Button>
           </div>
           <ResultLine result={nucleiResult} />
@@ -191,9 +203,7 @@ export function Scans() {
         <Card>
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-zinc-200">ffuf</h2>
-            {!ffufInstalled && meta && (
-              <span className="text-xs text-zinc-500">ffuf not installed in this image</span>
-            )}
+            {!ffufInstalled && meta && <span className="text-xs text-zinc-500">ffuf not installed in this image</span>}
           </div>
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-sm">
@@ -207,12 +217,18 @@ export function Scans() {
             </label>
             <label className="text-sm">
               <span className="text-zinc-400">Wordlist</span>
-              <input
+              <select
                 value={wordlist}
                 onChange={(e) => setWordlist(e.target.value)}
-                placeholder="/usr/share/wordlists/common.txt"
-                className="mt-1 block w-72 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-sm outline-none focus:border-zinc-500"
-              />
+                className="mt-1 block w-64 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm outline-none focus:border-zinc-500"
+              >
+                <option value="">default (common.txt)</option>
+                {(meta?.wordlists ?? []).map((w) => (
+                  <option key={w.path} value={w.path}>
+                    {w.name} ({w.sizeKb > 1024 ? `${(w.sizeKb / 1024).toFixed(1)}MB` : `${w.sizeKb}KB`})
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="text-sm">
               <span className="text-zinc-400">Scheme</span>
@@ -220,14 +236,10 @@ export function Scans() {
             </label>
             <Button
               variant="loud"
-              disabled={!active || !ffufInstalled || ffufBusy}
-              onClick={() =>
-                run(setFfufBusy, setFfufResult, () =>
-                  api.ffuf(selected.id, path || undefined, wordlist || undefined, ffufScheme),
-                )
-              }
+              disabled={!ffufInstalled || ffufBusy || !target || !path.includes('FUZZ')}
+              onClick={() => run('ffuf', setFfufBusy, setFfufResult, (confirm) => api.ffuf(selected.id, { target, path: path || 'FUZZ', wordlist: wordlist || undefined, scheme: ffufScheme, confirm }))}
             >
-              {ffufBusy ? 'Queuing…' : 'Run ffuf'}
+              {runLabel(ffufBusy, 'ffuf')}
             </Button>
           </div>
           <p className="mt-2 text-xs text-zinc-500">Path must contain FUZZ.</p>

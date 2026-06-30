@@ -51,6 +51,35 @@ export function useApp(): AppState {
   return ctx
 }
 
+// Host options for a domain (apex + discovered subdomains), live hosts first.
+// Used by the Scans/Fuzzing target pickers.
+export function useHosts(domain: Domain | null): { host: string; live: boolean }[] {
+  const [hosts, setHosts] = useState<{ host: string; live: boolean }[]>([])
+  useEffect(() => {
+    if (!domain) {
+      setHosts([])
+      return
+    }
+    let cancelled = false
+    api
+      .subdomains(domain.id)
+      .then((r) => {
+        if (cancelled) return
+        const list = r.subdomains.map((s) => ({ host: s.host, live: s.httpStatus != null }))
+        if (!list.some((h) => h.host === domain.host)) list.unshift({ host: domain.host, live: false })
+        list.sort((a, b) => Number(b.live) - Number(a.live) || a.host.localeCompare(b.host))
+        setHosts(list)
+      })
+      .catch(() => {
+        if (!cancelled) setHosts([{ host: domain.host, live: false }])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [domain])
+  return hosts
+}
+
 // Small polling hook for job-driven views. Ref-based so the interval always
 // calls the LATEST callback (avoids stale-closure bugs when the callback closes
 // over changing state like a job id), without tearing down the interval on

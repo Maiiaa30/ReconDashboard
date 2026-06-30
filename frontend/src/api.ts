@@ -234,12 +234,13 @@ export const api = {
   screenshots: (id: number) => get<{ screenshots: ScreenshotEntry[] }>(`/domains/${id}/screenshots`),
   screenshotUrl: (id: number, host: string) => `/api/domains/${id}/screenshot?host=${encodeURIComponent(host)}`,
 
-  // active scans (gated server-side)
-  nmap: (id: number, ports?: string) => post<{ jobId: number }>(`/domains/${id}/scan/nmap`, { ports }),
-  nuclei: (id: number, severity?: string, scheme?: string) =>
-    post<{ jobId: number }>(`/domains/${id}/scan/nuclei`, { severity, scheme }),
-  ffuf: (id: number, path?: string, wordlist?: string, scheme?: string) =>
-    post<{ jobId: number }>(`/domains/${id}/scan/ffuf`, { path, wordlist, scheme }),
+  // active scans (gated server-side; passive domains require confirm:true)
+  nmap: (id: number, opts: { target?: string; ports?: string; confirm?: boolean } = {}) =>
+    post<{ jobId: number }>(`/domains/${id}/scan/nmap`, opts),
+  nuclei: (id: number, opts: { target?: string; severity?: string; scheme?: string; confirm?: boolean } = {}) =>
+    post<{ jobId: number }>(`/domains/${id}/scan/nuclei`, opts),
+  ffuf: (id: number, opts: { target?: string; path?: string; wordlist?: string; scheme?: string; confirm?: boolean } = {}) =>
+    post<{ jobId: number }>(`/domains/${id}/scan/ffuf`, opts),
 
   // jobs
   jobs: () => get<{ jobs: Job[] }>('/jobs'),

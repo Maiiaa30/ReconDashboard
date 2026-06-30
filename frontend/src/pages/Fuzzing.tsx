@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, ApiError, type Finding, type MetaStatus } from '../api'
-import { useApp, usePoll } from '../state'
+import { useApp, useHosts, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
 import { timeAgo } from '../lib/format'
 
@@ -14,8 +14,10 @@ function statusTone(status: number): 'green' | 'amber' | 'red' | 'blue' | 'zinc'
 
 export function Fuzzing() {
   const { selected } = useApp()
+  const hosts = useHosts(selected)
   const [hits, setHits] = useState<Finding[]>([])
   const [meta, setMeta] = useState<MetaStatus | null>(null)
+  const [target, setTarget] = useState('')
   const [path, setPath] = useState('FUZZ')
   const [scheme, setScheme] = useState<'https' | 'http'>('https')
   const [wordlist, setWordlist] = useState('')
@@ -25,6 +27,11 @@ export function Fuzzing() {
   useEffect(() => {
     api.meta().then(setMeta).catch(() => setMeta(null))
   }, [])
+
+  // Default the target to the apex when the domain changes.
+  useEffect(() => {
+    setTarget(selected?.host ?? '')
+  }, [selected])
 
   const load = useCallback(() => {
     if (!selected) return
@@ -39,14 +46,28 @@ export function Fuzzing() {
 
   const active = selected.mode === 'active_authorized'
   const toolMissing = meta ? !meta.tools.ffuf : false
+  const pathValid = path.includes('FUZZ')
 
   async function run() {
     if (!selected) return
+    // Passive domain: warn, then run with explicit confirmation.
+    if (!active) {
+      const ok = confirm(
+        `⚠ ${selected.host} is passive_only.\n\nffuf is a LOUD, active scan. Only run it against ${target} if you are authorized to actively test this target.\n\nRun anyway?`,
+      )
+      if (!ok) return
+    }
     setMsg(null)
     setRunning(true)
     try {
-      const { jobId } = await api.ffuf(selected.id, path || 'FUZZ', wordlist || undefined, scheme)
-      setMsg({ ok: true, text: `Queued ffuf job #${jobId} — results appear below as they complete.` })
+      const { jobId } = await api.ffuf(selected.id, {
+        target,
+        path: path || 'FUZZ',
+        wordlist: wordlist || undefined,
+        scheme,
+        confirm: !active,
+      })
+      setMsg({ ok: true, text: `Queued ffuf job #${jobId} on ${target} — results appear below as they complete.` })
     } catch (err) {
       setMsg({ ok: false, text: err instanceof ApiError ? err.message : 'failed to start ffuf' })
     } finally {
@@ -65,19 +86,34 @@ export function Fuzzing() {
       {!active && (
         <Card className="mb-4 border-amber-900/50">
           <div className="flex items-center gap-2">
-            <Badge tone="amber">disabled</Badge>
-            <span className="text-sm font-medium text-amber-200">ffuf is disabled for passive_only domains</span>
+            <Badge tone="amber">passive_only</Badge>
+            <span className="text-sm font-medium text-amber-200">This domain is passive — ffuf is loud/active</span>
           </div>
           <p className="mt-2 text-sm text-zinc-400">
-            Content fuzzing is loud/active. Mark <span className="font-mono">{selected.host}</span> as
-            <span className="font-mono"> active_authorized</span> in the Domains tab — only for a target you are
-            authorized to actively test — to enable it.
+            You can still run it after a confirmation, but only do so for a target you are authorized to actively
+            test. (Set the domain to <span className="font-mono">active_authorized</span> in Domains to skip the prompt.)
           </p>
         </Card>
       )}
 
       <Card className="mb-5">
         <div className="flex flex-wrap items-end gap-3">
+          <label className="text-sm">
+            <span className="text-zinc-400">Target host</span>
+            <select
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              className="mt-1 block w-64 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-sm outline-none focus:border-zinc-500"
+            >
+              {hosts.length === 0 && <option value={selected.host}>{selected.host}</option>}
+              {hosts.map((h) => (
+                <option key={h.host} value={h.host}>
+                  {h.host}
+                  {h.live ? ' • live' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="text-sm">
             <span className="text-zinc-400">Scheme</span>
             <select
@@ -95,7 +131,7 @@ export function Fuzzing() {
               value={path}
               onChange={(e) => setPath(e.target.value)}
               placeholder="FUZZ"
-              className="mt-1 block w-40 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-sm outline-none focus:border-zinc-500"
+              className={`mt-1 block w-40 rounded-lg border bg-zinc-950 px-3 py-1.5 font-mono text-sm outline-none focus:border-zinc-500 ${pathValid ? 'border-zinc-700' : 'border-red-800'}`}
             />
           </label>
           <label className="text-sm">
@@ -113,10 +149,15 @@ export function Fuzzing() {
               ))}
             </select>
           </label>
-          <Button variant="loud" onClick={run} disabled={!active || running || toolMissing}>
-            {running ? 'Starting…' : 'Run ffuf'}
+          <Button
+            variant="loud"
+            onClick={run}
+            disabled={running || toolMissing || !pathValid || !target}
+          >
+            {running ? 'Starting…' : active ? 'Run ffuf' : 'Run ffuf (confirm)'}
           </Button>
         </div>
+        {!pathValid && <p className="mt-2 text-xs text-red-400">Path must contain FUZZ.</p>}
         {toolMissing && <p className="mt-2 text-xs text-zinc-500">ffuf is not installed in this image.</p>}
         {msg && <p className={`mt-2 text-sm ${msg.ok ? 'text-green-400' : 'text-red-400'}`}>{msg.text}</p>}
       </Card>
