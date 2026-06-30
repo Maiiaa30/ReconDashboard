@@ -6,6 +6,7 @@ import { crtShSubdomains } from '../../sources/crtsh'
 import { resolveDns } from '../../sources/dns'
 import { fingerprintHost } from '../../sources/fingerprint'
 import { internetDbLookup } from '../../sources/internetdb'
+import { waybackUrls } from '../../sources/wayback'
 import { whoisDomain } from '../../sources/whois'
 import { zoneTransfer } from '../../sources/zoneTransfer'
 import { isValidIp } from '../../util/validate'
@@ -85,6 +86,13 @@ export async function osintHandler({ params, log }: JobContext) {
     }
   } catch (err) {
     result.internetdb = { error: err instanceof Error ? err.message : String(err) }
+  }
+
+  // Wayback Machine archived URLs (historical endpoints + params to test).
+  try {
+    result.wayback = await waybackUrls(host)
+  } catch (err) {
+    result.wayback = { error: err instanceof Error ? err.message : String(err) }
   }
 
   // Technology fingerprint: OS, server, and stack from HTTP headers/cookies/HTML,

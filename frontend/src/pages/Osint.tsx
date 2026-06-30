@@ -53,12 +53,19 @@ interface TechData {
   headers: Record<string, string>
 }
 
+interface WaybackData {
+  count: number
+  sample: string[]
+  withParams: string[]
+}
+
 interface OsintData {
   domain: string
   dns?: DnsData | ErrorField
   tech?: TechData | ErrorField
   whois?: WhoisData | ErrorField
   crtsh?: CrtshData | ErrorField
+  wayback?: WaybackData | ErrorField
   internetdb?: InternetDbData | ErrorField | null
 }
 
@@ -208,6 +215,41 @@ function CrtshCard({ crtsh }: { crtsh: CrtshData | ErrorField | undefined }) {
   )
 }
 
+function WaybackCard({ wb }: { wb: WaybackData | ErrorField | undefined }) {
+  if (!wb) return null
+  return (
+    <Card>
+      <SectionTitle>Wayback URLs</SectionTitle>
+      {isError(wb) ? (
+        <ErrorLine message={wb.error} />
+      ) : (
+        <div className="space-y-2">
+          <div className="text-xs text-zinc-500">
+            {wb.count} archived URL(s) · {wb.withParams.length} with parameters
+          </div>
+          {wb.withParams.length > 0 && (
+            <div>
+              <div className="mb-1 text-xs uppercase tracking-wide text-zinc-500">URLs with parameters (testable)</div>
+              <div className="max-h-64 space-y-0.5 overflow-auto font-mono text-xs text-zinc-300">
+                {wb.withParams.map((u) => (
+                  <div key={u} className="break-all">{u}</div>
+                ))}
+              </div>
+            </div>
+          )}
+          {wb.withParams.length === 0 && wb.sample.length > 0 && (
+            <div className="max-h-48 space-y-0.5 overflow-auto font-mono text-xs text-zinc-400">
+              {wb.sample.map((u) => (
+                <div key={u} className="break-all">{u}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 function InternetDbCard({ idb }: { idb: InternetDbData | ErrorField | null | undefined }) {
   if (!idb) return null
   return (
@@ -326,6 +368,7 @@ export function Osint() {
           <TechCard tech={data.tech} />
           <WhoisCard whois={data.whois} />
           <CrtshCard crtsh={data.crtsh} />
+          <WaybackCard wb={data.wayback} />
           <InternetDbCard idb={data.internetdb} />
         </div>
       )}
