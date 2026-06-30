@@ -3,6 +3,7 @@ import { addScoredFinding } from '../../findings/score'
 import { alertSubdomains, type SubdomainAlert } from '../../notify/discord'
 import { crtShSubdomains } from '../../sources/crtsh'
 import { probeHost } from '../../sources/httpProbe'
+import { detectTakeover } from '../../sources/takeover'
 import { subfinderSubdomains } from '../../sources/subfinder'
 import { diffAndStore, updateProbe } from '../../subdomains/store'
 import { mapLimit } from '../../util/async'
@@ -55,7 +56,7 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
     toProbe,
     PROBE_CONCURRENCY,
     (host) => probeHost(host),
-    { host: '', scheme: null, status: null, title: null, server: null, ip: null, url: null },
+    { host: '', scheme: null, status: null, title: null, server: null, ip: null, url: null, cnames: [] },
   )
   const probeByHost = new Map(probes.filter((p) => p.host).map((p) => [p.host, p]))
 
@@ -72,9 +73,13 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
     }
   }
 
-  // Record + score each genuinely new subdomain as a finding (with probe data).
+  // Record + score each genuinely new subdomain as a finding (with probe data
+  // and a passive takeover-candidate hint).
+  let takeoverCount = 0
   for (const host of diff.newHosts) {
     const p = probeByHost.get(host)
+    const takeover = p ? detectTakeover(p.cnames, p.status) : null
+    if (takeover) takeoverCount++
     await addScoredFinding({
       domainId,
       type: 'new_subdomain',
@@ -85,6 +90,8 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
         title: p?.title ?? null,
         server: p?.server ?? null,
         ip: p?.ip ?? null,
+        cnames: p?.cnames ?? [],
+        takeover,
       },
       tags: ['new-subdomain'],
     })
@@ -112,5 +119,6 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
     newCount: diff.newHosts.length,
     newHosts: diff.newHosts,
     updated: diff.updatedCount,
+    takeoverCandidates: takeoverCount,
   }
 }

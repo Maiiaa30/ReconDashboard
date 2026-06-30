@@ -1,7 +1,7 @@
 import { useCallback, useState, type ReactNode } from 'react'
 import { api, type Subdomain } from '../api'
 import { useApp, usePoll } from '../state'
-import { Badge, Button, Empty, PageHeader } from '../components/ui'
+import { Badge, Button, Empty, ExportLinks, PageHeader } from '../components/ui'
 
 type Tone = 'green' | 'blue' | 'amber' | 'red' | 'zinc'
 
@@ -73,6 +73,9 @@ export function Subdomains() {
         subtitle={`${selected.host} — ${subs.length} known, ${newCount} new`}
         actions={
           <>
+            {subs.length > 0 && (
+              <ExportLinks base={`/domains/${selected.id}/subdomains/export`} formats={['csv', 'txt', 'json']} />
+            )}
             {newCount > 0 && (
               <Button variant="ghost" onClick={ack}>
                 Acknowledge {newCount} new

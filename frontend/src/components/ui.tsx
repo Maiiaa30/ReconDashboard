@@ -56,6 +56,25 @@ export function Spinner() {
   return <span className="inline-block h-3 w-3 animate-pulse rounded-full bg-amber-500" />
 }
 
+// Download links for an export endpoint. Plain anchors so the browser handles
+// the download (the session cookie is sent on the same-origin GET).
+export function ExportLinks({ base, formats }: { base: string; formats: string[] }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-xs text-zinc-500">Export</span>
+      {formats.map((f) => (
+        <a
+          key={f}
+          href={`/api${base}${base.includes('?') ? '&' : '?'}format=${f}`}
+          className="rounded-lg border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+        >
+          {f.toUpperCase()}
+        </a>
+      ))}
+    </div>
+  )
+}
+
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
   return (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">

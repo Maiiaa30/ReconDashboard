@@ -1,4 +1,4 @@
-import { firstIpv4 } from './dns'
+import { resolveDns } from './dns'
 
 // Lightweight HTTP probe (httpx-style): one GET to learn status, page title, and
 // server header for a host. Tries https then http. Capped body read + tight
@@ -13,6 +13,7 @@ export interface ProbeResult {
   server: string | null
   ip: string | null
   url: string | null
+  cnames: string[]
 }
 
 const TIMEOUT_MS = 8_000
@@ -63,13 +64,15 @@ async function fetchOnce(url: string): Promise<{ status: number; server: string 
 }
 
 export async function probeHost(host: string): Promise<ProbeResult> {
-  const ip = await firstIpv4(host).catch(() => null)
+  const dns = await resolveDns(host).catch(() => null)
+  const ip = dns?.a[0] ?? null
+  const cnames = dns?.cname ?? []
   for (const scheme of ['https', 'http'] as const) {
     const url = `${scheme}://${host}`
     const res = await fetchOnce(url)
     if (res) {
-      return { host, scheme, status: res.status, title: res.title, server: res.server, ip, url }
+      return { host, scheme, status: res.status, title: res.title, server: res.server, ip, url, cnames }
     }
   }
-  return { host, scheme: null, status: null, title: null, server: null, ip, url: null }
+  return { host, scheme: null, status: null, title: null, server: null, ip, url: null, cnames }
 }

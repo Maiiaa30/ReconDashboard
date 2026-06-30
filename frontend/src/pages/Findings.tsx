@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type Finding } from '../api'
 import { useApp } from '../state'
-import { Badge, Empty, PageHeader, ScoreBadge } from '../components/ui'
+import { Badge, Empty, ExportLinks, PageHeader, ScoreBadge } from '../components/ui'
 
 const TYPE_OPTIONS = ['', 'new_subdomain', 'exposure', 'osint', 'nmap', 'nuclei', 'ffuf'] as const
+
+// Color-code the highest-signal tags so they stand out.
+function tagTone(tag: string): 'zinc' | 'blue' | 'amber' | 'red' | 'green' {
+  if (/^(kev|cvss:critical|sev:critical|takeover|takeover-candidate|db-exposed)/.test(tag)) return 'red'
+  if (/^(cvss:high|sev:high|admin-port|admin-surface|has-cve|auth-gated|kw:)/.test(tag)) return 'amber'
+  if (/^(tech:|svc:|owasp:|shodan:)/.test(tag)) return 'blue'
+  if (tag === 'live' || tag === 'http-2xx') return 'green'
+  return 'zinc'
+}
 
 function summarize(finding: Finding): string {
   const data = finding.data ?? {}
@@ -34,6 +43,7 @@ export function Findings() {
   const { domains } = useApp()
   const [domainId, setDomainId] = useState<number | ''>('')
   const [type, setType] = useState('')
+  const [tagFilter, setTagFilter] = useState('')
   const [findings, setFindings] = useState<Finding[]>([])
 
   const load = useCallback(() => {
@@ -47,11 +57,28 @@ export function Findings() {
       .catch(() => {})
   }, [domainId, type])
 
-  useEffect(load, [load])
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const tagQuery = tagFilter.trim().toLowerCase()
+  const filtered = tagQuery
+    ? findings.filter((f) => f.tags.some((t) => t.toLowerCase().includes(tagQuery)))
+    : findings
+
+  const exportBase =
+    `/findings/export?` +
+    [domainId !== '' ? `domainId=${domainId}` : '', type ? `type=${type}` : '']
+      .filter(Boolean)
+      .join('&')
 
   return (
     <div>
-      <PageHeader title="Findings" subtitle="Scored, highest priority first" />
+      <PageHeader
+        title="Findings"
+        subtitle="Scored, highest priority first"
+        actions={<ExportLinks base={exportBase} formats={['csv', 'json']} />}
+      />
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <label className="text-sm">
@@ -83,9 +110,19 @@ export function Findings() {
             ))}
           </select>
         </label>
+        <label className="text-sm">
+          <span className="text-zinc-400">Filter by tag</span>
+          <input
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
+            placeholder="e.g. kev, admin-port, takeover, tech:nginx"
+            className="mt-1 block w-64 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm outline-none focus:border-zinc-500"
+          />
+        </label>
+        <span className="pb-1.5 text-xs text-zinc-600">{filtered.length} shown</span>
       </div>
 
-      {findings.length === 0 ? (
+      {filtered.length === 0 ? (
         <Empty>No findings match these filters.</Empty>
       ) : (
         <div className="overflow-hidden rounded-xl border border-zinc-800">
@@ -100,7 +137,7 @@ export function Findings() {
               </tr>
             </thead>
             <tbody>
-              {findings.map((f) => (
+              {filtered.map((f) => (
                 <tr key={f.id} className="border-t border-zinc-800/60 align-top">
                   <td className="px-3 py-2">
                     <ScoreBadge score={f.score} />
@@ -112,7 +149,9 @@ export function Findings() {
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap gap-1">
                       {f.tags.map((t) => (
-                        <Badge key={t}>{t}</Badge>
+                        <button key={t} onClick={() => setTagFilter(t)} title="filter by this tag">
+                          <Badge tone={tagTone(t)}>{t}</Badge>
+                        </button>
                       ))}
                     </div>
                   </td>
