@@ -13,6 +13,7 @@ export interface DomainOverview {
   findings: { total: number; maxScore: number | null }
   exposure: { ips: number; openPorts: number; cves: number }
   lastActivity: number | null // epoch ms of most recent recon data
+  monitorIntervalHours: number
 }
 
 // Short TTL cache: the Domains page polls this and it scans exposure findings,
@@ -90,6 +91,7 @@ export function domainOverviews(): DomainOverview[] {
       findings: { total: Number(f?.total ?? 0), maxScore: f?.maxScore ?? null },
       exposure: { ips: e?.ips.size ?? 0, openPorts: e?.ports.size ?? 0, cves: e?.cves.size ?? 0 },
       lastActivity,
+      monitorIntervalHours: d.monitorIntervalHours ?? 0,
     }
   })
 

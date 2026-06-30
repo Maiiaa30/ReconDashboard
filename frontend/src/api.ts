@@ -62,6 +62,7 @@ export interface Domain {
   label: string | null
   mode: DomainMode
   profile?: DomainProfile
+  monitorIntervalHours?: number
   createdAt: string
   updatedAt: string
 }
@@ -217,6 +218,7 @@ export interface DomainOverview {
   findings: { total: number; maxScore: number | null }
   exposure: { ips: number; openPorts: number; cves: number }
   lastActivity: number | null
+  monitorIntervalHours: number
 }
 
 // --- API surface -------------------------------------------------------------
@@ -244,8 +246,10 @@ export const api = {
   createDomain: (host: string, mode: DomainMode, label?: string) =>
     post<{ domain: Domain }>('/domains', { host, mode, label }),
   setDomainMode: (id: number, mode: DomainMode) => patch<{ domain: Domain }>(`/domains/${id}`, { mode }),
-  updateDomain: (id: number, patchBody: { mode?: DomainMode; label?: string | null; profile?: DomainProfile }) =>
-    patch<{ domain: Domain }>(`/domains/${id}`, patchBody),
+  updateDomain: (
+    id: number,
+    patchBody: { mode?: DomainMode; label?: string | null; profile?: DomainProfile; monitorIntervalHours?: number },
+  ) => patch<{ domain: Domain }>(`/domains/${id}`, patchBody),
   deleteDomain: (id: number) => del<{ ok: true }>(`/domains/${id}`),
 
   // OWASP testing

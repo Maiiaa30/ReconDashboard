@@ -56,7 +56,7 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
 
   app.patch<{
     Params: { id: string }
-    Body: { mode?: DomainMode; label?: string | null; profile?: Record<string, unknown> }
+    Body: { mode?: DomainMode; label?: string | null; profile?: Record<string, unknown>; monitorIntervalHours?: number }
   }>(
     '/api/domains/:id',
     {
@@ -66,6 +66,7 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
           properties: {
             mode: { type: 'string', enum: ['passive_only', 'active_authorized'] },
             label: { type: ['string', 'null'], maxLength: 200 },
+            monitorIntervalHours: { type: 'integer', minimum: 0, maximum: 168 },
             // Only the known OWASP profile flags, booleans, nothing else.
             profile: {
               type: 'object',

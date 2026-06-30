@@ -197,6 +197,15 @@ function DomainCard({
 
   const isBusy = (kind: string) => busyAction === `${d.id}:${kind}`
 
+  async function setMonitor(hours: number) {
+    try {
+      await api.updateDomain(d.id, { monitorIntervalHours: hours })
+      await onChanged()
+    } catch (err) {
+      alert(`Failed to set monitoring: ${err instanceof Error ? err.message : 'error'}`)
+    }
+  }
+
   return (
     <Card className={`flex flex-col gap-3 transition ${selected ? 'ring-1 ring-accent-500/60 border-accent-500/40' : 'hover:border-hair-strong'}`}>
       {/* Header */}
@@ -213,6 +222,7 @@ function DomainCard({
               {active ? <Badge tone="amber">active</Badge> : <Badge tone="green">passive</Badge>}
             </button>
             {d.subdomains.new > 0 && <Badge tone="blue">+{d.subdomains.new} new</Badge>}
+            {d.monitorIntervalHours > 0 && <Badge tone="indigo">auto {d.monitorIntervalHours}h</Badge>}
           </div>
         </div>
         <Badge tone={rs.tone}>
@@ -280,6 +290,17 @@ function DomainCard({
         <Button variant="ghost" onClick={() => onAction('osint', () => api.osint(d.id))} disabled={isBusy('osint')}>
           <Eye size={14} /> {isBusy('osint') ? '…' : 'OSINT'}
         </Button>
+        <select
+          value={d.monitorIntervalHours || 0}
+          onChange={(e) => setMonitor(Number(e.target.value))}
+          title="Auto re-run passive recon on a schedule"
+          className="rounded-lg border border-hair bg-ink-950 px-2 py-1 text-xs text-zinc-300 outline-none hover:border-hair-strong focus:border-accent-500"
+        >
+          <option value={0}>Monitor: off</option>
+          <option value={6}>every 6h</option>
+          <option value={12}>every 12h</option>
+          <option value={24}>every 24h</option>
+        </select>
         <div className="ml-auto flex gap-1.5">
           <Button variant="ghost" onClick={() => setEditing((v) => !v)}>
             {editing ? 'Close' : 'Edit'}
