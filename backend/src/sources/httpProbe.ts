@@ -1,4 +1,5 @@
 import { resolveDns } from './dns'
+import { isInternalIp } from '../util/validate'
 
 // Lightweight HTTP probe (httpx-style): one GET to learn status, page title, and
 // server header for a host. Tries https then http. Capped body read + tight
@@ -84,6 +85,14 @@ export async function probeHost(host: string): Promise<ProbeResult> {
   const ip = dns?.a[0] ?? null
   const cnames = dns?.cname ?? []
   const apiByName = /^api[.-]/i.test(host) || /\bapi\b/i.test(host)
+
+  // SSRF defense: refuse to fetch a host that resolves to an internal address.
+  if (ip && isInternalIp(ip)) {
+    return {
+      host, scheme: null, status: null, title: null, server: null, ip, url: null, cnames,
+      loginHint: false, apiHint: apiByName,
+    }
+  }
   for (const scheme of ['https', 'http'] as const) {
     const url = `${scheme}://${host}`
     const res = await fetchOnce(url)

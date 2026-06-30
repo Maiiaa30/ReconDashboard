@@ -11,12 +11,13 @@ import {
 import { enqueueJob } from '../jobs/queue'
 import { acknowledgeNew, listSubdomains } from '../subdomains/store'
 import { domainOverviews } from '../domains/overview'
+import { safeJsonParse } from '../util/json'
 
 export const domainRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/domains', async () => ({
     domains: listDomains().map((d) => ({
       ...d,
-      profile: d.profile ? JSON.parse(d.profile) : {},
+      profile: safeJsonParse<Record<string, boolean>>(d.profile, {}),
     })),
   }))
 
@@ -65,7 +66,18 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
           properties: {
             mode: { type: 'string', enum: ['passive_only', 'active_authorized'] },
             label: { type: ['string', 'null'], maxLength: 200 },
-            profile: { type: 'object' },
+            // Only the known OWASP profile flags, booleans, nothing else.
+            profile: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                hasLogin: { type: 'boolean' },
+                hasParams: { type: 'boolean' },
+                hasUpload: { type: 'boolean' },
+                hasApi: { type: 'boolean' },
+                hasRedirects: { type: 'boolean' },
+              },
+            },
           },
         },
       },
@@ -80,7 +92,7 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
   app.delete<{ Params: { id: string } }>('/api/domains/:id', async (request, reply) => {
     const id = Number(request.params.id)
     if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
-    deleteDomain(id)
+    await deleteDomain(id)
     return reply.send({ ok: true })
   })
 

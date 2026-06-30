@@ -21,8 +21,8 @@ export function Domains() {
     api.domainsOverview().then((r) => setOverview(r.overview)).catch(() => {})
   }, [])
 
-  // Poll so cards update live while jobs run.
-  usePoll(load, 5000)
+  // Poll so cards update live while jobs run (backend caches overview ~8s).
+  usePoll(load, 8000)
 
   return (
     <div>
@@ -110,9 +110,13 @@ function DomainCard({
       )
     )
       return
-    await api.updateDomain(d.id, { label: labelDraft.trim() || null, mode: modeDraft })
-    setEditing(false)
-    await onChanged()
+    try {
+      await api.updateDomain(d.id, { label: labelDraft.trim() || null, mode: modeDraft })
+      setEditing(false)
+      await onChanged()
+    } catch (err) {
+      alert(`Failed to save: ${err instanceof Error ? err.message : 'error'}`)
+    }
   }
 
   async function toggleMode() {
@@ -124,14 +128,22 @@ function DomainCard({
       )
     )
       return
-    await api.setDomainMode(d.id, next)
-    await onChanged()
+    try {
+      await api.setDomainMode(d.id, next)
+      await onChanged()
+    } catch (err) {
+      alert(`Failed to change mode: ${err instanceof Error ? err.message : 'error'}`)
+    }
   }
 
   async function remove() {
     if (!confirm(`Delete ${d.host} and all its data (subdomains, findings)?`)) return
-    await api.deleteDomain(d.id)
-    await onChanged()
+    try {
+      await api.deleteDomain(d.id)
+      await onChanged()
+    } catch (err) {
+      alert(`Failed to delete: ${err instanceof Error ? err.message : 'error'}`)
+    }
   }
 
   const isBusy = (kind: string) => busyAction === `${d.id}:${kind}`

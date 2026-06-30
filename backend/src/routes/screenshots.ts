@@ -3,7 +3,7 @@ import { stat } from 'node:fs/promises'
 import type { FastifyPluginAsync } from 'fastify'
 import { getDomain } from '../domains/store'
 import { enqueueJob } from '../jobs/queue'
-import { screenshotPathFor } from '../jobs/handlers/screenshot'
+import { screenshotPathFor } from '../util/screenshotPaths'
 import { listSubdomains } from '../subdomains/store'
 import { hostBelongsToDomain, normalizeHost } from '../util/validate'
 
@@ -40,7 +40,9 @@ export const screenshotRoutes: FastifyPluginAsync = async (app) => {
       const domain = getDomain(id)
       if (!domain) return reply.code(404).send({ error: 'domain not found' })
 
-      const host = normalizeHost(request.query.host ?? '')
+      const rawHost = request.query.host
+      if (typeof rawHost !== 'string') return reply.code(400).send({ error: 'invalid host' })
+      const host = normalizeHost(rawHost)
       if (!host || (!hostBelongsToDomain(host, domain.host) && host !== domain.host)) {
         return reply.code(400).send({ error: 'invalid host' })
       }

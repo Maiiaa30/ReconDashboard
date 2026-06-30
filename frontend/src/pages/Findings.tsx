@@ -66,18 +66,18 @@ export function Findings() {
     ? findings.filter((f) => f.tags.some((t) => t.toLowerCase().includes(tagQuery)))
     : findings
 
-  const exportBase =
-    `/findings/export?` +
-    [domainId !== '' ? `domainId=${domainId}` : '', type ? `type=${type}` : '']
-      .filter(Boolean)
-      .join('&')
-
   return (
     <div>
       <PageHeader
         title="Findings"
         subtitle="Scored, highest priority first"
-        actions={<ExportLinks base={exportBase} formats={['csv', 'json']} />}
+        actions={
+          <ExportLinks
+            path="/findings/export"
+            params={{ domainId: domainId === '' ? undefined : domainId, type: type || undefined }}
+            formats={['csv', 'json']}
+          />
+        }
       />
 
       <div className="mb-4 flex flex-wrap items-end gap-3">

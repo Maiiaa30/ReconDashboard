@@ -66,18 +66,19 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
   )
   const probeByHost = new Map(probes.filter((p) => p.host).map((p) => [p.host, p]))
 
-  for (const host of toProbe) {
-    const p = probeByHost.get(host)
-    if (p) {
-      updateProbe(domainId, host, {
-        ip: p.ip,
-        status: p.status,
-        title: p.title,
-        server: p.server,
-        scheme: p.scheme,
-      })
-    }
-  }
+  // Stamp probe data for EVERY host we probed (probes[] is index-aligned with
+  // toProbe). Crucially this writes probedAt even on failure (status null), so a
+  // dead host is probed exactly once and never re-probed every discovery run.
+  toProbe.forEach((host, i) => {
+    const p = probes[i]
+    updateProbe(domainId, host, {
+      ip: p?.ip ?? null,
+      status: p?.status ?? null,
+      title: p?.title ?? null,
+      server: p?.server ?? null,
+      scheme: p?.scheme ?? null,
+    })
+  })
 
   // Record + score each genuinely new subdomain as a finding (with probe data
   // and a passive takeover-candidate hint).
@@ -110,7 +111,10 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
   if (probes.some((p) => p.loginHint)) detected.hasLogin = true
   if (probes.some((p) => p.apiHint)) detected.hasApi = true
   if (Object.keys(detected).length) {
-    const current = safeJsonParse<Record<string, boolean>>(domain.profile, {})
+    // Re-read the profile fresh (not the job-start snapshot) so we don't clobber
+    // a concurrent operator PATCH; only ever turn flags ON.
+    const fresh = getDomain(domainId)
+    const current = safeJsonParse<Record<string, boolean>>(fresh?.profile, {})
     const merged = { ...current, ...detected }
     if (JSON.stringify(merged) !== JSON.stringify(current)) {
       updateDomain(domainId, { profile: merged })

@@ -15,8 +15,16 @@ export interface DomainOverview {
   lastActivity: number | null // epoch ms of most recent recon data
 }
 
+// Short TTL cache: the Domains page polls this and it scans exposure findings,
+// so coalesce bursts of requests into one computation.
+let cache: { at: number; data: DomainOverview[] } | null = null
+const TTL_MS = 8_000
+
 // One pass of aggregate queries (GROUP BY) instead of N+1, then assembled in JS.
 export function domainOverviews(): DomainOverview[] {
+  const nowMs = Date.now()
+  if (cache && nowMs - cache.at < TTL_MS) return cache.data
+
   const doms = db.select().from(domains).orderBy(desc(domains.id)).all()
 
   const subAgg = db
@@ -41,11 +49,14 @@ export function domainOverviews(): DomainOverview[] {
     .groupBy(findings.domainId)
     .all()
 
-  // Exposure highlights need the JSON payload; bounded by # of exposure findings.
+  // Exposure highlights need the JSON payload. Cap to the most recent rows so
+  // this can't grow unbounded as findings accumulate over the instance's life.
   const expRows = db
     .select({ domainId: findings.domainId, data: findings.data })
     .from(findings)
     .where(eq(findings.type, 'exposure'))
+    .orderBy(desc(findings.id))
+    .limit(5000)
     .all()
 
   const subMap = new Map(subAgg.map((r) => [r.domainId, r]))
@@ -64,7 +75,7 @@ export function domainOverviews(): DomainOverview[] {
     for (const v of data.vulns ?? []) agg.cves.add(v)
   }
 
-  return doms.map((d) => {
+  const data = doms.map((d) => {
     const s = subMap.get(d.id)
     const f = findMap.get(d.id)
     const e = expMap.get(d.id)
@@ -81,4 +92,7 @@ export function domainOverviews(): DomainOverview[] {
       lastActivity,
     }
   })
+
+  cache = { at: nowMs, data }
+  return data
 }

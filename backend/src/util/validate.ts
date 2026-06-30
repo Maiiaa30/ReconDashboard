@@ -38,6 +38,32 @@ export function isValidIp(input: string): boolean {
   return IPV4_RE.test(v) || IPV6_RE.test(v)
 }
 
+// Private / loopback / link-local / ULA — addresses we must NOT fetch or
+// screenshot (SSRF defense: a target's DNS could point a subdomain at an
+// internal IP).
+export function isInternalIp(input: string): boolean {
+  const v = input.trim().toLowerCase()
+  if (IPV4_RE.test(v)) {
+    const [a, b] = v.split('.').map(Number)
+    if (a === 10) return true
+    if (a === 127) return true
+    if (a === 0) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+    if (a === 169 && b === 254) return true // link-local
+    if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
+    if (a >= 224) return true // multicast / reserved
+    return false
+  }
+  if (IPV6_RE.test(v)) {
+    if (v === '::1' || v === '::') return true
+    if (v.startsWith('fe80') || v.startsWith('fc') || v.startsWith('fd')) return true // link-local / ULA
+    if (v.startsWith('::ffff:')) return isInternalIp(v.slice(7)) // IPv4-mapped
+    return false
+  }
+  return false
+}
+
 /** A host belongs to a domain if it equals it or is a subdomain of it. */
 export function hostBelongsToDomain(host: string, domain: string): boolean {
   const h = normalizeHost(host)

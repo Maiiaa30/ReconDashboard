@@ -1,0 +1,1 @@
+CREATE INDEX `subdomains_domain_probed_idx` ON `subdomains` (`domain_id`,`probed_at`);

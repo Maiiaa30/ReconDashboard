@@ -1,24 +1,15 @@
-import { dirname, join, resolve } from 'node:path'
-import { config } from '../../config'
 import { getDomain } from '../../domains/store'
 import { captureScreenshot, screenshotAvailable } from '../../sources/screenshot'
 import { listSubdomains, updateScreenshot } from '../../subdomains/store'
 import { mapLimit } from '../../util/async'
+import { screenshotPathFor } from '../../util/screenshotPaths'
+import { isInternalIp } from '../../util/validate'
 import type { JobContext } from '../worker'
 
-const MAX_SHOTS = 80
+// Keep worst-case wall-clock (ceil(MAX_SHOTS/CONCURRENCY) * per-shot timeout)
+// comfortably under the worker's per-job timeout.
+const MAX_SHOTS = 60
 const CONCURRENCY = 3
-
-// Screenshots live next to the DB (the mounted /data volume in Docker).
-export const SCREENSHOT_DIR = join(dirname(resolve(config.databasePath)), 'screenshots')
-
-export function sanitizeHostForFile(host: string): string {
-  return host.toLowerCase().replace(/[^a-z0-9._-]/g, '_').slice(0, 200)
-}
-
-export function screenshotPathFor(domainId: number, host: string): string {
-  return join(SCREENSHOT_DIR, String(domainId), `${sanitizeHostForFile(host)}.png`)
-}
 
 // Screenshot the live web hosts of a domain (those that responded to the probe).
 export async function screenshotHandler({ params, log }: JobContext) {
@@ -32,7 +23,7 @@ export async function screenshotHandler({ params, log }: JobContext) {
 
   // Only screenshot hosts that responded to HTTP/HTTPS during discovery.
   const live = listSubdomains(domainId)
-    .filter((s) => s.httpStatus != null && s.scheme)
+    .filter((s) => s.httpStatus != null && s.scheme && !(s.ipAddress && isInternalIp(s.ipAddress)))
     .slice(0, MAX_SHOTS)
 
   if (live.length === 0) {

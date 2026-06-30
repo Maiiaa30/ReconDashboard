@@ -18,7 +18,8 @@ export const backupRoutes: FastifyPluginAsync = async (app) => {
     try {
       blob = await createEncryptedBackup(passphrase)
     } catch (err) {
-      return reply.code(500).send({ error: err instanceof Error ? err.message : 'backup failed' })
+      request.log.error({ err }, 'backup failed')
+      return reply.code(500).send({ error: 'backup failed' })
     }
 
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')

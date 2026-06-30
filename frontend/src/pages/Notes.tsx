@@ -35,21 +35,29 @@ export function Notes() {
   }
 
   async function save() {
-    if (editing) {
-      await api.updateNote(editing.id, title, body)
-    } else {
-      const domainId = scope === 'domain' && selected ? selected.id : null
-      await api.createNote(domainId, title, body)
+    try {
+      if (editing) {
+        await api.updateNote(editing.id, title, body)
+      } else {
+        const domainId = scope === 'domain' && selected ? selected.id : null
+        await api.createNote(domainId, title, body)
+      }
+      startNew()
+      await load()
+    } catch (err) {
+      alert(`Failed to save note: ${err instanceof Error ? err.message : 'error'}`)
     }
-    startNew()
-    await load()
   }
 
   async function remove(id: number) {
     if (!confirm('Delete this note?')) return
     if (editing?.id === id) startNew()
-    await api.deleteNote(id)
-    await load()
+    try {
+      await api.deleteNote(id)
+      await load()
+    } catch (err) {
+      alert(`Failed to delete note: ${err instanceof Error ? err.message : 'error'}`)
+    }
   }
 
   return (

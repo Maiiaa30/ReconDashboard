@@ -1,7 +1,9 @@
+import { rm } from 'node:fs/promises'
 import { desc, eq } from 'drizzle-orm'
 import { db } from '../db/index'
 import { domains } from '../db/schema'
 import { isValidDomain, normalizeDomain } from '../util/validate'
+import { screenshotDirFor } from '../util/screenshotPaths'
 
 export type DomainMode = 'passive_only' | 'active_authorized'
 
@@ -49,8 +51,10 @@ export function updateDomain(
   return getDomain(id)
 }
 
-export function deleteDomain(id: number): void {
+export async function deleteDomain(id: number): Promise<void> {
   db.delete(domains).where(eq(domains.id, id)).run()
+  // Remove orphaned screenshot files (the FK cascade only drops DB rows).
+  await rm(screenshotDirFor(id), { recursive: true, force: true }).catch(() => {})
 }
 
 export function requireActiveAuthorized(id: number): void {

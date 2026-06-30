@@ -9,12 +9,10 @@ export const findingRoutes: FastifyPluginAsync = async (app) => {
     async (request) => {
       const { domainId, type, limit } = request.query
       const t = type && VALID_TYPES.includes(type as FindingType) ? (type as FindingType) : undefined
+      const domainNum = domainId != null && Number.isFinite(Number(domainId)) ? Number(domainId) : undefined
+      const limitNum = limit != null && Number.isFinite(Number(limit)) ? Math.min(Number(limit), 2000) : undefined
       return {
-        findings: listFindings({
-          domainId: domainId ? Number(domainId) : undefined,
-          type: t,
-          limit: limit ? Math.min(Number(limit), 2000) : undefined,
-        }),
+        findings: listFindings({ domainId: domainNum, type: t, limit: limitNum }),
       }
     },
   )

@@ -57,15 +57,32 @@ export function Spinner() {
 }
 
 // Download links for an export endpoint. Plain anchors so the browser handles
-// the download (the session cookie is sent on the same-origin GET).
-export function ExportLinks({ base, formats }: { base: string; formats: string[] }) {
+// the download (the session cookie is sent on the same-origin GET). Params are
+// encoded via URLSearchParams so callers can't produce a malformed/injected URL.
+export function ExportLinks({
+  path,
+  params = {},
+  formats,
+}: {
+  path: string
+  params?: Record<string, string | number | undefined>
+  formats: string[]
+}) {
+  function href(format: string): string {
+    const qs = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== '') qs.set(k, String(v))
+    }
+    qs.set('format', format)
+    return `/api${path}?${qs.toString()}`
+  }
   return (
     <div className="flex items-center gap-1.5">
       <span className="text-xs text-zinc-500">Export</span>
       {formats.map((f) => (
         <a
           key={f}
-          href={`/api${base}${base.includes('?') ? '&' : '?'}format=${f}`}
+          href={href(f)}
           className="rounded-lg border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
         >
           {f.toUpperCase()}

@@ -170,7 +170,15 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       const ok = await verifyPassword(op.passwordHash, request.body.password)
       if (!ok) return reply.code(400).send({ error: 'password is incorrect' })
       const newUsername = request.body.newUsername.trim()
-      db.update(users).set({ username: newUsername, updatedAt: new Date() }).where(eq(users.id, op.id)).run()
+      try {
+        db.update(users).set({ username: newUsername, updatedAt: new Date() }).where(eq(users.id, op.id)).run()
+      } catch (err) {
+        // username has a UNIQUE constraint; return a clean 409 instead of a 500.
+        if (err instanceof Error && /UNIQUE/i.test(err.message)) {
+          return reply.code(409).send({ error: 'username already taken' })
+        }
+        throw err
+      }
       request.session.username = newUsername
       return reply.send({ ok: true, username: newUsername })
     },

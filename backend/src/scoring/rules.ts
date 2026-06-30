@@ -18,6 +18,7 @@ const NUCLEI_SEVERITY_SCORE: Record<string, number> = {
 }
 
 function clamp(n: number): number {
+  if (!Number.isFinite(n)) return 0
   return Math.max(0, Math.min(100, Math.round(n)))
 }
 

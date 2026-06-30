@@ -64,7 +64,11 @@ export const subdomains = sqliteTable(
     firstSeen: integer('first_seen', { mode: 'timestamp_ms' }).notNull().default(now),
     lastSeen: integer('last_seen', { mode: 'timestamp_ms' }).notNull().default(now),
   },
-  (t) => [unique('subdomains_domain_host_uq').on(t.domainId, t.host)],
+  (t) => [
+    unique('subdomains_domain_host_uq').on(t.domainId, t.host),
+    // Supports listUnprobed (domain_id + probed_at IS NULL), run every discovery.
+    index('subdomains_domain_probed_idx').on(t.domainId, t.probedAt),
+  ],
 )
 
 // --- Jobs --------------------------------------------------------------------

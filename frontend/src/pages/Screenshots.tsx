@@ -18,6 +18,8 @@ export function Screenshots() {
   const [shots, setShots] = useState<ScreenshotEntry[]>([])
   const [meta, setMeta] = useState<MetaStatus | null>(null)
   const [running, setRunning] = useState(false)
+  const [lastJob, setLastJob] = useState<number | null>(null)
+  const [failed, setFailed] = useState<Set<string>>(new Set())
   const [lightbox, setLightbox] = useState<ScreenshotEntry | null>(null)
 
   useEffect(() => {
@@ -27,8 +29,32 @@ export function Screenshots() {
   const load = useCallback(() => {
     if (!selected) return
     api.screenshots(selected.id).then((r) => setShots(r.screenshots)).catch(() => {})
-  }, [selected])
-  usePoll(load, 5000, !!selected)
+    // Track the capture job so the button reflects real completion.
+    if (lastJob != null) {
+      api.job(lastJob).then((r) => {
+        if (r.job.status === 'done' || r.job.status === 'error') {
+          setRunning(false)
+          setLastJob(null)
+        }
+      }).catch(() => {})
+    }
+  }, [selected, lastJob])
+  usePoll(load, 4000, !!selected)
+
+  // Lightbox: Escape to close + lock background scroll while open.
+  useEffect(() => {
+    if (!lightbox) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightbox(null)
+    }
+    document.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [lightbox])
 
   if (!selected) return <Empty>Select a domain to view screenshots.</Empty>
 
@@ -38,9 +64,8 @@ export function Screenshots() {
     if (!selected) return
     setRunning(true)
     try {
-      await api.captureScreenshots(selected.id)
-      // Job runs in the background; results stream in via polling.
-      setTimeout(() => setRunning(false), 4000)
+      const { jobId } = await api.captureScreenshots(selected.id)
+      setLastJob(jobId) // cleared when the job reaches a terminal status
     } catch {
       setRunning(false)
     }
@@ -77,13 +102,18 @@ export function Screenshots() {
               onClick={() => setLightbox(s)}
               className="group overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/40 text-left hover:border-zinc-600"
             >
-              <div className="aspect-[16/10] overflow-hidden bg-zinc-950">
-                <img
-                  src={api.screenshotUrl(selected.id, s.host)}
-                  alt={s.host}
-                  loading="lazy"
-                  className="h-full w-full object-cover object-top transition group-hover:opacity-90"
-                />
+              <div className="flex aspect-[16/10] items-center justify-center overflow-hidden bg-zinc-950">
+                {failed.has(s.host) ? (
+                  <span className="text-xs text-zinc-600">no preview</span>
+                ) : (
+                  <img
+                    src={api.screenshotUrl(selected.id, s.host)}
+                    alt={s.host}
+                    loading="lazy"
+                    onError={() => setFailed((prev) => new Set(prev).add(s.host))}
+                    className="h-full w-full object-cover object-top transition group-hover:opacity-90"
+                  />
+                )}
               </div>
               <div className="flex items-center gap-2 p-2">
                 <Badge tone={statusTone(s.status)}>{s.status ?? '—'}</Badge>
@@ -99,6 +129,9 @@ export function Screenshots() {
       {lightbox && (
         <div
           onClick={() => setLightbox(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Screenshot of ${lightbox.host}`}
           className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-6"
         >
           <div className="mb-2 flex w-full max-w-5xl items-center gap-2 text-sm">

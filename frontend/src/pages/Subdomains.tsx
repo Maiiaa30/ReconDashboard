@@ -58,8 +58,12 @@ export function Subdomains() {
 
   async function ack() {
     if (!selected) return
-    await api.acknowledgeNew(selected.id)
-    load()
+    try {
+      await api.acknowledgeNew(selected.id)
+      load()
+    } catch {
+      /* transient; next poll refreshes */
+    }
   }
 
   if (!selected) return <Empty>Select a domain (Domains tab) to view subdomains.</Empty>
@@ -74,7 +78,7 @@ export function Subdomains() {
         actions={
           <>
             {subs.length > 0 && (
-              <ExportLinks base={`/domains/${selected.id}/subdomains/export`} formats={['csv', 'txt', 'json']} />
+              <ExportLinks path={`/domains/${selected.id}/subdomains/export`} formats={['csv', 'txt', 'json']} />
             )}
             {newCount > 0 && (
               <Button variant="ghost" onClick={ack}>
