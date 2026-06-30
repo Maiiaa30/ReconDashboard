@@ -5,7 +5,10 @@ import { certSpotterSubdomains } from '../../sources/certspotter'
 import { crtShSubdomains } from '../../sources/crtsh'
 import { resolveDns } from '../../sources/dns'
 import { fingerprintHost } from '../../sources/fingerprint'
+import { commonCrawlUrls } from '../../sources/commoncrawl'
 import { internetDbLookup } from '../../sources/internetdb'
+import { otxIntel } from '../../sources/otx'
+import { urlscanSearch } from '../../sources/urlscan'
 import { waybackUrls } from '../../sources/wayback'
 import { whoisDomain } from '../../sources/whois'
 import { zoneTransfer } from '../../sources/zoneTransfer'
@@ -88,12 +91,20 @@ export async function osintHandler({ params, log }: JobContext) {
     result.internetdb = { error: err instanceof Error ? err.message : String(err) }
   }
 
-  // Wayback Machine archived URLs (historical endpoints + params to test).
-  try {
-    result.wayback = await waybackUrls(host)
-  } catch (err) {
-    result.wayback = { error: err instanceof Error ? err.message : String(err) }
-  }
+  // Passive URL / intel sources — Wayback, Common Crawl, urlscan.io and OTX —
+  // gathered concurrently (independent, each best-effort with its own timeout).
+  const [wayback, commoncrawl, urlscan, otx] = await Promise.allSettled([
+    waybackUrls(host),
+    commonCrawlUrls(host),
+    urlscanSearch(host),
+    otxIntel(host),
+  ])
+  const settle = (r: PromiseSettledResult<unknown>) =>
+    r.status === 'fulfilled' ? r.value : { error: r.reason instanceof Error ? r.reason.message : String(r.reason) }
+  result.wayback = settle(wayback)
+  result.commoncrawl = settle(commoncrawl)
+  result.urlscan = settle(urlscan)
+  result.otx = settle(otx)
 
   // Technology fingerprint: OS, server, and stack from HTTP headers/cookies/HTML,
   // enriched with any CPEs InternetDB surfaced for the apex IP.

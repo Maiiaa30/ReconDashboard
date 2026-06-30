@@ -59,6 +59,24 @@ interface WaybackData {
   withParams: string[]
 }
 
+interface CommonCrawlData {
+  index: string
+  count: number
+  sample: string[]
+  withParams: string[]
+}
+
+interface UrlscanData {
+  count: number
+  pages: { url: string; time: string | null; screenshot: string | null }[]
+}
+
+interface OtxData {
+  passiveDns: { hostname: string; address: string }[]
+  urlCount: number
+  urls: string[]
+}
+
 interface OsintData {
   domain: string
   dns?: DnsData | ErrorField
@@ -66,6 +84,9 @@ interface OsintData {
   whois?: WhoisData | ErrorField
   crtsh?: CrtshData | ErrorField
   wayback?: WaybackData | ErrorField
+  commoncrawl?: CommonCrawlData | ErrorField
+  urlscan?: UrlscanData | ErrorField
+  otx?: OtxData | ErrorField
   internetdb?: InternetDbData | ErrorField | null
 }
 
@@ -250,6 +271,100 @@ function WaybackCard({ wb }: { wb: WaybackData | ErrorField | undefined }) {
   )
 }
 
+function UrlListBlock({ urls, label }: { urls: string[]; label: string }) {
+  if (!urls.length) return null
+  return (
+    <div>
+      <div className="mb-1 text-xs uppercase tracking-wide text-zinc-500">{label}</div>
+      <div className="max-h-56 space-y-0.5 overflow-auto font-mono text-xs text-zinc-300">
+        {urls.map((u) => (
+          <div key={u} className="break-all">{u}</div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function CommonCrawlCard({ cc }: { cc: CommonCrawlData | ErrorField | undefined }) {
+  if (!cc) return null
+  return (
+    <Card>
+      <SectionTitle>Common Crawl URLs</SectionTitle>
+      {isError(cc) ? (
+        <ErrorLine message={cc.error} />
+      ) : (
+        <div className="space-y-2">
+          <div className="text-xs text-zinc-500">
+            {cc.count} URL(s) · {cc.withParams.length} with parameters{cc.index ? ` · ${cc.index}` : ''}
+          </div>
+          <UrlListBlock urls={cc.withParams.length ? cc.withParams : cc.sample} label={cc.withParams.length ? 'URLs with parameters' : 'Sample'} />
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function UrlscanCard({ us }: { us: UrlscanData | ErrorField | undefined }) {
+  if (!us) return null
+  return (
+    <Card>
+      <SectionTitle>urlscan.io</SectionTitle>
+      {isError(us) ? (
+        <ErrorLine message={us.error} />
+      ) : (
+        <div className="space-y-2">
+          <div className="text-xs text-zinc-500">{us.count} public scan(s)</div>
+          {us.pages.length > 0 && (
+            <div className="max-h-56 space-y-1 overflow-auto text-xs">
+              {us.pages.map((p, i) => (
+                <div key={`${p.url}-${i}`} className="flex items-center gap-2">
+                  <span className="break-all font-mono text-zinc-300">{p.url}</span>
+                  {p.screenshot && (
+                    <a href={p.screenshot} target="_blank" rel="noreferrer" className="shrink-0 text-sky-400 hover:underline">
+                      shot ↗
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function OtxCard({ otx }: { otx: OtxData | ErrorField | undefined }) {
+  if (!otx) return null
+  return (
+    <Card>
+      <SectionTitle>AlienVault OTX</SectionTitle>
+      {isError(otx) ? (
+        <ErrorLine message={otx.error} />
+      ) : (
+        <div className="space-y-3">
+          <div className="text-xs text-zinc-500">
+            {otx.passiveDns.length} passive-DNS record(s) · {otx.urlCount} URL(s)
+          </div>
+          {otx.passiveDns.length > 0 && (
+            <div>
+              <div className="mb-1 text-xs uppercase tracking-wide text-zinc-500">Passive DNS</div>
+              <div className="max-h-48 space-y-0.5 overflow-auto font-mono text-xs text-zinc-300">
+                {otx.passiveDns.map((d, i) => (
+                  <div key={`${d.hostname}-${d.address}-${i}`} className="break-all">
+                    {d.hostname} <span className="text-zinc-500">→</span> {d.address}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <UrlListBlock urls={otx.urls} label="URLs" />
+        </div>
+      )}
+    </Card>
+  )
+}
+
 function InternetDbCard({ idb }: { idb: InternetDbData | ErrorField | null | undefined }) {
   if (!idb) return null
   return (
@@ -369,6 +484,9 @@ export function Osint() {
           <WhoisCard whois={data.whois} />
           <CrtshCard crtsh={data.crtsh} />
           <WaybackCard wb={data.wayback} />
+          <CommonCrawlCard cc={data.commoncrawl} />
+          <UrlscanCard us={data.urlscan} />
+          <OtxCard otx={data.otx} />
           <InternetDbCard idb={data.internetdb} />
         </div>
       )}
