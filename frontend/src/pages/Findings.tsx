@@ -1,8 +1,31 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, type Finding } from '../api'
+import { api, type Finding, type FindingStatus } from '../api'
 import { useApp } from '../state'
-import { Badge, Empty, ExportLinks, PageHeader } from '../components/ui'
+import { Badge, Button, Empty, ExportLinks, PageHeader } from '../components/ui'
 import { riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
+
+const STATUSES: FindingStatus[] = ['open', 'confirmed', 'false_positive', 'resolved', 'ignored']
+const STATUS_LABEL: Record<FindingStatus, string> = {
+  open: 'Open',
+  confirmed: 'Confirmed',
+  false_positive: 'False positive',
+  resolved: 'Resolved',
+  ignored: 'Ignored',
+}
+// Per-status select styling (border + text) for at-a-glance triage state.
+const STATUS_SELECT: Record<FindingStatus, string> = {
+  open: 'text-blue-300 border-blue-900/60',
+  confirmed: 'text-red-300 border-red-900/60',
+  false_positive: 'text-zinc-400 border-hair',
+  resolved: 'text-green-300 border-green-900/60',
+  ignored: 'text-zinc-500 border-hair',
+}
+// Statuses that are "dealt with" — dimmed and hidden from the default Active view.
+const TRIAGED_AWAY: FindingStatus[] = ['false_positive', 'resolved', 'ignored']
+
+const STATUS_FILTERS = ['active', 'all', ...STATUSES] as const
+type StatusFilter = (typeof STATUS_FILTERS)[number]
+const STATUS_FILTER_LABEL: Record<StatusFilter, string> = { active: 'Active', all: 'All', ...STATUS_LABEL }
 
 const TYPE_OPTIONS = ['', 'new_subdomain', 'exposure', 'osint', 'origin', 'nmap', 'nuclei', 'ffuf'] as const
 
@@ -43,6 +66,7 @@ export function Findings() {
   const [domainId, setDomainId] = useState<number | ''>(selected?.id ?? '')
   const [type, setType] = useState('')
   const [tagFilter, setTagFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [findings, setFindings] = useState<Finding[]>([])
 
   // Follow the header target selection (selecting a domain scopes Findings to it).
@@ -64,10 +88,29 @@ export function Findings() {
     void load()
   }, [load])
 
+  // Optimistically apply a triage change, then persist; revert via reload on error.
+  const update = useCallback(
+    async (id: number, patchBody: { status?: FindingStatus; note?: string | null }) => {
+      setFindings((prev) => prev.map((f) => (f.id === id ? { ...f, ...patchBody } : f)))
+      try {
+        await api.updateFinding(id, patchBody)
+      } catch {
+        load()
+      }
+    },
+    [load],
+  )
+
   const tagQuery = tagFilter.trim().toLowerCase()
-  const filtered = tagQuery
-    ? findings.filter((f) => f.tags.some((t) => t.toLowerCase().includes(tagQuery)))
-    : findings
+  const matchesStatus = (f: Finding) =>
+    statusFilter === 'all'
+      ? true
+      : statusFilter === 'active'
+        ? !TRIAGED_AWAY.includes(f.status)
+        : f.status === statusFilter
+  const filtered = findings.filter(
+    (f) => matchesStatus(f) && (tagQuery ? f.tags.some((t) => t.toLowerCase().includes(tagQuery)) : true),
+  )
 
   const selectCls =
     'mt-1 block rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm outline-none focus:border-accent-500'
@@ -99,6 +142,16 @@ export function Findings() {
           </select>
         </label>
         <label className="text-sm">
+          <span className="text-zinc-400">Status</span>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} className={selectCls}>
+            {STATUS_FILTERS.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_FILTER_LABEL[s]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-sm">
           <span className="text-zinc-400">Type</span>
           <select value={type} onChange={(e) => setType(e.target.value)} className={selectCls}>
             {TYPE_OPTIONS.map((t) => (
@@ -118,12 +171,13 @@ export function Findings() {
           />
         </label>
         <span className="pb-1.5 text-xs text-zinc-600">{filtered.length} shown</span>
-        {(tagFilter || type || domainId !== '') && (
+        {(tagFilter || type || domainId !== '' || statusFilter !== 'active') && (
           <button
             onClick={() => {
               setTagFilter('')
               setType('')
               setDomainId('')
+              setStatusFilter('active')
             }}
             className="pb-1.5 text-xs text-zinc-500 hover:text-zinc-300"
           >
@@ -137,7 +191,7 @@ export function Findings() {
       ) : (
         <div className="space-y-2">
           {filtered.map((f) => (
-            <FindingRow key={f.id} f={f} host={hostOf(f.domainId)} onTag={setTagFilter} />
+            <FindingRow key={f.id} f={f} host={hostOf(f.domainId)} onTag={setTagFilter} onUpdate={update} />
           ))}
         </div>
       )}
@@ -145,15 +199,26 @@ export function Findings() {
   )
 }
 
-function FindingRow({ f, host, onTag }: { f: Finding; host: string; onTag: (t: string) => void }) {
+function FindingRow({
+  f,
+  host,
+  onTag,
+  onUpdate,
+}: {
+  f: Finding
+  host: string
+  onTag: (t: string) => void
+  onUpdate: (id: number, patch: { status?: FindingStatus; note?: string | null }) => void
+}) {
   const [showAllTags, setShowAllTags] = useState(false)
   const [open, setOpen] = useState(false)
   const risk = riskFromScore(f.score)
   const tags = f.tags ?? []
   const shownTags = showAllTags ? tags : tags.slice(0, 7)
+  const dimmed = TRIAGED_AWAY.includes(f.status)
 
   return (
-    <div className={`rounded-xl border border-l-4 border-hair bg-ink-850/60 ${RISK_BORDER[risk]}`}>
+    <div className={`rounded-xl border border-l-4 border-hair bg-ink-850/60 ${RISK_BORDER[risk]} ${dimmed ? 'opacity-60' : ''}`}>
       <div className="flex items-start gap-3 p-3">
         <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-semibold ring-1 ${RISK_SCORE[risk]}`}>
           {f.score ?? '—'}
@@ -205,13 +270,26 @@ function FindingRow({ f, host, onTag }: { f: Finding; host: string; onTag: (t: s
           )}
         </div>
 
-        <div className="shrink-0 text-right text-xs text-zinc-500">
+        <div className="flex shrink-0 flex-col items-end gap-1 text-right text-xs text-zinc-500">
+          <select
+            value={f.status}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onUpdate(f.id, { status: e.target.value as FindingStatus })}
+            title="triage status"
+            className={`cursor-pointer rounded-md border bg-ink-950 px-1.5 py-0.5 text-xs outline-none focus:border-accent-500 ${STATUS_SELECT[f.status]}`}
+          >
+            {STATUSES.map((s) => (
+              <option key={s} value={s} className="text-zinc-200">
+                {STATUS_LABEL[s]}
+              </option>
+            ))}
+          </select>
           <div className="font-mono text-zinc-400">{host}</div>
           <div>{timeAgo(new Date(f.createdAt).getTime())}</div>
         </div>
       </div>
 
-      {open && <FindingDetail f={f} />}
+      {open && <FindingDetail f={f} onUpdate={onUpdate} />}
     </div>
   )
 }
@@ -226,7 +304,34 @@ function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
-function FindingDetail({ f }: { f: Finding }) {
+function NoteEditor({ f, onUpdate }: { f: Finding; onUpdate: (id: number, patch: { note?: string | null }) => void }) {
+  const [note, setNote] = useState(f.note ?? '')
+  const dirty = note !== (f.note ?? '')
+  return (
+    <div className="space-y-1">
+      <span className="text-xs uppercase tracking-wide text-zinc-600">Triage note</span>
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="why confirmed / false-positive, repro steps, links…"
+        rows={2}
+        className="block w-full rounded-lg border border-hair bg-ink-950 px-2.5 py-1.5 text-sm outline-none focus:border-accent-500"
+      />
+      {dirty && (
+        <div className="flex gap-1.5">
+          <Button variant="loud" className="px-2 py-1 text-xs" onClick={() => onUpdate(f.id, { note: note.trim() || null })}>
+            Save note
+          </Button>
+          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => setNote(f.note ?? '')}>
+            Reset
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FindingDetail({ f, onUpdate }: { f: Finding; onUpdate: (id: number, patch: { status?: FindingStatus; note?: string | null }) => void }) {
   const d = f.data ?? {}
   return (
     <div className="space-y-3 border-t border-hair/60 bg-ink-900/50 p-3 text-sm">
@@ -283,6 +388,8 @@ function FindingDetail({ f }: { f: Finding }) {
           </>
         )}
       </div>
+      <NoteEditor f={f} onUpdate={onUpdate} />
+
       <details>
         <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-300">raw data</summary>
         <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs text-zinc-400">

@@ -121,6 +121,8 @@ export interface Job {
   finishedAt: string | null
 }
 
+export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
+
 export interface Finding {
   id: number
   domainId: number | null
@@ -128,6 +130,8 @@ export interface Finding {
   data: any
   score: number | null
   tags: string[]
+  status: FindingStatus
+  note: string | null
   createdAt: string
 }
 
@@ -293,6 +297,8 @@ export const api = {
     const qs = params.toString()
     return get<{ findings: Finding[] }>(`/findings${qs ? `?${qs}` : ''}`)
   },
+  updateFinding: (id: number, patchBody: { status?: FindingStatus; note?: string | null }) =>
+    patch<{ finding: Finding }>(`/findings/${id}`, patchBody),
 
   // notes
   notes: (domainId: number | 'global') =>

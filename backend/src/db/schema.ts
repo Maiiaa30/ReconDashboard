@@ -103,6 +103,9 @@ export const findings = sqliteTable(
     data: text('data'), // JSON
     score: integer('score'),
     tags: text('tags'), // JSON array
+    // Triage lifecycle: open | confirmed | false_positive | resolved | ignored.
+    status: text('status').notNull().default('open'),
+    note: text('note'), // operator triage note
     // Stable identity per logical finding (host/ip/url/...) so re-scans update
     // the same row instead of inserting duplicates.
     dedupeKey: text('dedupe_key'),

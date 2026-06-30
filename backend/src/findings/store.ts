@@ -13,6 +13,10 @@ export type FindingType =
   | 'ffuf'
   | 'origin'
 
+// Triage lifecycle state.
+export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
+export const FINDING_STATUSES: FindingStatus[] = ['open', 'confirmed', 'false_positive', 'resolved', 'ignored']
+
 export interface NewFinding {
   domainId: number | null
   type: FindingType
@@ -120,6 +124,23 @@ function mapRow(r: typeof findings.$inferSelect, data: unknown) {
 
 export function updateFindingScore(id: number, score: number, tags: string[]): void {
   db.update(findings).set({ score, tags: JSON.stringify(tags) }).where(eq(findings.id, id)).run()
+}
+
+export function getFinding(id: number) {
+  const r = db.select().from(findings).where(eq(findings.id, id)).limit(1).all()[0]
+  return r ? mapRow(r, safeJsonParse<unknown>(r.data, null)) : undefined
+}
+
+// Update triage fields only (status/note). Re-scans never touch these, so an
+// operator's triage survives across discovery runs (addFinding's upsert leaves
+// status/note untouched).
+export function updateFindingTriage(id: number, patch: { status?: FindingStatus; note?: string | null }): boolean {
+  const set: Record<string, unknown> = {}
+  if (patch.status !== undefined) set.status = patch.status
+  if (patch.note !== undefined) set.note = patch.note
+  if (Object.keys(set).length === 0) return false
+  const res = db.update(findings).set(set).where(eq(findings.id, id)).run()
+  return res.changes > 0
 }
 
 // One-time cleanup of duplicate finding rows created before write-time dedup
