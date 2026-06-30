@@ -55,10 +55,19 @@ export const scanRoutes: FastifyPluginAsync = async (app) => {
     ports: typeof body.ports === 'string' ? body.ports : undefined,
   }))
 
-  makeRoute('/api/domains/:id/scan/nuclei', 'nuclei_scan', (body) => ({
-    scheme: body.scheme === 'http' ? 'http' : 'https',
-    severity: typeof body.severity === 'string' ? body.severity : undefined,
-  }))
+  makeRoute('/api/domains/:id/scan/nuclei', 'nuclei_scan', (body) => {
+    // Template tags: accept a comma string, hand the handler a validated array.
+    const rawTags = body.tags
+    const tags =
+      typeof rawTags === 'string'
+        ? rawTags.split(',').map((t) => t.trim().toLowerCase()).filter((t) => /^[a-z0-9-]+$/.test(t))
+        : undefined
+    return {
+      scheme: body.scheme === 'http' ? 'http' : 'https',
+      severity: typeof body.severity === 'string' ? body.severity : undefined,
+      tags,
+    }
+  })
 
   makeRoute('/api/domains/:id/scan/ffuf', 'ffuf_scan', (body) => ({
     scheme: body.scheme === 'http' ? 'http' : 'https',

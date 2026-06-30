@@ -5,6 +5,10 @@ import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
 
 type Scheme = 'https' | 'http'
 
+// Common nuclei template-tag presets — the high-signal categories an operator
+// reaches for most. Clicking toggles them into the tags field.
+const NUCLEI_TAG_PRESETS = ['cve', 'exposure', 'misconfig', 'takeover', 'default-login', 'tech', 'panel', 'xss', 'sqli', 'lfi', 'rce']
+
 interface ScanResult {
   jobId: number | null
   error: string | null
@@ -42,6 +46,7 @@ export function Scans() {
   const [nmapBusy, setNmapBusy] = useState(false)
 
   const [severity, setSeverity] = useState('')
+  const [nucleiTags, setNucleiTags] = useState('')
   const [nucleiScheme, setNucleiScheme] = useState<Scheme>('https')
   const [nucleiResult, setNucleiResult] = useState<ScanResult>(emptyResult)
   const [nucleiBusy, setNucleiBusy] = useState(false)
@@ -181,6 +186,15 @@ export function Scans() {
                 value={severity}
                 onChange={(e) => setSeverity(e.target.value)}
                 placeholder="e.g. medium,high,critical"
+                className="mt-1 block w-56 rounded-lg border border-hair bg-ink-950 px-3 py-1.5 font-mono text-sm outline-none focus:border-accent-500"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="text-zinc-400">Template tags</span>
+              <input
+                value={nucleiTags}
+                onChange={(e) => setNucleiTags(e.target.value)}
+                placeholder="cve,exposure,misconfig"
                 className="mt-1 block w-64 rounded-lg border border-hair bg-ink-950 px-3 py-1.5 font-mono text-sm outline-none focus:border-accent-500"
               />
             </label>
@@ -191,11 +205,38 @@ export function Scans() {
             <Button
               variant="loud"
               disabled={!nucleiInstalled || nucleiBusy || !target}
-              onClick={() => run('nuclei', setNucleiBusy, setNucleiResult, (confirm) => api.nuclei(selected.id, { target, severity: severity || undefined, scheme: nucleiScheme, confirm }))}
+              onClick={() => run('nuclei', setNucleiBusy, setNucleiResult, (confirm) => api.nuclei(selected.id, { target, severity: severity || undefined, tags: nucleiTags || undefined, scheme: nucleiScheme, confirm }))}
             >
               {runLabel(nucleiBusy, 'nuclei')}
             </Button>
           </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-zinc-500">presets:</span>
+            {NUCLEI_TAG_PRESETS.map((t) => {
+              const on = nucleiTags.split(',').map((x) => x.trim()).includes(t)
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() =>
+                    setNucleiTags((cur) => {
+                      const list = cur.split(',').map((x) => x.trim()).filter(Boolean)
+                      return on ? list.filter((x) => x !== t).join(',') : [...list, t].join(',')
+                    })
+                  }
+                  className={`rounded-full px-2.5 py-0.5 text-xs transition ${
+                    on ? 'bg-accent-500/20 text-accent-fg ring-1 ring-accent-500/30' : 'border border-hair text-zinc-400 hover:bg-ink-800'
+                  }`}
+                >
+                  {t}
+                </button>
+              )
+            })}
+          </div>
+          <p className="mt-2 text-xs text-zinc-500">
+            Tags pick which nuclei templates run (e.g. <span className="font-mono">cve</span>,{' '}
+            <span className="font-mono">exposure</span>, <span className="font-mono">takeover</span>). Leave blank for the full default set.
+          </p>
           <ResultLine result={nucleiResult} />
         </Card>
 
