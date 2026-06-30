@@ -10,9 +10,13 @@ import {
 } from '../domains/store'
 import { enqueueJob } from '../jobs/queue'
 import { acknowledgeNew, listSubdomains } from '../subdomains/store'
+import { domainOverviews } from '../domains/overview'
 
 export const domainRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/domains', async () => ({ domains: listDomains() }))
+
+  // At-a-glance per-domain stats for the dashboard cards.
+  app.get('/api/domains/overview', async () => ({ overview: domainOverviews() }))
 
   app.post<{ Body: { host?: string; label?: string; mode?: DomainMode } }>(
     '/api/domains',

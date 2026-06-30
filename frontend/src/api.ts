@@ -124,6 +124,18 @@ export interface Me {
   user: { username: string; totpEnabled: boolean }
 }
 
+export interface DomainOverview {
+  id: number
+  host: string
+  label: string | null
+  mode: DomainMode
+  createdAt: number | null
+  subdomains: { total: number; new: number }
+  findings: { total: number; maxScore: number | null }
+  exposure: { ips: number; openPorts: number; cves: number }
+  lastActivity: number | null
+}
+
 // --- API surface -------------------------------------------------------------
 
 export const api = {
@@ -141,6 +153,7 @@ export const api = {
 
   // domains
   domains: () => get<{ domains: Domain[] }>('/domains'),
+  domainsOverview: () => get<{ overview: DomainOverview[] }>('/domains/overview'),
   createDomain: (host: string, mode: DomainMode, label?: string) =>
     post<{ domain: Domain }>('/domains', { host, mode, label }),
   setDomainMode: (id: number, mode: DomainMode) => patch<{ domain: Domain }>(`/domains/${id}`, { mode }),
