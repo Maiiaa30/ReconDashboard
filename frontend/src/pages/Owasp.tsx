@@ -157,12 +157,18 @@ export function Owasp() {
       .catch(() => setNucleiInstalled(false))
   }, [])
 
-  // Poll nuclei findings for the selected domain every 6s.
+  // Poll the OWASP findings — our active HTTP checks (type 'owasp') plus any
+  // complementary nuclei matches — for the selected domain every 6s.
   const loadFindings = useCallback(() => {
     if (selectedId == null) return
-    api
-      .findings({ domainId: selectedId, type: 'nuclei', limit: 500 })
-      .then((r) => setFindings(r.findings))
+    Promise.all([
+      api.findings({ domainId: selectedId, type: 'owasp', limit: 300 }),
+      api.findings({ domainId: selectedId, type: 'nuclei', limit: 300 }),
+    ])
+      .then(([a, b]) => {
+        const merged = [...a.findings, ...b.findings].sort((x, y) => (y.score ?? 0) - (x.score ?? 0))
+        setFindings(merged)
+      })
       .catch(() => {})
       .finally(() => setFindingsReady(true))
   }, [selectedId])
@@ -180,10 +186,9 @@ export function Owasp() {
   if (!selected) return <Empty>Select a domain to run OWASP tests.</Empty>
 
   const active = selected.mode === 'active_authorized'
-  const nucleiOk = nucleiInstalled === true
-  // Passive domains can still run after a confirmation, so the only hard
-  // requirement to enable the buttons is that nuclei is installed.
-  const canRun = nucleiOk
+  // The active HTTP checks need no external binary, so runs are always
+  // available (gated only by mode/confirm). nuclei is a bonus pass when present.
+  const canRun = true
   const applicableCount = catalog.filter((c) => isApplicable(c, profile)).length
 
   async function toggleProfile(key: keyof DomainProfile, checked: boolean): Promise<void> {
@@ -245,7 +250,7 @@ export function Owasp() {
     <div>
       <PageHeader
         title="OWASP Top 10"
-        subtitle={`${selected.host} — nuclei-driven, profile-filtered`}
+        subtitle={`${selected.host} — active HTTP checks + nuclei, profile-filtered`}
         actions={<Badge tone="amber">LOUD / ACTIVE</Badge>}
       />
 
@@ -267,11 +272,11 @@ export function Owasp() {
       )}
 
       {nucleiInstalled === false && (
-        <Card className="mb-6 border-amber-900/60 bg-amber-950/30">
+        <Card className="mb-6 border-hair">
           <div className="flex items-center gap-2">
-            <Badge tone="amber">unavailable</Badge>
-            <span className="text-sm text-amber-200">
-              nuclei is not installed in this image — tests cannot run.
+            <Badge tone="zinc">note</Badge>
+            <span className="text-sm text-zinc-400">
+              nuclei isn’t installed — the built-in active HTTP checks still run; the nuclei pass is skipped.
             </span>
           </div>
         </Card>
@@ -350,23 +355,37 @@ export function Owasp() {
         <div className="space-y-2">
           {findings.map((f) => {
             const data = f.data ?? {}
+            const category = data.owaspCategory || data.category
+            const evidence = data.evidence || data.matched
+            const link = data.url
             return (
               <Card key={f.id}>
                 <div className="flex flex-wrap items-center gap-2">
                   <ScoreBadge score={f.score} />
                   <Badge tone={severityTone(data.severity)}>{String(data.severity ?? 'info')}</Badge>
+                  <Badge tone={f.type === 'owasp' ? 'indigo' : 'zinc'}>{f.type === 'owasp' ? 'active check' : 'nuclei'}</Badge>
                   <span className="text-sm font-medium text-zinc-100">
                     {data.name || data.templateId || 'finding'}
                   </span>
-                  {data.owaspCategory && <Badge tone="blue">{String(data.owaspCategory)}</Badge>}
+                  {category && <Badge tone="blue">{String(category)}</Badge>}
                   <span className="ml-auto text-xs text-zinc-500">
                     {timeAgo(new Date(f.createdAt).getTime())}
                   </span>
                 </div>
-                {data.matched && (
+                {evidence && (
                   <code className="mt-2 block break-all font-mono text-xs text-zinc-400">
-                    {String(data.matched)}
+                    {String(evidence)}
                   </code>
+                )}
+                {link && (
+                  <a
+                    href={String(link)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 block break-all font-mono text-xs text-sky-400 hover:underline"
+                  >
+                    {String(link)} ↗
+                  </a>
                 )}
               </Card>
             )

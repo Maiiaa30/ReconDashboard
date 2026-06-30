@@ -188,6 +188,17 @@ function scoreNmap(data: any): ScoreResult {
   return { score: clamp(score), tags: [...tags], reasons }
 }
 
+function scoreOwasp(data: any): ScoreResult {
+  const severity = String(data?.severity ?? 'info').toLowerCase()
+  const category = String(data?.category ?? '')
+  const tags = new Set<string>(['owasp', 'active', `sev:${severity}`])
+  if (category) tags.add(`owasp:${category}`)
+  const reasons: string[] = []
+  if (data?.name) reasons.push(`${category ? category + ' — ' : ''}${data.name}`)
+  if (data?.evidence) reasons.push(`Evidence: ${data.evidence}`)
+  return { score: clamp(NUCLEI_SEVERITY_SCORE[severity] ?? 15), tags: [...tags], reasons }
+}
+
 function scoreFfuf(data: any): ScoreResult {
   const tags = new Set<string>(['ffuf'])
   const reasons: string[] = []
@@ -218,6 +229,8 @@ export class RulesScorer implements Scorer {
         return scoreExposure(data)
       case 'nuclei':
         return scoreNuclei(data)
+      case 'owasp':
+        return scoreOwasp(data)
       case 'nmap':
         return scoreNmap(data)
       case 'ffuf':

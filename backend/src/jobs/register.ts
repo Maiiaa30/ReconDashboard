@@ -3,6 +3,7 @@ import { subdomainDiscoveryHandler } from './handlers/subdomainDiscovery'
 import { exposureHandler } from './handlers/exposure'
 import { osintHandler } from './handlers/osint'
 import { ffufHandler, nmapHandler, nucleiHandler } from './handlers/activeScans'
+import { owaspActiveHandler } from './handlers/owaspActive'
 import { screenshotHandler } from './handlers/screenshot'
 import { originHandler } from './handlers/origin'
 
@@ -14,6 +15,7 @@ export function registerJobHandlers(): void {
   registerHandler('nmap_scan', nmapHandler)
   registerHandler('nuclei_scan', nucleiHandler)
   registerHandler('ffuf_scan', ffufHandler)
+  registerHandler('owasp_active', owaspActiveHandler)
   registerHandler('screenshot', screenshotHandler)
   registerHandler('origin_scan', originHandler)
 }

@@ -8,7 +8,7 @@ import {
   type FindingType,
 } from '../findings/store'
 
-const VALID_TYPES: FindingType[] = ['new_subdomain', 'exposure', 'osint', 'nmap', 'nuclei', 'ffuf', 'origin']
+const VALID_TYPES: FindingType[] = ['new_subdomain', 'exposure', 'osint', 'nmap', 'nuclei', 'ffuf', 'origin', 'owasp']
 const MAX_NOTE = 2000
 
 export const findingRoutes: FastifyPluginAsync = async (app) => {

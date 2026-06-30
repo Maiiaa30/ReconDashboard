@@ -11,6 +11,7 @@ export type JobType =
   | 'ffuf_scan'
   | 'screenshot'
   | 'origin_scan'
+  | 'owasp_active'
 
 export function enqueueJob(type: JobType, params: unknown): number {
   const res = db
