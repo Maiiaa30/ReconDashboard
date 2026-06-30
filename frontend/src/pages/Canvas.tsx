@@ -38,7 +38,7 @@ export function Canvas() {
   }
 
   async function create() {
-    const { drawing } = await api.createDrawing('Untitled', { elements: [], appState: {} })
+    const { drawing } = await api.createDrawing('Untitled', { elements: [], appState: { theme: 'dark' } })
     sceneRef.current = { elements: [], appState: {} }
     await loadList()
     setCurrent(drawing)
@@ -49,8 +49,11 @@ export function Canvas() {
     setSaving(true)
     try {
       // Persist elements + a minimal appState (drop non-serializable bits).
-      const appState = sceneRef.current.appState
-      const clean = { viewBackgroundColor: (appState as any)?.viewBackgroundColor ?? '#ffffff' }
+      const appState = sceneRef.current.appState as any
+      const clean = {
+        viewBackgroundColor: appState?.viewBackgroundColor,
+        theme: appState?.theme ?? 'dark', // remember the operator's theme choice
+      }
       await api.updateDrawing(current.id, {
         elements: sceneRef.current.elements,
         appState: clean,
@@ -107,14 +110,18 @@ export function Canvas() {
           ))}
         </aside>
 
-        <div className="flex-1 overflow-hidden rounded-xl border border-zinc-800 bg-white">
+        <div className="flex-1 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
           {current ? (
             <Suspense fallback={<div className="p-6 text-sm text-zinc-500">Loading canvas…</div>}>
               <Excalidraw
                 key={current.id}
                 initialData={{
                   elements: (current.data?.elements ?? []) as never,
-                  appState: (current.data?.appState ?? {}) as never,
+                  // Default to dark mode; keep a saved theme if the drawing has one.
+                  appState: {
+                    ...(current.data?.appState ?? {}),
+                    theme: current.data?.appState?.theme ?? 'dark',
+                  } as never,
                   scrollToContent: true,
                 }}
                 onChange={(elements, appState) => {

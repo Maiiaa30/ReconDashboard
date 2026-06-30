@@ -6,6 +6,7 @@ import { config } from './config'
 import './db/index' // opens SQLite, ensures data dir/volume exists
 import { runMigrations } from './db/migrate'
 import { seedAdmin } from './auth/seed'
+import { dedupeExistingFindings } from './findings/store'
 import { authRoutes } from './auth/routes'
 import { authGuard } from './auth/guard'
 import { sqliteSessionStore, startSessionPruner } from './auth/sessionStore'
@@ -39,6 +40,10 @@ async function main() {
 
   // Instantiate the scorer now so a misconfigured AI_PROVIDER fails fast.
   getScorer()
+
+  // One-time cleanup of duplicate findings from before write-time dedup existed.
+  const removed = dedupeExistingFindings()
+  if (removed > 0) app.log.info(`removed ${removed} duplicate finding(s)`)
 
   // Rate limiting — registered globally disabled; opted into per-route (login).
   await app.register(fastifyRateLimit, { global: false })

@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { db } from '../db/index'
 import { findings } from '../db/schema'
 import { safeJsonParse } from '../util/json'
@@ -120,4 +120,38 @@ function mapRow(r: typeof findings.$inferSelect, data: unknown) {
 
 export function updateFindingScore(id: number, score: number, tags: string[]): void {
   db.update(findings).set({ score, tags: JSON.stringify(tags) }).where(eq(findings.id, id)).run()
+}
+
+// One-time cleanup of duplicate finding rows created before write-time dedup
+// existed (so count(*) and the overview reflect reality). Keeps the best
+// (highest score, then newest) row per domain+type+key. Returns rows removed.
+export function dedupeExistingFindings(): number {
+  const rows = db
+    .select({ id: findings.id, domainId: findings.domainId, type: findings.type, data: findings.data, score: findings.score, dedupeKey: findings.dedupeKey })
+    .from(findings)
+    .orderBy(desc(findings.score), desc(findings.id))
+    .all()
+
+  const seen = new Set<string>()
+  const toDelete: number[] = []
+  for (const r of rows) {
+    const key = r.dedupeKey ?? findingKey(r.type, safeJsonParse<unknown>(r.data, null))
+    if (key == null) continue
+    const k = `${r.domainId}|${r.type}|${key}`
+    if (seen.has(k)) toDelete.push(r.id)
+    else {
+      seen.add(k)
+      // backfill dedupeKey on the kept row if missing
+      if (r.dedupeKey == null) db.update(findings).set({ dedupeKey: key }).where(eq(findings.id, r.id)).run()
+    }
+  }
+
+  if (toDelete.length) {
+    db.transaction((tx) => {
+      for (let i = 0; i < toDelete.length; i += 500) {
+        tx.delete(findings).where(inArray(findings.id, toDelete.slice(i, i + 500))).run()
+      }
+    })
+  }
+  return toDelete.length
 }
