@@ -17,3 +17,6 @@ backend/data/
 # Editor / OS
 .DS_Store
 .vscode/
+
+# Local agent handoff notes (never commit)
+AGENT_CONTEXT.md

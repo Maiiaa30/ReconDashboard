@@ -103,10 +103,17 @@ export const findings = sqliteTable(
     data: text('data'), // JSON
     score: integer('score'),
     tags: text('tags'), // JSON array
+    // Stable identity per logical finding (host/ip/url/...) so re-scans update
+    // the same row instead of inserting duplicates.
+    dedupeKey: text('dedupe_key'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
   },
-  // Supports listFindings(): filter by domain/type, ORDER BY score DESC, created DESC.
-  (t) => [index('findings_domain_idx').on(t.domainId), index('findings_score_idx').on(t.score, t.createdAt)],
+  // Supports listFindings() and the dedupe upsert lookup.
+  (t) => [
+    index('findings_domain_idx').on(t.domainId),
+    index('findings_score_idx').on(t.score, t.createdAt),
+    index('findings_dedupe_idx').on(t.domainId, t.type, t.dedupeKey),
+  ],
 )
 
 export const notes = sqliteTable('notes', {

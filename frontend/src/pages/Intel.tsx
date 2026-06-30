@@ -7,13 +7,15 @@ import { riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib
 // Rules-based triage ("big filter"): pulls every finding, ranks by the scorer,
 // and surfaces what to look at first. No AI — pure heuristics for now.
 export function Intel() {
-  const { domains } = useApp()
+  const { domains, selected } = useApp()
   const [findings, setFindings] = useState<Finding[]>([])
 
+  // Scoped to the selected domain (matches the header target). No selection =
+  // triage across all domains.
   const load = useCallback(() => {
-    api.findings({ limit: 500 }).then((r) => setFindings(r.findings)).catch(() => {})
-  }, [])
-  usePoll(load, 8000)
+    api.findings({ domainId: selected?.id, limit: 500 }).then((r) => setFindings(r.findings)).catch(() => {})
+  }, [selected])
+  usePoll(load, 8000, true)
 
   const hostOf = useCallback(
     (id: number | null) => (id == null ? 'global' : domains.find((d) => d.id === id)?.host ?? `#${id}`),
@@ -47,7 +49,7 @@ export function Intel() {
     <div>
       <PageHeader
         title="Intel"
-        subtitle="Rules-based triage — highest-priority signals first (no AI yet)"
+        subtitle={`Rules-based triage — ${selected ? selected.host : 'all domains'}`}
       />
 
       {/* Headline signal tiles */}

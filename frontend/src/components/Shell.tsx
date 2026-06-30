@@ -39,7 +39,7 @@ const MODULES = [
 type ModuleKey = (typeof MODULES)[number]['key']
 
 // Modules that operate on a selected domain show the domain picker.
-const DOMAIN_SCOPED: ModuleKey[] = ['subdomains', 'screenshots', 'fuzzing', 'exposure', 'osint', 'origin', 'scans', 'owasp', 'notes']
+const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'subdomains', 'screenshots', 'fuzzing', 'exposure', 'osint', 'origin', 'scans', 'owasp', 'notes']
 
 export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { domains, selectedId, select } = useApp()

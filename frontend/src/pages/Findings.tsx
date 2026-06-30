@@ -39,11 +39,16 @@ function tagTone(tag: string): 'zinc' | 'blue' | 'amber' | 'red' | 'green' {
 }
 
 export function Findings() {
-  const { domains } = useApp()
-  const [domainId, setDomainId] = useState<number | ''>('')
+  const { domains, selected } = useApp()
+  const [domainId, setDomainId] = useState<number | ''>(selected?.id ?? '')
   const [type, setType] = useState('')
   const [tagFilter, setTagFilter] = useState('')
   const [findings, setFindings] = useState<Finding[]>([])
+
+  // Follow the header target selection (selecting a domain scopes Findings to it).
+  useEffect(() => {
+    if (selected) setDomainId(selected.id)
+  }, [selected])
 
   const hostOf = (id: number | null) =>
     id == null ? 'global' : domains.find((d) => d.id === id)?.host ?? `#${id}`
@@ -142,41 +147,148 @@ export function Findings() {
 
 function FindingRow({ f, host, onTag }: { f: Finding; host: string; onTag: (t: string) => void }) {
   const [showAllTags, setShowAllTags] = useState(false)
+  const [open, setOpen] = useState(false)
   const risk = riskFromScore(f.score)
   const tags = f.tags ?? []
   const shownTags = showAllTags ? tags : tags.slice(0, 7)
 
   return (
-    <div className={`flex items-start gap-3 rounded-xl border border-l-4 border-zinc-800 bg-zinc-900/40 p-3 ${RISK_BORDER[risk]}`}>
-      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-semibold ring-1 ${RISK_SCORE[risk]}`}>
-        {f.score ?? '—'}
+    <div className={`rounded-xl border border-l-4 border-zinc-800 bg-zinc-900/40 ${RISK_BORDER[risk]}`}>
+      <div className="flex items-start gap-3 p-3">
+        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-semibold ring-1 ${RISK_SCORE[risk]}`}>
+          {f.score ?? '—'}
+        </div>
+
+        <div
+          onClick={() => setOpen((v) => !v)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              setOpen((v) => !v)
+            }
+          }}
+          className="min-w-0 flex-1 cursor-pointer text-left"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="zinc">{TYPE_LABEL[f.type] ?? f.type}</Badge>
+            <span className="min-w-0 break-all font-mono text-sm text-zinc-100">{summarizeFinding(f.type, f.data)}</span>
+            <span className="text-xs text-zinc-600">{open ? '▾' : '▸'}</span>
+          </div>
+          {tags.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1">
+              {shownTags.map((t) => (
+                <button
+                  key={t}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onTag(t)
+                  }}
+                  title="filter by this tag"
+                >
+                  <Badge tone={tagTone(t)}>{t}</Badge>
+                </button>
+              ))}
+              {!showAllTags && tags.length > 7 && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setShowAllTags(true)
+                  }}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300"
+                >
+                  +{tags.length - 7} more
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="shrink-0 text-right text-xs text-zinc-500">
+          <div className="font-mono text-zinc-400">{host}</div>
+          <div>{timeAgo(new Date(f.createdAt).getTime())}</div>
+        </div>
       </div>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone="zinc">{TYPE_LABEL[f.type] ?? f.type}</Badge>
-          <span className="min-w-0 break-all font-mono text-sm text-zinc-100">{summarizeFinding(f.type, f.data)}</span>
-        </div>
-        {tags.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            {shownTags.map((t) => (
-              <button key={t} onClick={() => onTag(t)} title="filter by this tag">
-                <Badge tone={tagTone(t)}>{t}</Badge>
-              </button>
-            ))}
-            {!showAllTags && tags.length > 7 && (
-              <button onClick={() => setShowAllTags(true)} className="text-[10px] text-zinc-500 hover:text-zinc-300">
-                +{tags.length - 7} more
-              </button>
+      {open && <FindingDetail f={f} />}
+    </div>
+  )
+}
+
+function Detail({ label, value }: { label: string; value: React.ReactNode }) {
+  if (value == null || value === '' || (Array.isArray(value) && value.length === 0)) return null
+  return (
+    <div className="flex gap-2">
+      <span className="w-24 shrink-0 text-xs uppercase tracking-wide text-zinc-600">{label}</span>
+      <span className="min-w-0 break-all text-zinc-300">{value}</span>
+    </div>
+  )
+}
+
+function FindingDetail({ f }: { f: Finding }) {
+  const d = f.data ?? {}
+  return (
+    <div className="space-y-3 border-t border-zinc-800/60 bg-zinc-950/40 p-3 text-sm">
+      <div className="space-y-1">
+        {f.type === 'new_subdomain' && (
+          <>
+            <Detail label="Host" value={<span className="font-mono">{d.host}</span>} />
+            <Detail label="HTTP" value={d.status != null ? `${d.status}` : 'no response'} />
+            <Detail label="Title" value={d.title} />
+            <Detail label="Server" value={d.server} />
+            <Detail label="IP" value={<span className="font-mono">{d.ip}</span>} />
+            <Detail label="CNAMEs" value={Array.isArray(d.cnames) && d.cnames.length ? d.cnames.join(', ') : null} />
+            {d.takeover?.service && (
+              <Detail label="Takeover" value={<span className="text-red-400">candidate: {d.takeover.service} ({d.takeover.cname})</span>} />
             )}
-          </div>
+            {d.status != null && d.scheme && (
+              <Detail
+                label="Open"
+                value={
+                  <a href={`${d.scheme}://${d.host}`} target="_blank" rel="noreferrer" className="text-sky-400 hover:underline">
+                    {d.scheme}://{d.host} ↗
+                  </a>
+                }
+              />
+            )}
+          </>
+        )}
+        {f.type === 'exposure' && (
+          <>
+            <Detail label="IP" value={<span className="font-mono">{d.ip}</span>} />
+            <Detail label="Hostnames" value={Array.isArray(d.hostnames) ? d.hostnames.join(', ') : null} />
+            <Detail label="Ports" value={Array.isArray(d.ports) ? d.ports.join(', ') : null} />
+            <Detail label="CPEs" value={Array.isArray(d.cpes) ? d.cpes.join(', ') : null} />
+            <Detail label="CVEs" value={Array.isArray(d.vulns) ? d.vulns.join(', ') : null} />
+          </>
+        )}
+        {f.type === 'origin' && (
+          <>
+            <Detail label="WAF/CDN" value={d.provider ?? 'none'} />
+            <Detail label="Apex IP" value={<span className="font-mono">{d.apexIp}</span>} />
+            <Detail
+              label="Origins"
+              value={(d.confirmedOrigins ?? []).map((o: any) => o.ip).join(', ') || null}
+            />
+          </>
+        )}
+        {(f.type === 'nuclei' || f.type === 'nmap' || f.type === 'ffuf' || f.type === 'osint') && (
+          <>
+            <Detail label="Target" value={<span className="font-mono">{d.target ?? d.domain}</span>} />
+            <Detail label="Name" value={d.name} />
+            <Detail label="Severity" value={d.severity} />
+            <Detail label="Matched" value={d.matched ? <span className="font-mono">{d.matched}</span> : null} />
+            <Detail label="URL" value={d.url ? <span className="font-mono">{d.url}</span> : null} />
+          </>
         )}
       </div>
-
-      <div className="shrink-0 text-right text-xs text-zinc-500">
-        <div className="font-mono text-zinc-400">{host}</div>
-        <div>{timeAgo(new Date(f.createdAt).getTime())}</div>
-      </div>
+      <details>
+        <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-300">raw data</summary>
+        <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs text-zinc-400">
+          {JSON.stringify(f.data, null, 2)}
+        </pre>
+      </details>
     </div>
   )
 }
