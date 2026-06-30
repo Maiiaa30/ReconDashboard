@@ -1,0 +1,48 @@
+FROM node:22-bookworm-slim
+
+# --- System + recon tooling --------------------------------------------------
+# build deps for better-sqlite3 native module; nmap + whois from apt;
+# subfinder/nuclei/ffuf as pinned prebuilt release binaries (ProjectDiscovery/ffuf).
+ARG SUBFINDER_VERSION=2.6.6
+ARG NUCLEI_VERSION=3.3.7
+ARG FFUF_VERSION=2.1.0
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+       python3 make g++ ca-certificates curl unzip nmap whois \
+  && rm -rf /var/lib/apt/lists/*
+
+# Recon binaries are best-effort: a moved release URL must NOT fail the image
+# build. If a download fails, the app simply reports that tool as unavailable
+# and degrades gracefully (passive crt.sh-only discovery, etc.).
+RUN set -ux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in amd64) GOARCH=amd64 ;; arm64) GOARCH=arm64 ;; *) GOARCH=amd64 ;; esac; \
+    cd /tmp; \
+    ( curl -fsSL -o subfinder.zip "https://github.com/projectdiscovery/subfinder/releases/download/v${SUBFINDER_VERSION}/subfinder_${SUBFINDER_VERSION}_linux_${GOARCH}.zip" \
+      && unzip -o subfinder.zip subfinder -d /usr/local/bin ) || echo "WARN: subfinder install failed"; \
+    ( curl -fsSL -o nuclei.zip "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_${GOARCH}.zip" \
+      && unzip -o nuclei.zip nuclei -d /usr/local/bin ) || echo "WARN: nuclei install failed"; \
+    ( curl -fsSL -o ffuf.tar.gz "https://github.com/ffuf/ffuf/releases/download/v${FFUF_VERSION}/ffuf_${FFUF_VERSION}_linux_${GOARCH}.tar.gz" \
+      && tar -xzf ffuf.tar.gz -C /usr/local/bin ffuf ) || echo "WARN: ffuf install failed"; \
+    chmod +x /usr/local/bin/subfinder /usr/local/bin/nuclei /usr/local/bin/ffuf 2>/dev/null || true; \
+    rm -f /tmp/*.zip /tmp/*.tar.gz; \
+    subfinder -version || true; nuclei -version || true; ffuf -V || true
+
+# A small default wordlist for ffuf content discovery.
+RUN mkdir -p /usr/share/wordlists \
+  && curl -fsSL -o /usr/share/wordlists/common.txt \
+       https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt \
+  || echo -e "admin\nlogin\napi\nrobots.txt\n.git/HEAD\nbackup\ntest" > /usr/share/wordlists/common.txt
+
+WORKDIR /app
+
+# Install dependencies first for better layer caching.
+COPY package.json package-lock.json* ./
+RUN npm install
+
+COPY . .
+
+EXPOSE 3001
+
+CMD ["npm", "run", "dev"]

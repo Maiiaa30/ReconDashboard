@@ -1,0 +1,99 @@
+import type { FastifyPluginAsync } from 'fastify'
+import {
+  createDomain,
+  deleteDomain,
+  DomainValidationError,
+  getDomain,
+  listDomains,
+  updateDomainMode,
+  type DomainMode,
+} from '../domains/store'
+import { enqueueJob } from '../jobs/queue'
+import { acknowledgeNew, listSubdomains } from '../subdomains/store'
+
+export const domainRoutes: FastifyPluginAsync = async (app) => {
+  app.get('/api/domains', async () => ({ domains: listDomains() }))
+
+  app.post<{ Body: { host?: string; label?: string; mode?: DomainMode } }>(
+    '/api/domains',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['host'],
+          properties: {
+            host: { type: 'string', minLength: 1, maxLength: 253 },
+            label: { type: 'string', maxLength: 200 },
+            mode: { type: 'string', enum: ['passive_only', 'active_authorized'] },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const domain = createDomain({
+          host: request.body.host!,
+          label: request.body.label,
+          mode: request.body.mode,
+        })
+        return reply.code(201).send({ domain })
+      } catch (err) {
+        if (err instanceof DomainValidationError) return reply.code(400).send({ error: err.message })
+        throw err
+      }
+    },
+  )
+
+  app.patch<{ Params: { id: string }; Body: { mode: DomainMode } }>(
+    '/api/domains/:id',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['mode'],
+          properties: { mode: { type: 'string', enum: ['passive_only', 'active_authorized'] } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+      return { domain: updateDomainMode(id, request.body.mode) }
+    },
+  )
+
+  app.delete<{ Params: { id: string } }>('/api/domains/:id', async (request, reply) => {
+    const id = Number(request.params.id)
+    if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+    deleteDomain(id)
+    return reply.send({ ok: true })
+  })
+
+  // --- Subdomains for a domain ----------------------------------------------
+  app.get<{ Params: { id: string } }>('/api/domains/:id/subdomains', async (request, reply) => {
+    const id = Number(request.params.id)
+    if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+    return { subdomains: listSubdomains(id) }
+  })
+
+  // Trigger passive subdomain discovery now.
+  app.post<{ Params: { id: string } }>(
+    '/api/domains/:id/discover',
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+      const jobId = enqueueJob('subdomain_discovery', { domainId: id })
+      return reply.code(202).send({ jobId })
+    },
+  )
+
+  // Acknowledge (clear the "new" flag on) a domain's subdomains.
+  app.post<{ Params: { id: string } }>(
+    '/api/domains/:id/subdomains/acknowledge',
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+      return { cleared: acknowledgeNew(id) }
+    },
+  )
+}

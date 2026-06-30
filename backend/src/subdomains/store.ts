@@ -1,0 +1,88 @@
+import { and, desc, eq, inArray } from 'drizzle-orm'
+import { db } from '../db/index'
+import { subdomains } from '../db/schema'
+
+export function listSubdomains(domainId: number) {
+  return db
+    .select()
+    .from(subdomains)
+    .where(eq(subdomains.domainId, domainId))
+    .orderBy(desc(subdomains.isNew), desc(subdomains.lastSeen))
+    .all()
+}
+
+export interface DiffResult {
+  newHosts: string[]
+  updatedCount: number
+  total: number
+}
+
+// Diff discovered hosts against what's stored for a domain. New hosts are
+// inserted with is_new=true; existing hosts get last_seen bumped. Runs in a
+// single transaction for consistency.
+export function diffAndStore(
+  domainId: number,
+  discovered: { host: string; source: string }[],
+): DiffResult {
+  const now = new Date()
+  const bySource = new Map<string, string>()
+  for (const d of discovered) {
+    if (!bySource.has(d.host)) bySource.set(d.host, d.source)
+  }
+  const hosts = [...bySource.keys()]
+
+  const newHosts: string[] = []
+  let updatedCount = 0
+
+  db.transaction((tx) => {
+    // Chunk the existence lookup to stay under SQLite's bound-variable limit
+    // (a busy domain can yield thousands of hosts from crt.sh).
+    const existing = new Set<string>()
+    for (let i = 0; i < hosts.length; i += 500) {
+      const chunk = hosts.slice(i, i + 500)
+      for (const r of tx
+        .select({ host: subdomains.host })
+        .from(subdomains)
+        .where(and(eq(subdomains.domainId, domainId), inArray(subdomains.host, chunk)))
+        .all()) {
+        existing.add(r.host)
+      }
+    }
+
+    for (const host of hosts) {
+      if (existing.has(host)) {
+        tx
+          .update(subdomains)
+          .set({ lastSeen: now, source: bySource.get(host) ?? null })
+          .where(and(eq(subdomains.domainId, domainId), eq(subdomains.host, host)))
+          .run()
+        updatedCount++
+      } else {
+        tx
+          .insert(subdomains)
+          .values({
+            domainId,
+            host,
+            source: bySource.get(host) ?? null,
+            isNew: true,
+            firstSeen: now,
+            lastSeen: now,
+          })
+          .run()
+        newHosts.push(host)
+      }
+    }
+  })
+
+  return { newHosts, updatedCount, total: hosts.length }
+}
+
+/** Clear the is_new flag (operator acknowledged the new subdomains). */
+export function acknowledgeNew(domainId: number): number {
+  const res = db
+    .update(subdomains)
+    .set({ isNew: false })
+    .where(and(eq(subdomains.domainId, domainId), eq(subdomains.isNew, true)))
+    .run()
+  return res.changes
+}
