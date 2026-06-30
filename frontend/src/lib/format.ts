@@ -18,8 +18,12 @@ export function timeAgo(ms: number | null | undefined): string {
 export function summarizeFinding(type: string, data: any): string {
   if (!data) return type
   switch (type) {
-    case 'new_subdomain':
-      return String(data.host ?? '')
+    case 'new_subdomain': {
+      const host = String(data.host ?? '')
+      const status = data.status != null ? `[${data.status}] ` : ''
+      const title = data.title ? ` — ${String(data.title).slice(0, 60)}` : ''
+      return `${status}${host}${title}`
+    }
     case 'exposure': {
       const ports = Array.isArray(data.ports) ? data.ports.length : 0
       const cves = Array.isArray(data.vulns) ? data.vulns.length : 0

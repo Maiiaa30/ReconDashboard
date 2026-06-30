@@ -16,6 +16,8 @@ export function Settings({ totpEnabled }: { totpEnabled: boolean }) {
 
       <TwoFactorPanel initialEnabled={totpEnabled} />
 
+      <ChangeUsernamePanel />
+
       <ChangePasswordPanel />
 
       <Card>
@@ -52,6 +54,61 @@ export function Settings({ totpEnabled }: { totpEnabled: boolean }) {
 
       <BackupPanel />
     </div>
+  )
+}
+
+function ChangeUsernamePanel() {
+  const [currentName, setCurrentName] = useState('')
+  const [password, setPassword] = useState('')
+  const [newUsername, setNewUsername] = useState('')
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    api.me().then((m) => setCurrentName(m.user.username)).catch(() => {})
+  }, [])
+
+  async function submit() {
+    setMsg(null)
+    setBusy(true)
+    try {
+      const r = await api.changeUsername(password, newUsername.trim())
+      setCurrentName(r.username)
+      setPassword('')
+      setNewUsername('')
+      setMsg({ ok: true, text: `Username changed to “${r.username}”.` })
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof Error ? err.message : 'failed to change username' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const inputCls =
+    'mt-1 block w-72 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm outline-none focus:border-zinc-500'
+
+  return (
+    <Card>
+      <h2 className="text-sm font-semibold">Change username</h2>
+      <p className="mt-1 text-sm text-zinc-400">
+        Current username: <span className="font-mono text-zinc-200">{currentName || '…'}</span>. Letters,
+        digits, dot, underscore and hyphen only. Requires your password.
+      </p>
+      <div className="mt-3 space-y-2">
+        <label className="block text-sm text-zinc-400">
+          New username
+          <input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} className={inputCls} autoComplete="username" />
+        </label>
+        <label className="block text-sm text-zinc-400">
+          Password
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} autoComplete="current-password" />
+        </label>
+      </div>
+      {msg && <p className={`mt-2 text-sm ${msg.ok ? 'text-green-400' : 'text-red-400'}`}>{msg.text}</p>}
+      <Button className="mt-3" onClick={submit} disabled={busy || !password || !/^[A-Za-z0-9._-]+$/.test(newUsername.trim())}>
+        {busy ? 'Updating…' : 'Change username'}
+      </Button>
+    </Card>
   )
 }
 

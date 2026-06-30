@@ -5,7 +5,7 @@ import {
   DomainValidationError,
   getDomain,
   listDomains,
-  updateDomainMode,
+  updateDomain,
   type DomainMode,
 } from '../domains/store'
 import { enqueueJob } from '../jobs/queue'
@@ -13,7 +13,12 @@ import { acknowledgeNew, listSubdomains } from '../subdomains/store'
 import { domainOverviews } from '../domains/overview'
 
 export const domainRoutes: FastifyPluginAsync = async (app) => {
-  app.get('/api/domains', async () => ({ domains: listDomains() }))
+  app.get('/api/domains', async () => ({
+    domains: listDomains().map((d) => ({
+      ...d,
+      profile: d.profile ? JSON.parse(d.profile) : {},
+    })),
+  }))
 
   // At-a-glance per-domain stats for the dashboard cards.
   app.get('/api/domains/overview', async () => ({ overview: domainOverviews() }))
@@ -48,21 +53,27 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
     },
   )
 
-  app.patch<{ Params: { id: string }; Body: { mode: DomainMode } }>(
+  app.patch<{
+    Params: { id: string }
+    Body: { mode?: DomainMode; label?: string | null; profile?: Record<string, unknown> }
+  }>(
     '/api/domains/:id',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['mode'],
-          properties: { mode: { type: 'string', enum: ['passive_only', 'active_authorized'] } },
+          properties: {
+            mode: { type: 'string', enum: ['passive_only', 'active_authorized'] },
+            label: { type: ['string', 'null'], maxLength: 200 },
+            profile: { type: 'object' },
+          },
         },
       },
     },
     async (request, reply) => {
       const id = Number(request.params.id)
       if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
-      return { domain: updateDomainMode(id, request.body.mode) }
+      return { domain: updateDomain(id, request.body ?? {}) }
     },
   )
 

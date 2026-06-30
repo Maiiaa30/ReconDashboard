@@ -1,3 +1,5 @@
+import { readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import type { FastifyPluginAsync } from 'fastify'
 import { config } from '../config'
 import { getScorer } from '../scoring'
@@ -6,6 +8,29 @@ import { toolExists } from '../util/exec'
 // Lightweight capability/status endpoint so the UI can adapt (e.g. show which
 // active scanners are installed, the scorer in use, scheduler state).
 let toolCache: Record<string, boolean> | null = null
+
+const WORDLIST_DIR = '/usr/share/wordlists'
+
+// Discover installed wordlists so the Fuzzing UI can offer a real picker.
+function listWordlists(): { path: string; name: string; sizeKb: number }[] {
+  try {
+    return readdirSync(WORDLIST_DIR)
+      .filter((f) => f.endsWith('.txt'))
+      .map((f) => {
+        const path = join(WORDLIST_DIR, f)
+        let sizeKb = 0
+        try {
+          sizeKb = Math.round(statSync(path).size / 1024)
+        } catch {
+          /* ignore */
+        }
+        return { path, name: f, sizeKb }
+      })
+      .sort((a, b) => a.sizeKb - b.sizeKb)
+  } catch {
+    return []
+  }
+}
 
 export const metaRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/meta/status', async () => {
@@ -27,6 +52,7 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
       },
       discordConfigured: Boolean(config.discordWebhookUrl),
       tools: toolCache,
+      wordlists: listWordlists(),
     }
   })
 }

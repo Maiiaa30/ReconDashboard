@@ -29,11 +29,18 @@ RUN set -ux; \
     rm -f /tmp/*.zip /tmp/*.tar.gz; \
     subfinder -version || true; nuclei -version || true; ffuf -V || true
 
-# A small default wordlist for ffuf content discovery.
-RUN mkdir -p /usr/share/wordlists \
-  && curl -fsSL -o /usr/share/wordlists/common.txt \
-       https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt \
-  || echo -e "admin\nlogin\napi\nrobots.txt\n.git/HEAD\nbackup\ntest" > /usr/share/wordlists/common.txt
+# Curated SecLists wordlists for ffuf content discovery (best-effort downloads;
+# a moved URL must not fail the build). Names are friendly for the UI picker.
+RUN mkdir -p /usr/share/wordlists; \
+    SL="https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content"; \
+    curl -fsSL -o /usr/share/wordlists/quick-hits.txt        "$SL/quickhits.txt"                 || true; \
+    curl -fsSL -o /usr/share/wordlists/common.txt            "$SL/common.txt"                    || true; \
+    curl -fsSL -o /usr/share/wordlists/raft-small-words.txt  "$SL/raft-small-words.txt"          || true; \
+    curl -fsSL -o /usr/share/wordlists/directories-medium.txt "$SL/directory-list-2.3-small.txt" || true; \
+    curl -fsSL -o /usr/share/wordlists/api-endpoints.txt     "$SL/api/api-seen-in-wild.txt"      || true; \
+    if [ ! -s /usr/share/wordlists/common.txt ]; then \
+      printf 'admin\nlogin\napi\nrobots.txt\n.git/HEAD\nbackup\ntest\n.env\nadmin.php\n' > /usr/share/wordlists/common.txt; \
+    fi
 
 WORKDIR /app
 

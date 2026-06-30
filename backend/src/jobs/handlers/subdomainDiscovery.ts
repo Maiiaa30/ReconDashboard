@@ -1,10 +1,15 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
-import { alertList } from '../../notify/discord'
+import { alertSubdomains, type SubdomainAlert } from '../../notify/discord'
 import { crtShSubdomains } from '../../sources/crtsh'
+import { probeHost } from '../../sources/httpProbe'
 import { subfinderSubdomains } from '../../sources/subfinder'
-import { diffAndStore } from '../../subdomains/store'
+import { diffAndStore, updateProbe } from '../../subdomains/store'
+import { mapLimit } from '../../util/async'
 import type { JobContext } from '../worker'
+
+const PROBE_CONCURRENCY = 8
+const MAX_PROBE = 200 // cap probing on very large new batches
 
 // Phase 2: passive subdomain discovery. crt.sh (always) + subfinder (if present).
 // Purely passive — no active probing, no shell strings. Diffs against stored
@@ -43,22 +48,61 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
 
   const diff = diffAndStore(domainId, discovered)
 
-  // Record + score each genuinely new subdomain as a finding.
+  // Lightweight HTTP probe of new hosts (status / title / server / ip), bounded
+  // concurrency. Enriches the stored row, the finding, and the Discord alert.
+  const toProbe = diff.newHosts.slice(0, MAX_PROBE)
+  const probes = await mapLimit(
+    toProbe,
+    PROBE_CONCURRENCY,
+    (host) => probeHost(host),
+    { host: '', scheme: null, status: null, title: null, server: null, ip: null, url: null },
+  )
+  const probeByHost = new Map(probes.filter((p) => p.host).map((p) => [p.host, p]))
+
+  for (const host of toProbe) {
+    const p = probeByHost.get(host)
+    if (p) {
+      updateProbe(domainId, host, {
+        ip: p.ip,
+        status: p.status,
+        title: p.title,
+        server: p.server,
+        scheme: p.scheme,
+      })
+    }
+  }
+
+  // Record + score each genuinely new subdomain as a finding (with probe data).
   for (const host of diff.newHosts) {
+    const p = probeByHost.get(host)
     await addScoredFinding({
       domainId,
       type: 'new_subdomain',
-      data: { host, domain: domain.host },
+      data: {
+        host,
+        domain: domain.host,
+        status: p?.status ?? null,
+        title: p?.title ?? null,
+        server: p?.server ?? null,
+        ip: p?.ip ?? null,
+      },
       tags: ['new-subdomain'],
     })
   }
 
-  // Grouped Discord alert for new subdomains (silent if no webhook).
+  // Grouped, enriched Discord alert (silent if no webhook).
   if (diff.newHosts.length > 0) {
-    await alertList(
-      `🛰️ ${diff.newHosts.length} new subdomain(s) for ${domain.host}`,
-      diff.newHosts,
-    )
+    const alerts: SubdomainAlert[] = diff.newHosts.map((host) => {
+      const p = probeByHost.get(host)
+      return {
+        host,
+        status: p?.status ?? null,
+        title: p?.title ?? null,
+        server: p?.server ?? null,
+        ip: p?.ip ?? null,
+      }
+    })
+    await alertSubdomains(`🛰️ ${diff.newHosts.length} new subdomain(s) for ${domain.host}`, alerts)
   }
 
   return {

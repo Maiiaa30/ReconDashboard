@@ -36,6 +36,8 @@ export const domains = sqliteTable('domains', {
   label: text('label'),
   // 'passive_only' | 'active_authorized' — active/loud scans require the latter.
   mode: text('mode').notNull().default('passive_only'),
+  // App characteristics profile (JSON) used to filter which OWASP tests apply.
+  profile: text('profile'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
 })
@@ -50,6 +52,13 @@ export const subdomains = sqliteTable(
     host: text('host').notNull(),
     source: text('source'),
     isNew: integer('is_new', { mode: 'boolean' }).notNull().default(true),
+    // Lightweight HTTP probe enrichment (status / title / server / ip).
+    ipAddress: text('ip_address'),
+    httpStatus: integer('http_status'),
+    title: text('title'),
+    server: text('server'),
+    scheme: text('scheme'),
+    probedAt: integer('probed_at', { mode: 'timestamp_ms' }),
     firstSeen: integer('first_seen', { mode: 'timestamp_ms' }).notNull().default(now),
     lastSeen: integer('last_seen', { mode: 'timestamp_ms' }).notNull().default(now),
   },

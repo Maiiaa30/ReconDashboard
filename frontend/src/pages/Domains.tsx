@@ -97,6 +97,24 @@ function DomainCard({
   const rs = RISK_STYLES[risk]
   const active = d.mode === 'active_authorized'
 
+  const [editing, setEditing] = useState(false)
+  const [labelDraft, setLabelDraft] = useState(d.label ?? '')
+  const [modeDraft, setModeDraft] = useState<DomainMode>(d.mode)
+
+  async function saveEdit() {
+    if (
+      modeDraft === 'active_authorized' &&
+      d.mode !== 'active_authorized' &&
+      !confirm(
+        `Set ${d.host} to active_authorized? This permits LOUD/active scans (nmap/nuclei/ffuf/OWASP). Only for targets you are authorized to actively test.`,
+      )
+    )
+      return
+    await api.updateDomain(d.id, { label: labelDraft.trim() || null, mode: modeDraft })
+    setEditing(false)
+    await onChanged()
+  }
+
   async function toggleMode() {
     const next: DomainMode = active ? 'passive_only' : 'active_authorized'
     if (
@@ -151,6 +169,45 @@ function DomainCard({
 
       <div className="text-[11px] text-zinc-500">Last recon: {timeAgo(d.lastActivity)}</div>
 
+      {/* Edit panel */}
+      {editing && (
+        <div className="space-y-2 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+          <label className="block text-xs text-zinc-400">
+            Label
+            <input
+              value={labelDraft}
+              onChange={(e) => setLabelDraft(e.target.value)}
+              placeholder="e.g. Client X"
+              className="mt-1 block w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-sm outline-none focus:border-zinc-500"
+            />
+          </label>
+          <label className="block text-xs text-zinc-400">
+            Scan mode
+            <select
+              value={modeDraft}
+              onChange={(e) => setModeDraft(e.target.value as DomainMode)}
+              className="mt-1 block w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-sm"
+            >
+              <option value="passive_only">passive_only (safe — no loud scans)</option>
+              <option value="active_authorized">active_authorized (enables nmap/nuclei/ffuf/OWASP)</option>
+            </select>
+          </label>
+          <div className="flex gap-1.5">
+            <Button onClick={saveEdit}>Save</Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setEditing(false)
+                setLabelDraft(d.label ?? '')
+                setModeDraft(d.mode)
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Quick actions */}
       <div className="flex flex-wrap gap-1.5 border-t border-zinc-800 pt-3">
         <Button variant="ghost" onClick={() => onAction('discover', () => api.discover(d.id))} disabled={isBusy('discover')}>
@@ -163,6 +220,9 @@ function DomainCard({
           {isBusy('osint') ? '…' : 'OSINT'}
         </Button>
         <div className="ml-auto flex gap-1.5">
+          <Button variant="ghost" onClick={() => setEditing((v) => !v)}>
+            {editing ? 'Close' : 'Edit'}
+          </Button>
           <Button variant="ghost" onClick={onSelect}>
             {selected ? '✓ Target' : 'Select'}
           </Button>

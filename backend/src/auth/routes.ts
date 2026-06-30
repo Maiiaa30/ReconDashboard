@@ -148,4 +148,31 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       return reply.send({ ok: true })
     },
   )
+
+  // --- Change username (requires current password) --------------------------
+  app.post<{ Body: { password: string; newUsername: string } }>(
+    '/api/auth/username',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['password', 'newUsername'],
+          properties: {
+            password: { type: 'string', minLength: 1, maxLength: 1000 },
+            newUsername: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9._-]+$' },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const op = getOperatorById(request.session.userId!)
+      if (!op) return reply.code(401).send({ error: 'unauthorized' })
+      const ok = await verifyPassword(op.passwordHash, request.body.password)
+      if (!ok) return reply.code(400).send({ error: 'password is incorrect' })
+      const newUsername = request.body.newUsername.trim()
+      db.update(users).set({ username: newUsername, updatedAt: new Date() }).where(eq(users.id, op.id)).run()
+      request.session.username = newUsername
+      return reply.send({ ok: true, username: newUsername })
+    },
+  )
 }

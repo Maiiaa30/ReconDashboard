@@ -102,6 +102,14 @@ export async function nucleiHandler({ params, log }: JobContext) {
   if (params.severity && /^[a-z,]+$/.test(String(params.severity))) {
     args.push('-severity', String(params.severity))
   }
+  // OWASP tag filtering: only validated tag tokens are passed.
+  if (Array.isArray(params.tags) && params.tags.length) {
+    const tags = (params.tags as unknown[])
+      .map((t) => String(t))
+      .filter((t) => /^[a-z0-9-]+$/.test(t))
+    if (tags.length) args.push('-tags', tags.join(','))
+  }
+  const owaspCategory = typeof params.owaspCategory === 'string' ? params.owaspCategory : undefined
 
   let stdout = ''
   try {
@@ -134,9 +142,10 @@ export async function nucleiHandler({ params, log }: JobContext) {
         name: r.info?.name,
         severity: r.info?.severity,
         matched: r['matched-at'] ?? r.matched,
+        owaspCategory,
         info: r.info,
       },
-      tags: ['nuclei', 'active'],
+      tags: ['nuclei', 'active', ...(owaspCategory ? [`owasp:${owaspCategory}`] : [])],
     })
   }
 

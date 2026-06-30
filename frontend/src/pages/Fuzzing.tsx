@@ -99,13 +99,19 @@ export function Fuzzing() {
             />
           </label>
           <label className="text-sm">
-            <span className="text-zinc-400">Wordlist (optional)</span>
-            <input
+            <span className="text-zinc-400">Wordlist</span>
+            <select
               value={wordlist}
               onChange={(e) => setWordlist(e.target.value)}
-              placeholder="/usr/share/wordlists/common.txt"
-              className="mt-1 block w-72 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs outline-none focus:border-zinc-500"
-            />
+              className="mt-1 block w-64 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm outline-none focus:border-zinc-500"
+            >
+              <option value="">default (common.txt)</option>
+              {(meta?.wordlists ?? []).map((w) => (
+                <option key={w.path} value={w.path}>
+                  {w.name} ({w.sizeKb > 1024 ? `${(w.sizeKb / 1024).toFixed(1)}MB` : `${w.sizeKb}KB`})
+                </option>
+              ))}
+            </select>
           </label>
           <Button variant="loud" onClick={run} disabled={!active || running || toolMissing}>
             {running ? 'Starting…' : 'Run ffuf'}

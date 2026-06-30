@@ -77,6 +77,29 @@ export function diffAndStore(
   return { newHosts, updatedCount, total: hosts.length }
 }
 
+export interface ProbeData {
+  ip: string | null
+  status: number | null
+  title: string | null
+  server: string | null
+  scheme: string | null
+}
+
+/** Store HTTP-probe enrichment for a discovered host. */
+export function updateProbe(domainId: number, host: string, p: ProbeData): void {
+  db.update(subdomains)
+    .set({
+      ipAddress: p.ip,
+      httpStatus: p.status,
+      title: p.title,
+      server: p.server,
+      scheme: p.scheme,
+      probedAt: new Date(),
+    })
+    .where(and(eq(subdomains.domainId, domainId), eq(subdomains.host, host)))
+    .run()
+}
+
 /** Clear the is_new flag (operator acknowledged the new subdomains). */
 export function acknowledgeNew(domainId: number): number {
   const res = db

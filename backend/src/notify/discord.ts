@@ -46,3 +46,40 @@ export async function alertText(text: string): Promise<void> {
   if (!config.discordWebhookUrl) return
   await postContent(text.slice(0, MAX_CONTENT))
 }
+
+export interface SubdomainAlert {
+  host: string
+  status: number | null
+  title: string | null
+  server: string | null
+  ip: string | null
+}
+
+// Rich alert for new subdomains: status code, page title, server, IP.
+export async function alertSubdomains(title: string, items: SubdomainAlert[]): Promise<void> {
+  if (!config.discordWebhookUrl || items.length === 0) return
+
+  const lines = items.map((s) => {
+    const status = s.status != null ? `\`${s.status}\`` : '`—`'
+    const parts = [`${status} **${s.host}**`]
+    if (s.title) parts.push(`— ${s.title.slice(0, 80)}`)
+    const meta: string[] = []
+    if (s.ip) meta.push(s.ip)
+    if (s.server) meta.push(s.server)
+    if (meta.length) parts.push(`(${meta.join(', ')})`)
+    return parts.join(' ')
+  })
+
+  const header = `**${title}**`
+  let buf = header
+  for (const line of lines) {
+    const next = `${buf}\n${line}`
+    if (next.length > MAX_CONTENT) {
+      await postContent(buf)
+      buf = `${header} (cont.)\n${line}`
+    } else {
+      buf = next
+    }
+  }
+  if (buf !== header) await postContent(buf)
+}

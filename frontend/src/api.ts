@@ -48,11 +48,20 @@ const del = <T>(p: string) => request<T>(p, { method: 'DELETE' })
 
 export type DomainMode = 'passive_only' | 'active_authorized'
 
+export interface DomainProfile {
+  hasLogin?: boolean
+  hasParams?: boolean
+  hasUpload?: boolean
+  hasApi?: boolean
+  hasRedirects?: boolean
+}
+
 export interface Domain {
   id: number
   host: string
   label: string | null
   mode: DomainMode
+  profile?: DomainProfile
   createdAt: string
   updatedAt: string
 }
@@ -63,8 +72,29 @@ export interface Subdomain {
   host: string
   source: string | null
   isNew: boolean
+  ipAddress: string | null
+  httpStatus: number | null
+  title: string | null
+  server: string | null
+  scheme: string | null
+  probedAt: string | null
   firstSeen: string
   lastSeen: string
+}
+
+export interface OwaspCategory {
+  id: string
+  name: string
+  description: string
+  tags: string[]
+  requires: string[]
+  payloads: string[]
+}
+
+export interface OwaspProfileKey {
+  key: keyof DomainProfile
+  label: string
+  hint: string
 }
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'error'
@@ -112,12 +142,19 @@ export interface Drawing extends DrawingMeta {
   data: any
 }
 
+export interface Wordlist {
+  path: string
+  name: string
+  sizeKb: number
+}
+
 export interface MetaStatus {
   scorer: string
   aiProvider: string
   scheduler: { enabled: boolean; intervalMinutes: number }
   discordConfigured: boolean
   tools: { subfinder: boolean; nmap: boolean; nuclei: boolean; ffuf: boolean }
+  wordlists: Wordlist[]
 }
 
 export interface Me {
@@ -149,6 +186,8 @@ export const api = {
   disableTotp: (token: string) => post<{ totpEnabled: boolean }>('/auth/totp/disable', { token }),
   changePassword: (currentPassword: string, newPassword: string) =>
     post<{ ok: true }>('/auth/password', { currentPassword, newPassword }),
+  changeUsername: (password: string, newUsername: string) =>
+    post<{ ok: true; username: string }>('/auth/username', { password, newUsername }),
 
   // meta
   meta: () => get<MetaStatus>('/meta/status'),
@@ -159,7 +198,14 @@ export const api = {
   createDomain: (host: string, mode: DomainMode, label?: string) =>
     post<{ domain: Domain }>('/domains', { host, mode, label }),
   setDomainMode: (id: number, mode: DomainMode) => patch<{ domain: Domain }>(`/domains/${id}`, { mode }),
+  updateDomain: (id: number, patchBody: { mode?: DomainMode; label?: string | null; profile?: DomainProfile }) =>
+    patch<{ domain: Domain }>(`/domains/${id}`, patchBody),
   deleteDomain: (id: number) => del<{ ok: true }>(`/domains/${id}`),
+
+  // OWASP testing
+  owaspCatalog: () => get<{ catalog: OwaspCategory[]; profileKeys: OwaspProfileKey[] }>('/owasp/catalog'),
+  runOwasp: (id: number, categoryIds?: string[], scheme?: string) =>
+    post<{ jobId: number; categories: string[]; tags: string[] }>(`/domains/${id}/owasp`, { categoryIds, scheme }),
 
   // subdomains
   subdomains: (id: number) => get<{ subdomains: Subdomain[] }>(`/domains/${id}/subdomains`),

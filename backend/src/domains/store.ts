@@ -37,6 +37,18 @@ export function updateDomainMode(id: number, mode: DomainMode) {
   return getDomain(id)
 }
 
+export function updateDomain(
+  id: number,
+  patch: { mode?: DomainMode; label?: string | null; profile?: unknown },
+) {
+  const set: Record<string, unknown> = { updatedAt: new Date() }
+  if (patch.mode === 'passive_only' || patch.mode === 'active_authorized') set.mode = patch.mode
+  if (patch.label !== undefined) set.label = patch.label?.toString().trim() || null
+  if (patch.profile !== undefined) set.profile = JSON.stringify(patch.profile ?? {})
+  db.update(domains).set(set).where(eq(domains.id, id)).run()
+  return getDomain(id)
+}
+
 export function deleteDomain(id: number): void {
   db.delete(domains).where(eq(domains.id, id)).run()
 }
