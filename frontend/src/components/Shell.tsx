@@ -10,6 +10,8 @@ import { Fuzzing } from '../pages/Fuzzing'
 import { Exposure } from '../pages/Exposure'
 import { Osint } from '../pages/Osint'
 import { Origin } from '../pages/Origin'
+import { Whois } from '../pages/Whois'
+import { CheckHost } from '../pages/CheckHost'
 import { Scans } from '../pages/Scans'
 import { Owasp } from '../pages/Owasp'
 import { Notes } from '../pages/Notes'
@@ -27,6 +29,8 @@ const MODULES = [
   { key: 'exposure', label: 'Exposure' },
   { key: 'osint', label: 'OSINT' },
   { key: 'origin', label: 'WAF / Origin' },
+  { key: 'whois', label: 'WHOIS' },
+  { key: 'checkhost', label: 'Check Host' },
   { key: 'scans', label: 'Scans' },
   { key: 'owasp', label: 'OWASP' },
   { key: 'findings', label: 'Findings' },
@@ -123,6 +127,8 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         {active === 'exposure' && <Exposure />}
         {active === 'osint' && <Osint />}
         {active === 'origin' && <Origin />}
+        {active === 'whois' && <Whois />}
+        {active === 'checkhost' && <CheckHost />}
         {active === 'scans' && <Scans />}
         {active === 'owasp' && <Owasp />}
         {active === 'findings' && <Findings />}

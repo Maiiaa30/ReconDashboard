@@ -10,7 +10,7 @@ ARG FFUF_VERSION=2.1.0
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
        python3 make g++ ca-certificates curl unzip nmap whois \
-       dnsutils chromium fonts-liberation \
+       dnsutils iputils-ping chromium fonts-liberation \
   && rm -rf /var/lib/apt/lists/*
 
 # Where headless Chromium lives, for the screenshot job.
