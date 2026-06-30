@@ -20,6 +20,7 @@ import { findingRoutes } from './routes/findings'
 import { reconRoutes } from './routes/recon'
 import { toolRoutes } from './routes/tools'
 import { scanRoutes } from './routes/scans'
+import { toolScanRoutes } from './routes/toolScan'
 import { owaspRoutes } from './routes/owasp'
 import { exportRoutes } from './routes/export'
 import { screenshotRoutes } from './routes/screenshots'
@@ -77,6 +78,7 @@ async function main() {
   await app.register(reconRoutes)
   await app.register(toolRoutes)
   await app.register(scanRoutes)
+  await app.register(toolScanRoutes)
   await app.register(owaspRoutes)
   await app.register(exportRoutes)
   await app.register(screenshotRoutes)

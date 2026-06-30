@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
   Activity, ScanSearch, ShieldCheck, Flag, StickyNote, PenTool, ScrollText,
-  Settings as SettingsIcon, LogOut, Menu, Radar as RadarLogo, type LucideIcon,
+  Settings as SettingsIcon, LogOut, Menu, Radar as RadarLogo, Wrench, type LucideIcon,
 } from 'lucide-react'
 import type { Me } from '../api'
 import { api } from '../api'
@@ -18,6 +18,7 @@ import { Origin } from '../pages/Origin'
 import { Whois } from '../pages/Whois'
 import { CheckHost } from '../pages/CheckHost'
 import { Scans } from '../pages/Scans'
+import { Tools } from '../pages/Tools'
 import { Owasp } from '../pages/Owasp'
 import { Notes } from '../pages/Notes'
 import { Canvas } from '../pages/Canvas'
@@ -37,6 +38,7 @@ const MODULES: { key: string; label: string; icon: LucideIcon }[] = [
   { key: 'whois', label: 'WHOIS', icon: FileText },
   { key: 'checkhost', label: 'Check Host', icon: Activity },
   { key: 'scans', label: 'Scans', icon: ScanSearch },
+  { key: 'tools', label: 'Tools', icon: Wrench },
   { key: 'owasp', label: 'OWASP', icon: ShieldCheck },
   { key: 'findings', label: 'Findings', icon: Flag },
   { key: 'notes', label: 'Notes', icon: StickyNote },
@@ -48,7 +50,7 @@ const MODULES: { key: string; label: string; icon: LucideIcon }[] = [
 type ModuleKey = (typeof MODULES)[number]['key']
 
 // Modules that operate on a selected domain show the domain picker.
-const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'subdomains', 'screenshots', 'fuzzing', 'exposure', 'osint', 'origin', 'scans', 'owasp', 'notes']
+const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'subdomains', 'screenshots', 'fuzzing', 'exposure', 'osint', 'origin', 'scans', 'tools', 'owasp', 'notes']
 
 export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { domains, selectedId, select } = useApp()
@@ -147,6 +149,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         {active === 'whois' && <Whois />}
         {active === 'checkhost' && <CheckHost />}
         {active === 'scans' && <Scans />}
+        {active === 'tools' && <Tools />}
         {active === 'owasp' && <Owasp />}
         {active === 'findings' && <Findings />}
         {active === 'notes' && <Notes />}

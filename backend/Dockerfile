@@ -10,7 +10,7 @@ ARG FFUF_VERSION=2.1.0
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
        python3 make g++ ca-certificates curl unzip nmap whois \
-       dnsutils iputils-ping chromium fonts-liberation \
+       dnsutils iputils-ping sslscan libpcap0.8 chromium fonts-liberation \
   && rm -rf /var/lib/apt/lists/*
 
 # Where headless Chromium lives, for the screenshot job.
@@ -32,6 +32,27 @@ RUN set -ux; \
     chmod +x /usr/local/bin/subfinder /usr/local/bin/nuclei /usr/local/bin/ffuf 2>/dev/null || true; \
     rm -f /tmp/*.zip /tmp/*.tar.gz; \
     subfinder -version || true; nuclei -version || true; ffuf -V || true
+
+# Extra recon binaries (best-effort, latest release): katana (crawler), naabu
+# (fast port scanner), dalfox (XSS). A failed download just marks the tool
+# unavailable — the app degrades gracefully.
+RUN set -ux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in amd64) GOARCH=amd64 ;; arm64) GOARCH=arm64 ;; *) GOARCH=amd64 ;; esac; \
+    ver() { curl -fsSL "https://api.github.com/repos/$1/releases/latest" | grep -oP '"tag_name":\s*"v?\K[^"]+' | head -1; }; \
+    cd /tmp; \
+    KAT="$(ver projectdiscovery/katana)"; \
+    ( [ -n "$KAT" ] && curl -fsSL -o katana.zip "https://github.com/projectdiscovery/katana/releases/download/v${KAT}/katana_${KAT}_linux_${GOARCH}.zip" \
+      && unzip -o katana.zip katana -d /usr/local/bin ) || echo "WARN: katana install failed"; \
+    NAB="$(ver projectdiscovery/naabu)"; \
+    ( [ -n "$NAB" ] && curl -fsSL -o naabu.zip "https://github.com/projectdiscovery/naabu/releases/download/v${NAB}/naabu_${NAB}_linux_${GOARCH}.zip" \
+      && unzip -o naabu.zip naabu -d /usr/local/bin ) || echo "WARN: naabu install failed"; \
+    DAL="$(ver hahwul/dalfox)"; \
+    ( [ -n "$DAL" ] && curl -fsSL -o dalfox.tar.gz "https://github.com/hahwul/dalfox/releases/download/v${DAL}/dalfox_${DAL}_linux_${GOARCH}.tar.gz" \
+      && tar -xzf dalfox.tar.gz -C /usr/local/bin dalfox ) || echo "WARN: dalfox install failed"; \
+    chmod +x /usr/local/bin/katana /usr/local/bin/naabu /usr/local/bin/dalfox 2>/dev/null || true; \
+    rm -f /tmp/*.zip /tmp/*.tar.gz; \
+    katana -version || true; naabu -version || true; dalfox version || true
 
 # Curated SecLists wordlists for ffuf content discovery (best-effort downloads;
 # a moved URL must not fail the build). Names are friendly for the UI picker.

@@ -168,7 +168,19 @@ export interface MetaStatus {
   aiProvider: string
   scheduler: { enabled: boolean; intervalMinutes: number }
   discordConfigured: boolean
-  tools: { subfinder: boolean; nmap: boolean; nuclei: boolean; ffuf: boolean; chromium: boolean; dig: boolean }
+  tools: {
+    subfinder: boolean
+    nmap: boolean
+    nuclei: boolean
+    ffuf: boolean
+    chromium: boolean
+    dig: boolean
+    katana?: boolean
+    naabu?: boolean
+    dalfox?: boolean
+    sslscan?: boolean
+    wpenum?: boolean
+  }
   wordlists: Wordlist[]
 }
 
@@ -278,6 +290,10 @@ export const api = {
   captureScreenshots: (id: number) => post<{ jobId: number }>(`/domains/${id}/screenshots`),
   screenshots: (id: number) => get<{ screenshots: ScreenshotEntry[] }>(`/domains/${id}/screenshots`),
   screenshotUrl: (id: number, host: string) => `/api/domains/${id}/screenshot?host=${encodeURIComponent(host)}`,
+
+  // extra active tools (katana/naabu/dalfox/sslscan/wpenum), gated like scans
+  runTool: (id: number, opts: { tool: string; target?: string; scheme?: string; confirm?: boolean }) =>
+    post<{ jobId: number; tool: string; target: string }>(`/domains/${id}/tool`, opts),
 
   // active scans (gated server-side; passive domains require confirm:true)
   nmap: (id: number, opts: { target?: string; ports?: string; confirm?: boolean } = {}) =>

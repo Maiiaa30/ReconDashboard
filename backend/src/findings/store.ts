@@ -13,6 +13,7 @@ export type FindingType =
   | 'ffuf'
   | 'origin'
   | 'owasp'
+  | 'tool'
 
 // Triage lifecycle state.
 export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
@@ -44,6 +45,8 @@ export function findingKey(type: string, data: any): string | null {
       return `nuclei:${data.templateId ?? ''}@${data.matched ?? data.target ?? ''}`
     case 'owasp':
       return `owasp:${data.category ?? ''}:${data.name ?? ''}@${data.url ?? ''}`
+    case 'tool':
+      return `tool:${data.tool ?? ''}@${data.target ?? ''}`
     case 'ffuf':
       return data.url ? `url:${data.url}` : null
     default:

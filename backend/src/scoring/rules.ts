@@ -199,6 +199,17 @@ function scoreOwasp(data: any): ScoreResult {
   return { score: clamp(NUCLEI_SEVERITY_SCORE[severity] ?? 15), tags: [...tags], reasons }
 }
 
+function scoreTool(data: any): ScoreResult {
+  const severity = String(data?.severity ?? 'info').toLowerCase()
+  const tool = String(data?.tool ?? 'tool')
+  const tags = new Set<string>(['tool', tool, `sev:${severity}`])
+  const reasons: string[] = []
+  if (data?.title) reasons.push(`${tool}: ${data.title}`)
+  if (data?.detail) reasons.push(String(data.detail))
+  for (const it of (Array.isArray(data?.items) ? data.items : []).slice(0, 8)) reasons.push(String(it))
+  return { score: clamp(NUCLEI_SEVERITY_SCORE[severity] ?? 15), tags: [...tags], reasons }
+}
+
 function scoreFfuf(data: any): ScoreResult {
   const tags = new Set<string>(['ffuf'])
   const reasons: string[] = []
@@ -231,6 +242,8 @@ export class RulesScorer implements Scorer {
         return scoreNuclei(data)
       case 'owasp':
         return scoreOwasp(data)
+      case 'tool':
+        return scoreTool(data)
       case 'nmap':
         return scoreNmap(data)
       case 'ffuf':

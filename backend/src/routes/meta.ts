@@ -35,15 +35,20 @@ function listWordlists(): { path: string; name: string; sizeKb: number }[] {
 export const metaRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/meta/status', async () => {
     if (!toolCache) {
-      const [subfinder, nmap, nuclei, ffuf, chromium, dig] = await Promise.all([
+      const [subfinder, nmap, nuclei, ffuf, chromium, dig, katana, naabu, dalfox, sslscan] = await Promise.all([
         toolExists('subfinder'),
         toolExists('nmap'),
         toolExists('nuclei'),
         toolExists('ffuf'),
         toolExists(process.env.CHROMIUM_PATH ?? 'chromium'),
         toolExists('dig'),
+        toolExists('katana'),
+        toolExists('naabu'),
+        toolExists('dalfox'),
+        toolExists('sslscan'),
       ])
-      toolCache = { subfinder, nmap, nuclei, ffuf, chromium, dig }
+      // wpenum is an HTTP routine (no binary) — always available.
+      toolCache = { subfinder, nmap, nuclei, ffuf, chromium, dig, katana, naabu, dalfox, sslscan, wpenum: true }
     }
     return {
       scorer: getScorer().name,

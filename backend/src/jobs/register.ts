@@ -4,6 +4,7 @@ import { exposureHandler } from './handlers/exposure'
 import { osintHandler } from './handlers/osint'
 import { ffufHandler, nmapHandler, nucleiHandler } from './handlers/activeScans'
 import { owaspActiveHandler } from './handlers/owaspActive'
+import { toolScanHandler } from './handlers/toolScan'
 import { screenshotHandler } from './handlers/screenshot'
 import { originHandler } from './handlers/origin'
 
@@ -16,6 +17,7 @@ export function registerJobHandlers(): void {
   registerHandler('nuclei_scan', nucleiHandler)
   registerHandler('ffuf_scan', ffufHandler)
   registerHandler('owasp_active', owaspActiveHandler)
+  registerHandler('tool_scan', toolScanHandler)
   registerHandler('screenshot', screenshotHandler)
   registerHandler('origin_scan', originHandler)
 }
