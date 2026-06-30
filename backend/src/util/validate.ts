@@ -43,6 +43,11 @@ export function isValidIp(input: string): boolean {
 // internal IP).
 export function isInternalIp(input: string): boolean {
   const v = input.trim().toLowerCase()
+  // IPv4-mapped IPv6 in dotted form (e.g. ::ffff:127.0.0.1). The dotted tail
+  // doesn't match our hex-only IPv6 regex, so decode it explicitly first —
+  // otherwise a mapped loopback/private address would slip past the guard.
+  const mapped = v.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/)
+  if (mapped) return isInternalIp(mapped[1])
   if (IPV4_RE.test(v)) {
     const [a, b] = v.split('.').map(Number)
     if (a === 10) return true
