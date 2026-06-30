@@ -10,6 +10,7 @@ export type JobType =
   | 'nuclei_scan'
   | 'ffuf_scan'
   | 'screenshot'
+  | 'origin_scan'
 
 export function enqueueJob(type: JobType, params: unknown): number {
   const res = db

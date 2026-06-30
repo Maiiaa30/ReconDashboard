@@ -11,6 +11,7 @@ export type FindingType =
   | 'nmap'
   | 'nuclei'
   | 'ffuf'
+  | 'origin'
 
 export interface NewFinding {
   domainId: number | null

@@ -226,6 +226,9 @@ export const api = {
   exposure: (id: number) => post<{ jobId: number }>(`/domains/${id}/exposure`),
   osint: (id: number) => post<{ jobId: number }>(`/domains/${id}/osint`),
 
+  // origin discovery (WAF/CDN bypass)
+  findOrigin: (id: number) => post<{ jobId: number }>(`/domains/${id}/origin`),
+
   // screenshots
   captureScreenshots: (id: number) => post<{ jobId: number }>(`/domains/${id}/screenshots`),
   screenshots: (id: number) => get<{ screenshots: ScreenshotEntry[] }>(`/domains/${id}/screenshots`),

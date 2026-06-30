@@ -3,7 +3,7 @@ import { api, type Finding } from '../api'
 import { useApp } from '../state'
 import { Badge, Empty, ExportLinks, PageHeader, ScoreBadge } from '../components/ui'
 
-const TYPE_OPTIONS = ['', 'new_subdomain', 'exposure', 'osint', 'nmap', 'nuclei', 'ffuf'] as const
+const TYPE_OPTIONS = ['', 'new_subdomain', 'exposure', 'osint', 'origin', 'nmap', 'nuclei', 'ffuf'] as const
 
 // Color-code the highest-signal tags so they stand out.
 function tagTone(tag: string): 'zinc' | 'blue' | 'amber' | 'red' | 'green' {

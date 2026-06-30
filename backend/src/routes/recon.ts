@@ -16,4 +16,11 @@ export const reconRoutes: FastifyPluginAsync = async (app) => {
     if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
     return reply.code(202).send({ jobId: enqueueJob('osint_gather', { domainId: id }) })
   })
+
+  // Origin-server discovery behind a CDN/WAF (authorized target only).
+  app.post<{ Params: { id: string } }>('/api/domains/:id/origin', async (request, reply) => {
+    const id = Number(request.params.id)
+    if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+    return reply.code(202).send({ jobId: enqueueJob('origin_scan', { domainId: id }) })
+  })
 }

@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { listFindings, type FindingType } from '../findings/store'
 
-const VALID_TYPES: FindingType[] = ['new_subdomain', 'exposure', 'osint', 'nmap', 'nuclei', 'ffuf']
+const VALID_TYPES: FindingType[] = ['new_subdomain', 'exposure', 'osint', 'nmap', 'nuclei', 'ffuf', 'origin']
 
 export const findingRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: { domainId?: string; type?: string; limit?: string } }>(

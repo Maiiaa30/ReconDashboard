@@ -4,6 +4,7 @@ import { exposureHandler } from './handlers/exposure'
 import { osintHandler } from './handlers/osint'
 import { ffufHandler, nmapHandler, nucleiHandler } from './handlers/activeScans'
 import { screenshotHandler } from './handlers/screenshot'
+import { originHandler } from './handlers/origin'
 
 // Wire every job type to its handler. Called once at startup.
 export function registerJobHandlers(): void {
@@ -14,4 +15,5 @@ export function registerJobHandlers(): void {
   registerHandler('nuclei_scan', nucleiHandler)
   registerHandler('ffuf_scan', ffufHandler)
   registerHandler('screenshot', screenshotHandler)
+  registerHandler('origin_scan', originHandler)
 }

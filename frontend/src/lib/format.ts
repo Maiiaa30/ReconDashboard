@@ -39,6 +39,11 @@ export function summarizeFinding(type: string, data: any): string {
       return `${data.severity ?? 'info'}: ${data.name ?? data.templateId ?? '?'} @ ${data.target ?? ''}`
     case 'ffuf':
       return `${data.status ?? '?'} ${data.url ?? ''}`
+    case 'origin': {
+      const waf = data.provider ? `behind ${data.provider}` : 'no CDN/WAF'
+      const found = (data.confirmedOrigins ?? []).length
+      return `${data.domain ?? ''} — ${waf}${found ? `, origin: ${data.confirmedOrigins[0]?.ip}` : ''}`
+    }
     default:
       return JSON.stringify(data).slice(0, 120)
   }
@@ -62,6 +67,8 @@ export function summarizeJob(type: string, result: any): string {
       return result.available === false ? 'ffuf not installed' : `${result.hits ?? 0} hit(s)`
     case 'screenshot':
       return result.available === false ? 'chromium not installed' : `${result.captured ?? 0} captured`
+    case 'origin_scan':
+      return `${result.behindCdn ? `behind ${result.provider}` : 'no CDN'}${result.confirmedOrigins ? `, ${result.confirmedOrigins} origin(s)` : ''}`
     default:
       return ''
   }
