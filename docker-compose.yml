@@ -1,0 +1,39 @@
+# Local development compose.
+#
+# Production note: later this runs on a private VM (Oracle Always Free / Hetzner)
+# reached ONLY over Tailscale. The app is never exposed to the public internet
+# and there is no public TLS/ACME here by design. Production tweaks come later.
+
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - HOST=0.0.0.0
+      - DATABASE_PATH=/data/app.db
+    volumes:
+      # Hot-reload source; node_modules stays inside the image.
+      - ./backend/src:/app/src
+      - ./backend/drizzle:/app/drizzle
+      # Persist the SQLite file across container rebuilds.
+      - app-data:/data
+    ports:
+      - "3001:3001"
+
+  frontend:
+    build: ./frontend
+    environment:
+      - VITE_API_PROXY=http://backend:3001
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  app-data:

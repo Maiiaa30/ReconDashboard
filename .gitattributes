@@ -1,0 +1,8 @@
+# Normalize line endings to LF in the repo (the app runs in Linux Docker).
+* text=auto eol=lf
+
+# Binary / generated files
+*.png binary
+*.jpg binary
+*.rdb binary
+package-lock.json -diff

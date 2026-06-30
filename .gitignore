@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+*.local
+
+# tsc -b build artifacts emitted next to vite.config.ts
+frontend/vite.config.js
+frontend/vite.config.d.ts
+*.tsbuildinfo
+
+# App data (SQLite DB lives on a mounted volume in prod)
+backend/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Editor / OS
+.DS_Store
+.vscode/
