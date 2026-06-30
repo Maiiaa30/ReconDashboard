@@ -1,10 +1,10 @@
-import { Fragment, useCallback, useState } from 'react'
+import { Fragment, useCallback, useState, type MouseEvent } from 'react'
 import { api, type Job } from '../api'
 import { usePoll } from '../state'
-import { Badge, Empty, JobStatusBadge, PageHeader } from '../components/ui'
+import { Badge, Button, Empty, JobStatusBadge, PageHeader } from '../components/ui'
 import { summarizeJob, timeAgo } from '../lib/format'
 
-const STATUSES = ['all', 'queued', 'running', 'done', 'error'] as const
+const STATUSES = ['all', 'queued', 'running', 'done', 'error', 'cancelled'] as const
 type StatusFilter = (typeof STATUSES)[number]
 
 function duration(job: Job): string {
@@ -21,11 +21,25 @@ export function Jobs() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  const [cancelling, setCancelling] = useState<number | null>(null)
 
   const load = useCallback(() => {
     api.jobs().then((r) => setJobs(r.jobs)).catch(() => {})
   }, [])
   usePoll(load, 2500)
+
+  async function cancel(id: number, e: MouseEvent) {
+    e.stopPropagation() // don't toggle the row's detail panel
+    setCancelling(id)
+    try {
+      await api.cancelJob(id)
+    } catch {
+      // The worker may have just claimed it; the reload reflects the real state.
+    } finally {
+      setCancelling(null)
+      load()
+    }
+  }
 
   function toggle(id: number) {
     setExpanded((cur) => {
@@ -85,6 +99,7 @@ export function Jobs() {
                 <th className="px-3 py-2">Result</th>
                 <th className="px-3 py-2">When</th>
                 <th className="px-3 py-2 w-24">Duration</th>
+                <th className="px-3 py-2 w-20"></th>
               </tr>
             </thead>
             <tbody>
@@ -109,10 +124,22 @@ export function Jobs() {
                       </td>
                       <td className="px-3 py-2 text-zinc-500">{timeAgo(new Date(j.createdAt).getTime())}</td>
                       <td className="px-3 py-2 text-zinc-500">{duration(j)}</td>
+                      <td className="px-3 py-2">
+                        {j.status === 'queued' && (
+                          <Button
+                            variant="danger"
+                            className="px-2 py-1 text-xs"
+                            disabled={cancelling === j.id}
+                            onClick={(e) => cancel(j.id, e)}
+                          >
+                            {cancelling === j.id ? '…' : 'Cancel'}
+                          </Button>
+                        )}
+                      </td>
                     </tr>
                     {open && (
                       <tr className="border-t border-hair/60 bg-ink-950/60">
-                        <td colSpan={6} className="px-3 py-3">
+                        <td colSpan={7} className="px-3 py-3">
                           <pre
                             className={`max-h-96 overflow-auto whitespace-pre-wrap break-all text-xs ${
                               j.error ? 'text-red-300' : 'text-zinc-400'

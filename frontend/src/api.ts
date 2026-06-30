@@ -107,7 +107,7 @@ export interface OwaspProfileKey {
   hint: string
 }
 
-export type JobStatus = 'queued' | 'running' | 'done' | 'error'
+export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
 export interface Job {
   id: number
@@ -282,6 +282,7 @@ export const api = {
   // jobs
   jobs: () => get<{ jobs: Job[] }>('/jobs'),
   job: (id: number) => get<{ job: Job }>(`/jobs/${id}`),
+  cancelJob: (id: number) => post<{ job: Job }>(`/jobs/${id}/cancel`),
 
   // findings
   findings: (q: { domainId?: number; type?: string; limit?: number } = {}) => {

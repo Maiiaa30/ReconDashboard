@@ -62,6 +62,18 @@ export function finishJob(id: number, result: unknown): void {
     .run()
 }
 
+// Cancel a job that is still queued. Guarded by status='queued' so it can't
+// race the worker claiming it — if the worker already flipped it to running,
+// changes === 0 and the caller learns it was too late.
+export function cancelJob(id: number): boolean {
+  const res = db
+    .update(jobs)
+    .set({ status: 'cancelled', finishedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(jobs.id, id), eq(jobs.status, 'queued')))
+    .run()
+  return res.changes > 0
+}
+
 export function failJob(id: number, error: string): void {
   db.update(jobs)
     .set({ status: 'error', error, finishedAt: new Date(), updatedAt: new Date() })
