@@ -1,6 +1,5 @@
 import { run } from '../util/exec'
-import { resolveDns } from './dns'
-import { isInternalIp } from '../util/validate'
+import { assertPublicHost, guardedFetch } from './guard'
 import type { Severity } from '../owasp/activeChecks'
 
 // Runners for the extra recon binaries (katana, naabu, dalfox, sslscan) plus an
@@ -137,23 +136,18 @@ export async function runSslscan(host: string): Promise<ToolFinding | null> {
 // --- WordPress enumeration (HTTP, no binary) ---------------------------------
 const WP_TIMEOUT = 9_000
 
+// SSRF-guarded: re-resolves the host on every redirect hop and refuses internal
+// addresses, so a WordPress site that 30x-redirects into an internal URL can't
+// be used to reach our own infrastructure.
 async function wpFetch(url: string): Promise<{ status: number; body: string } | null> {
-  const c = new AbortController()
-  const t = setTimeout(() => c.abort(), WP_TIMEOUT)
-  try {
-    const res = await fetch(url, { redirect: 'follow', signal: c.signal, headers: { 'User-Agent': 'recon-dashboard/0.1' } })
-    const body = (await res.text()).slice(0, 256 * 1024)
-    return { status: res.status, body }
-  } catch {
-    return null
-  } finally {
-    clearTimeout(t)
-  }
+  const res = await guardedFetch(url, { timeoutMs: WP_TIMEOUT })
+  return res ? { status: res.status, body: res.body } : null
 }
 
 export async function runWpEnum(scheme: string, host: string): Promise<ToolFinding | null> {
-  const dns = await resolveDns(host).catch(() => null)
-  if (dns?.a[0] && isInternalIp(dns.a[0])) return null
+  // Guard the initial host against all resolved A/AAAA records before probing
+  // (throws SsrfBlockedError with a clear message if it resolves internal).
+  await assertPublicHost(host)
   const base = `${scheme}://${host}`
 
   const home = await wpFetch(base)

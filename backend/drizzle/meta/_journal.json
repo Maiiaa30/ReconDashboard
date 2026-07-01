@@ -64,6 +64,13 @@
       "when": 1782866661716,
       "tag": "0008_graceful_sage",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1782869628872,
+      "tag": "0009_charming_norrin_radd",
+      "breakpoints": true
     }
   ]
 }

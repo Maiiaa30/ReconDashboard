@@ -1,6 +1,7 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
 import { runDalfox, runKatana, runNaabu, runSslscan, runWpEnum, type ToolFinding } from '../../sources/binTools'
+import { assertPublicHost } from '../../sources/guard'
 import { ToolNotFoundError } from '../../util/exec'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
 import type { JobContext } from '../worker'
@@ -22,6 +23,11 @@ export async function toolScanHandler({ params, log }: JobContext) {
   }
   const scheme = params.scheme === 'http' ? 'http' : 'https'
   const tool = String(params.tool) as ToolId
+
+  // SSRF: katana/naabu/dalfox/sslscan connect to whatever the host resolves to.
+  // Refuse a target that resolves to an internal/Tailscale address before any
+  // binary runs (throws SsrfBlockedError -> job fails with a clear reason).
+  await assertPublicHost(target)
 
   try {
     let finding: ToolFinding | null

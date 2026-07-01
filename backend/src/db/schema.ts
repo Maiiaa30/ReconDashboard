@@ -84,18 +84,31 @@ export const jobs = sqliteTable(
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
     type: text('type').notNull(),
-    // 'queued' | 'running' | 'done' | 'error'
+    // 'queued' | 'running' | 'done' | 'error' | 'cancelled' | 'dead'
+    // 'dead' = a stale/exhausted job we deliberately refuse to auto-resume
+    // (loud active scan interrupted mid-run, or too many crash re-queues).
     status: text('status').notNull().default('queued'),
     params: text('params'), // JSON
     result: text('result'), // JSON
     error: text('error'),
+    // Owning domain (denormalized from params) so we can dedup pending jobs and
+    // cool down per-target scans with an indexed lookup. Nullable, no FK: job
+    // history must survive its domain being deleted.
+    domainId: integer('domain_id'),
+    // Bumped on every claim. Powers the crash-loop guard: a job that keeps
+    // dying is dead-lettered instead of re-queued forever.
+    attempts: integer('attempts').notNull().default(0),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
   },
-  // Supports claimNextQueued() (WHERE status='queued' ORDER BY id) on every poll.
-  (t) => [index('jobs_status_id_idx').on(t.status, t.id)],
+  (t) => [
+    // Supports claimNextQueued() (WHERE status='queued' ORDER BY id) on every poll.
+    index('jobs_status_id_idx').on(t.status, t.id),
+    // Supports hasPendingJob(type, domainId) and per-target scan cooldown.
+    index('jobs_domain_type_idx').on(t.domainId, t.type, t.status),
+  ],
 )
 
 // --- Findings / notes / drawings --------------------------------------------
@@ -115,7 +128,12 @@ export const findings = sqliteTable(
     // Stable identity per logical finding (host/ip/url/...) so re-scans update
     // the same row instead of inserting duplicates.
     dedupeKey: text('dedupe_key'),
+    // createdAt is the FIRST-SEEN timestamp: set once on insert and never touched
+    // by the re-scan upsert (see findings/store.ts). lastSeenAt is refreshed on
+    // every upsert, so (createdAt, lastSeenAt) give discovery age + freshness,
+    // which powers monitoring diffs, report timelines, and change alerts.
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
+    lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }),
   },
   // Supports listFindings() and the dedupe upsert lookup.
   (t) => [

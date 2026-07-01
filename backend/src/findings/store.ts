@@ -56,6 +56,7 @@ export function findingKey(type: string, data: any): string | null {
 
 export function addFinding(f: NewFinding): number {
   const key = findingKey(f.type, f.data)
+  const now = new Date()
   const values = {
     domainId: f.domainId,
     type: f.type,
@@ -63,10 +64,14 @@ export function addFinding(f: NewFinding): number {
     score: f.score ?? null,
     tags: JSON.stringify(f.tags ?? []),
     dedupeKey: key,
+    lastSeenAt: now,
   }
 
   // Upsert by (domainId, type, dedupeKey): refresh the existing row instead of
-  // inserting a duplicate.
+  // inserting a duplicate. createdAt is deliberately NOT touched here — it is the
+  // first-seen timestamp, so re-scans preserve discovery age; only lastSeenAt
+  // moves forward. (Clobbering createdAt used to destroy age on every monitor
+  // tick, breaking diffs/timelines/change alerts.)
   if (key != null) {
     const existing = db
       .select({ id: findings.id })
@@ -82,7 +87,7 @@ export function addFinding(f: NewFinding): number {
       .all()[0]
     if (existing) {
       db.update(findings)
-        .set({ data: values.data, score: values.score, tags: values.tags, createdAt: new Date() })
+        .set({ data: values.data, score: values.score, tags: values.tags, lastSeenAt: now })
         .where(eq(findings.id, existing.id))
         .run()
       return existing.id

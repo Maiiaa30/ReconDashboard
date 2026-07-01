@@ -8,7 +8,7 @@ import { useApp, usePoll } from '../state'
 import { Button, Empty, JobStatusBadge, PageHeader } from '../components/ui'
 import { summarizeJob, timeAgo } from '../lib/format'
 
-const STATUSES = ['all', 'queued', 'running', 'done', 'error', 'cancelled'] as const
+const STATUSES = ['all', 'queued', 'running', 'done', 'error', 'dead', 'cancelled'] as const
 type StatusFilter = (typeof STATUSES)[number]
 
 // Friendly label + icon per job type.

@@ -54,7 +54,14 @@ export function ScoreBadge({ score }: { score: number | null }) {
 }
 
 export function JobStatusBadge({ status }: { status: string }) {
-  const tone = status === 'done' ? 'green' : status === 'error' ? 'red' : status === 'running' ? 'amber' : 'zinc'
+  const tone =
+    status === 'done'
+      ? 'green'
+      : status === 'error' || status === 'dead'
+        ? 'red'
+        : status === 'running'
+          ? 'amber'
+          : 'zinc'
   return <Badge tone={tone}>{status}</Badge>
 }
 

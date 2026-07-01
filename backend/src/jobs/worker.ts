@@ -81,8 +81,9 @@ async function tick(log: FastifyBaseLogger): Promise<void> {
 }
 
 export function startWorker(log: FastifyBaseLogger, intervalMs = 2_000): void {
-  const requeued = requeueStaleRunning()
+  const { requeued, dead } = requeueStaleRunning()
   if (requeued > 0) log.warn(`requeued ${requeued} stale running job(s) from a previous run`)
+  if (dead > 0) log.warn(`dead-lettered ${dead} stale running job(s) (loud/exhausted — not auto-resumed)`)
 
   timer = setInterval(() => {
     void tick(log)
