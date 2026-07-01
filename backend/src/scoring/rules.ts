@@ -210,6 +210,50 @@ function scoreTool(data: any): ScoreResult {
   return { score: clamp(NUCLEI_SEVERITY_SCORE[severity] ?? 15), tags: [...tags], reasons }
 }
 
+function scoreOrigin(data: any): ScoreResult {
+  const provider: string | null = data?.provider ?? null
+  const confirmed = Array.isArray(data?.confirmedOrigins) ? data.confirmedOrigins.length : 0
+  const tags = new Set<string>(['origin'])
+  if (provider) tags.add(`waf:${provider}`)
+  if (confirmed) tags.add('origin-found')
+  const reasons: string[] = []
+  let score: number
+  if (provider && confirmed) {
+    score = 85
+    reasons.push(`Real origin IP found behind ${provider} — defeats the edge/WAF for authorized scans (${confirmed} confirmed) (85)`)
+  } else if (confirmed) {
+    score = 45
+    reasons.push(`${confirmed} candidate origin IP(s) confirmed; no CDN/WAF detected (45)`)
+  } else if (provider) {
+    score = 25
+    reasons.push(`Behind ${provider}; no origin IP confirmed yet (25)`)
+  } else {
+    score = 10
+    reasons.push('No CDN/WAF detected; nothing to bypass (10)')
+  }
+  return { score: clamp(score), tags: [...tags], reasons }
+}
+
+function scoreOsint(data: any): ScoreResult {
+  const tags = new Set<string>(['osint'])
+  const reasons: string[] = []
+  let score = 12
+  const tech = data?.tech && typeof data.tech === 'object' && !('error' in data.tech) ? data.tech : null
+  if (tech) {
+    if (tech.os) reasons.push(`OS: ${tech.os}`)
+    if (tech.server) reasons.push(`Server: ${tech.server}`)
+    if (tech.cdn) reasons.push(`CDN: ${tech.cdn}`)
+    if (Array.isArray(tech.technologies) && tech.technologies.length) {
+      reasons.push(`Stack: ${tech.technologies.slice(0, 8).join(', ')} (+4)`)
+      score += 4
+    }
+  }
+  const archived = Number(data?.archivedUrls ?? data?.wayback?.count ?? 0)
+  if (archived > 0) reasons.push(`${archived} archived URL(s) available for parameter/endpoint mining`)
+  if (reasons.length === 0) reasons.push(`Passive OSINT gathered for ${data?.domain ?? 'the domain'}`)
+  return { score: clamp(score), tags: [...tags], reasons }
+}
+
 function scoreFfuf(data: any): ScoreResult {
   const tags = new Set<string>(['ffuf'])
   const reasons: string[] = []
@@ -248,6 +292,10 @@ export class RulesScorer implements Scorer {
         return scoreNmap(data)
       case 'ffuf':
         return scoreFfuf(data)
+      case 'origin':
+        return scoreOrigin(data)
+      case 'osint':
+        return scoreOsint(data)
       default:
         return { score: 15, tags: [input.type], reasons: [] }
     }

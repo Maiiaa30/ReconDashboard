@@ -123,13 +123,22 @@ export function Findings() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {domainId !== '' && (
-              <a
-                href={`/api/domains/${domainId}/report`}
-                className="rounded-lg border border-hair px-2.5 py-1 text-xs text-zinc-300 transition hover:border-hair-strong hover:bg-ink-800"
-                title="Download a Markdown engagement report for this domain"
-              >
-                Report (MD)
-              </a>
+              <>
+                <a
+                  href={`/api/domains/${domainId}/report`}
+                  className="rounded-lg border border-hair px-2.5 py-1 text-xs text-zinc-300 transition hover:border-hair-strong hover:bg-ink-800"
+                  title="Download a Markdown engagement report for this domain"
+                >
+                  Report (MD)
+                </a>
+                <a
+                  href={`/api/domains/${domainId}/report?format=html`}
+                  className="rounded-lg border border-hair px-2.5 py-1 text-xs text-zinc-300 transition hover:border-hair-strong hover:bg-ink-800"
+                  title="Download a self-contained HTML report (open it and Ctrl-P → Save as PDF)"
+                >
+                  Report (HTML/PDF)
+                </a>
+              </>
             )}
             <ExportLinks
               path="/findings/export"

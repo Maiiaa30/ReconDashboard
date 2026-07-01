@@ -77,7 +77,7 @@ export async function owaspActiveHandler({ params, log }: JobContext) {
     await addScoredFinding({
       domainId,
       type: 'owasp',
-      data: { target, category: f.category, name: f.name, severity: f.severity, url: f.url, evidence: f.evidence },
+      data: { target, category: f.category, name: f.name, severity: f.severity, url: f.url, evidence: f.evidence, repro: f.repro },
       tags: ['owasp', 'active', `owasp:${f.category}`, `sev:${f.severity}`],
     })
   }

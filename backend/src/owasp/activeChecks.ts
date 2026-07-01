@@ -12,12 +12,30 @@ import { isInternalIp } from '../util/validate'
 
 export type Severity = 'info' | 'low' | 'medium' | 'high' | 'critical'
 
+// Structured, reproducible evidence so a finding is retestable in a deliverable.
+export interface EvidenceRepro {
+  request?: string // e.g. "GET https://host/?q=<payload>"
+  payload?: string
+  responseStatus?: number
+  headersSnippet?: string
+  bodyExcerpt?: string
+}
+
 export interface ActiveFinding {
   category: string // OWASP id, e.g. A05
   name: string
   severity: Severity
   url: string
   evidence: string
+  repro?: EvidenceRepro
+}
+
+// A short excerpt of the response body around a marker (for XSS reflection repro).
+function excerptAround(body: string, needle: string, span = 160): string {
+  const i = body.indexOf(needle)
+  if (i < 0) return body.slice(0, span).replace(/\s+/g, ' ')
+  const start = Math.max(0, i - Math.floor(span / 2))
+  return body.slice(start, i + needle.length + Math.floor(span / 2)).replace(/\s+/g, ' ')
 }
 
 export interface OwaspChecksOptions {
@@ -134,14 +152,28 @@ async function checkSensitiveFiles(baseUrl: string, ctx: Ctx): Promise<ActiveFin
   for (const f of SENSITIVE_FILES) {
     const res = await fetchRaw(baseUrl + f.path, { headers: ctx.headers })
     if (res && res.status === 200 && f.signatures.some((re) => re.test(res.body))) {
-      out.push({ category: 'A02', name: f.name, severity: f.severity, url: baseUrl + f.path, evidence: `HTTP 200 with matching content at ${f.path}` })
+      out.push({
+        category: 'A02',
+        name: f.name,
+        severity: f.severity,
+        url: baseUrl + f.path,
+        evidence: `HTTP 200 with matching content at ${f.path}`,
+        repro: { request: `GET ${baseUrl + f.path}`, responseStatus: res.status, bodyExcerpt: res.body.slice(0, 300).replace(/\s+/g, ' ') },
+      })
     }
   }
   // Operator-supplied custom paths — reported on any 200 (verify manually).
   for (const p of ctx.customPaths) {
     const res = await fetchRaw(baseUrl + p, { headers: ctx.headers })
     if (res && res.status === 200) {
-      out.push({ category: 'A02', name: `Custom path returned 200: ${p}`, severity: 'low', url: baseUrl + p, evidence: `Custom sensitive path ${p} responded 200 — verify` })
+      out.push({
+        category: 'A02',
+        name: `Custom path returned 200: ${p}`,
+        severity: 'low',
+        url: baseUrl + p,
+        evidence: `Custom sensitive path ${p} responded 200 — verify`,
+        repro: { request: `GET ${baseUrl + p}`, responseStatus: res.status },
+      })
     }
   }
   return out
@@ -158,7 +190,14 @@ async function checkReflectedXss(baseUrl: string, ctx: Ctx): Promise<ActiveFindi
     const url = `${baseUrl}?${param}=${encodeURIComponent(DEFAULT_XSS.inject)}`
     const res = await fetchRaw(url, { redirect: 'follow', headers: ctx.headers })
     if (res && res.body.includes(DEFAULT_XSS.needle)) {
-      out.push({ category: 'A03', name: 'Reflected XSS — unencoded input', severity: 'high', url, evidence: `Payload reflected unencoded via ?${param}=` })
+      out.push({
+        category: 'A03',
+        name: 'Reflected XSS — unencoded input',
+        severity: 'high',
+        url,
+        evidence: `Payload reflected unencoded via ?${param}=`,
+        repro: { request: `GET ${url}`, payload: DEFAULT_XSS.inject, responseStatus: res.status, bodyExcerpt: excerptAround(res.body, DEFAULT_XSS.needle) },
+      })
       break // one confirmed sink is enough to flag
     }
   }
@@ -167,7 +206,14 @@ async function checkReflectedXss(baseUrl: string, ctx: Ctx): Promise<ActiveFindi
     const url = `${baseUrl}?q=${encodeURIComponent(p)}`
     const res = await fetchRaw(url, { redirect: 'follow', headers: ctx.headers })
     if (res && res.body.includes(p)) {
-      out.push({ category: 'A03', name: 'Custom XSS payload reflected', severity: 'high', url, evidence: `Custom payload reflected unencoded: ${p.slice(0, 80)}` })
+      out.push({
+        category: 'A03',
+        name: 'Custom XSS payload reflected',
+        severity: 'high',
+        url,
+        evidence: `Custom payload reflected unencoded: ${p.slice(0, 80)}`,
+        repro: { request: `GET ${url}`, payload: p, responseStatus: res.status, bodyExcerpt: excerptAround(res.body, p) },
+      })
     }
   }
   return out
@@ -183,7 +229,14 @@ async function checkOpenRedirect(baseUrl: string, ctx: Ctx): Promise<ActiveFindi
     if (res && res.status >= 300 && res.status < 400) {
       const loc = res.headers.get('location') ?? ''
       if (/^https?:\/\/(www\.)?example\.org/i.test(loc) || loc.startsWith('//example.org')) {
-        return [{ category: 'A10', name: 'Open redirect', severity: 'medium', url, evidence: `?${param}= redirects to ${loc}` }]
+        return [{
+          category: 'A10',
+          name: 'Open redirect',
+          severity: 'medium',
+          url,
+          evidence: `?${param}= redirects to ${loc}`,
+          repro: { request: `GET ${url}`, payload: evil, responseStatus: res.status, headersSnippet: `Location: ${loc}` },
+        }]
       }
     }
   }
@@ -204,6 +257,11 @@ async function checkCors(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
       severity: withCreds ? 'high' : 'low',
       url: baseUrl,
       evidence: `Access-Control-Allow-Origin: ${acao}${withCreds ? ' with Allow-Credentials: true' : ''}`,
+      repro: {
+        request: `GET ${baseUrl}  (Origin: ${evil})`,
+        responseStatus: res.status,
+        headersSnippet: `Access-Control-Allow-Origin: ${acao}${withCreds ? '\nAccess-Control-Allow-Credentials: true' : ''}`,
+      },
     }]
   }
   return []

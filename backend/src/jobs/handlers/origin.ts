@@ -1,5 +1,5 @@
 import { getDomain } from '../../domains/store'
-import { addFinding } from '../../findings/store'
+import { addScoredFinding } from '../../findings/score'
 import { cdnForIp, wafFromHeaders } from '../../sources/cdn'
 import { resolveDns } from '../../sources/dns'
 import { probeHost } from '../../sources/httpProbe'
@@ -79,11 +79,9 @@ export async function originHandler({ params, log }: JobContext) {
     allCandidates: probed.filter((p) => p.ip),
   }
 
-  // Score: high if we found a real origin behind a CDN/WAF (it defeats the edge
-  // protection for the authorized scan), else informational.
-  const score = provider && confirmed.length ? 85 : confirmed.length ? 45 : provider ? 25 : 10
-  const tags = ['origin', ...(provider ? [`waf:${provider}`] : []), ...(confirmed.length ? ['origin-found'] : [])]
-  addFinding({ domainId, type: 'origin', data: finding, tags, score })
+  // Route through the scorer (scoreOrigin) so scoring lives in one place and the
+  // finding carries _scoreReasons like every other type.
+  await addScoredFinding({ domainId, type: 'origin', data: finding, tags: ['origin'] })
 
   log.info({ domain: host, provider, confirmed: confirmed.length }, 'origin scan complete')
   return { domain: host, provider, behindCdn: Boolean(provider), confirmedOrigins: confirmed.length, candidatesChecked: candidates.length }

@@ -2,7 +2,7 @@ import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { getDomain } from '../domains/store'
 import { listSubdomains } from '../subdomains/store'
 import { listFindings, type FindingType } from '../findings/store'
-import { buildDomainReport } from '../findings/report'
+import { buildDomainReport, buildDomainReportHtml } from '../findings/report'
 import { toCsv } from '../util/csv'
 
 type Format = 'csv' | 'json' | 'txt'
@@ -45,19 +45,33 @@ function summarize(type: string, data: any): string {
 }
 
 export const exportRoutes: FastifyPluginAsync = async (app) => {
-  // Per-domain engagement report (Markdown): summary, findings by severity,
-  // confirmed findings with notes, live subdomains, tech, exposure.
-  app.get<{ Params: { id: string } }>('/api/domains/:id/report', async (request, reply) => {
-    const id = Number(request.params.id)
-    const domain = getDomain(id)
-    if (!domain) return reply.code(404).send({ error: 'domain not found' })
-    const md = buildDomainReport(id, new Date().toISOString())
-    if (md == null) return reply.code(404).send({ error: 'domain not found' })
-    reply
-      .header('Content-Type', 'text/markdown; charset=utf-8')
-      .header('Content-Disposition', `attachment; filename="${domain.host}-report.md"`)
-    return reply.send(md)
-  })
+  // Per-domain engagement report. ?format=md (default) → Markdown; ?format=html
+  // → a self-contained single-file HTML the operator can print to PDF. Both carry
+  // exec summary, scope/authorization, methodology, findings by severity, detail
+  // (with "why this score" + evidence), live subdomains, tech, exposure.
+  app.get<{ Params: { id: string }; Querystring: { format?: string } }>(
+    '/api/domains/:id/report',
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      const domain = getDomain(id)
+      if (!domain) return reply.code(404).send({ error: 'domain not found' })
+      const iso = new Date().toISOString()
+      if (request.query.format === 'html') {
+        const html = buildDomainReportHtml(id, iso)
+        if (html == null) return reply.code(404).send({ error: 'domain not found' })
+        reply
+          .header('Content-Type', 'text/html; charset=utf-8')
+          .header('Content-Disposition', `attachment; filename="${domain.host}-report.html"`)
+        return reply.send(html)
+      }
+      const md = buildDomainReport(id, iso)
+      if (md == null) return reply.code(404).send({ error: 'domain not found' })
+      reply
+        .header('Content-Type', 'text/markdown; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="${domain.host}-report.md"`)
+      return reply.send(md)
+    },
+  )
 
   // Subdomains export: csv | txt (hosts only) | json (full rows).
   app.get<{ Params: { id: string }; Querystring: { format?: string } }>(
@@ -100,10 +114,14 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
       if (format === 'json') {
         return send(reply, 'json', base, JSON.stringify(findings, null, 2))
       }
-      const headers = ['id', 'type', 'score', 'summary', 'tags', 'domain_id', 'created_at']
+      // Include the operator's triage (status/note) and first/last-seen — the
+      // artifact a lead/client sees should carry the triage judgment, not drop it.
+      const headers = ['id', 'type', 'score', 'status', 'summary', 'note', 'tags', 'domain_id', 'first_seen', 'last_seen']
       const rows = findings.map((f) => [
-        f.id, f.type, f.score, summarize(f.type, f.data), (f.tags ?? []).join('|'), f.domainId,
+        f.id, f.type, f.score, (f as any).status ?? '', summarize(f.type, f.data), (f as any).note ?? '',
+        (f.tags ?? []).join('|'), f.domainId,
         f.createdAt ? new Date(f.createdAt).toISOString() : '',
+        (f as any).lastSeenAt ? new Date((f as any).lastSeenAt).toISOString() : '',
       ])
       return send(reply, 'csv', base, toCsv(headers, rows))
     },
