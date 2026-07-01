@@ -47,6 +47,9 @@ export function updateDomain(
     profile?: unknown
     monitorIntervalHours?: number
     owaspConfig?: unknown
+    scopeConfig?: unknown
+    authorizedFrom?: number | null
+    authorizedUntil?: number | null
   },
 ) {
   const set: Record<string, unknown> = { updatedAt: new Date() }
@@ -54,12 +57,26 @@ export function updateDomain(
   if (patch.label !== undefined) set.label = patch.label?.toString().trim() || null
   if (patch.profile !== undefined) set.profile = JSON.stringify(patch.profile ?? {})
   if (patch.owaspConfig !== undefined) set.owaspConfig = JSON.stringify(patch.owaspConfig ?? {})
+  if (patch.scopeConfig !== undefined) set.scopeConfig = JSON.stringify(patch.scopeConfig ?? {})
+  if (patch.authorizedFrom !== undefined) {
+    set.authorizedFrom = toDateOrNull(patch.authorizedFrom)
+  }
+  if (patch.authorizedUntil !== undefined) {
+    set.authorizedUntil = toDateOrNull(patch.authorizedUntil)
+  }
   if (patch.monitorIntervalHours !== undefined) {
     const h = Math.trunc(Number(patch.monitorIntervalHours))
     set.monitorIntervalHours = Number.isFinite(h) && h > 0 ? Math.min(h, 168) : 0
   }
   db.update(domains).set(set).where(eq(domains.id, id)).run()
   return getDomain(id)
+}
+
+// Accept an epoch-ms number (or null/0 to clear) and return a Date for storage.
+function toDateOrNull(v: number | null): Date | null {
+  if (v == null) return null
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? new Date(n) : null
 }
 
 // Domains whose auto-monitor interval has elapsed (or never ran). The first run

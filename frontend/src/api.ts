@@ -64,6 +64,11 @@ export interface OwaspConfig {
   authHeader?: string
 }
 
+export interface ScopeConfig {
+  allow?: string[]
+  deny?: string[]
+}
+
 export interface Domain {
   id: number
   host: string
@@ -71,9 +76,24 @@ export interface Domain {
   mode: DomainMode
   profile?: DomainProfile
   owaspConfig?: OwaspConfig
+  scopeConfig?: ScopeConfig
+  authorizedFrom?: string | null
+  authorizedUntil?: string | null
   monitorIntervalHours?: number
   createdAt: string
   updatedAt: string
+}
+
+export interface AuditEntry {
+  id: number
+  ts: string
+  actor: string
+  action: string
+  domainId: number | null
+  target: string | null
+  mode: string | null
+  jobId: number | null
+  detail: string | null
 }
 
 export interface Subdomain {
@@ -117,7 +137,7 @@ export interface OwaspProfileKey {
   hint: string
 }
 
-export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled' | 'dead'
 
 export interface Job {
   id: number
@@ -143,6 +163,7 @@ export interface Finding {
   status: FindingStatus
   note: string | null
   createdAt: string
+  lastSeenAt: string | null
 }
 
 export interface Note {
@@ -275,6 +296,9 @@ export const api = {
       profile?: DomainProfile
       monitorIntervalHours?: number
       owaspConfig?: OwaspConfig
+      scopeConfig?: ScopeConfig
+      authorizedFrom?: number | null
+      authorizedUntil?: number | null
     },
   ) => patch<{ domain: Domain }>(`/domains/${id}`, patchBody),
   deleteDomain: (id: number) => del<{ ok: true }>(`/domains/${id}`),
@@ -352,7 +376,49 @@ export const api = {
     put<{ drawing: Drawing }>(`/drawings/${id}`, { data, name }),
   deleteDrawing: (id: number) => del<{ ok: true }>(`/drawings/${id}`),
 
+  // audit ledger (read-only)
+  audit: (q: { domainId?: number; limit?: number } = {}) => {
+    const params = new URLSearchParams()
+    if (q.domainId != null) params.set('domainId', String(q.domainId))
+    if (q.limit) params.set('limit', String(q.limit))
+    const qs = params.toString()
+    return get<{ entries: AuditEntry[] }>(`/audit${qs ? `?${qs}` : ''}`)
+  },
+
   // backup
   backupStatus: () => get<{ serverPassphraseConfigured: boolean }>('/backup/status'),
   // backup download is handled directly in the component (binary response).
+  // Upload an encrypted .rdb (verify = safe check; restore = stage for restart).
+  backupVerify: (blob: Blob, passphrase?: string) => uploadBackup('/backup/verify', blob, passphrase),
+  backupRestore: (blob: Blob, passphrase?: string) => uploadBackup('/backup/restore', blob, passphrase),
+}
+
+export interface BackupCheckResult {
+  ok: boolean
+  error?: string
+  bytes?: number
+  staged?: boolean
+  restartRequired?: boolean
+  message?: string
+}
+
+async function uploadBackup(path: string, blob: Blob, passphrase?: string): Promise<BackupCheckResult> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' }
+  if (passphrase) headers['X-Backup-Passphrase'] = passphrase
+  const res = await fetch(`/api${path}`, { method: 'POST', headers, body: blob })
+  const text = await res.text()
+  let body: unknown = null
+  if (text) {
+    try {
+      body = JSON.parse(text)
+    } catch {
+      body = text
+    }
+  }
+  if (!res.ok && res.status !== 422) {
+    const message =
+      body && typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : `HTTP ${res.status}`
+    throw new ApiError(res.status, message)
+  }
+  return body as BackupCheckResult
 }

@@ -23,6 +23,23 @@ const CHIP: Record<string, string> = {
   purple: 'bg-purple-500/15 text-purple-400',
 }
 
+// datetime-local <-> epoch-ms helpers for the authorization window.
+function toLocalInput(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const dt = new Date(iso)
+  if (isNaN(dt.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`
+}
+function fromLocalInput(v: string): number | null {
+  if (!v) return null
+  const t = new Date(v).getTime()
+  return Number.isFinite(t) ? t : null
+}
+function linesToList(s: string): string[] {
+  return s.split('\n').map((x) => x.trim()).filter(Boolean)
+}
+
 export function Domains() {
   const { refreshDomains, select, selectedId } = useApp()
   const [overview, setOverview] = useState<DomainOverview[]>([])
@@ -142,6 +159,8 @@ function DomainCard({
   onAction: (kind: string, fn: () => Promise<unknown>) => Promise<void>
   onChanged: () => Promise<void>
 }) {
+  const { domains: allDomains } = useApp()
+  const full = allDomains.find((x) => x.id === d.id)
   const risk = riskFromScore(d.findings.maxScore)
   const rs = RISK_STYLES[risk]
   const active = d.mode === 'active_authorized'
@@ -149,6 +168,20 @@ function DomainCard({
   const [editing, setEditing] = useState(false)
   const [labelDraft, setLabelDraft] = useState(d.label ?? '')
   const [modeDraft, setModeDraft] = useState<DomainMode>(d.mode)
+  const [allowDraft, setAllowDraft] = useState('')
+  const [denyDraft, setDenyDraft] = useState('')
+  const [fromDraft, setFromDraft] = useState('')
+  const [untilDraft, setUntilDraft] = useState('')
+
+  function openEdit() {
+    setLabelDraft(d.label ?? '')
+    setModeDraft(d.mode)
+    setAllowDraft((full?.scopeConfig?.allow ?? []).join('\n'))
+    setDenyDraft((full?.scopeConfig?.deny ?? []).join('\n'))
+    setFromDraft(toLocalInput(full?.authorizedFrom))
+    setUntilDraft(toLocalInput(full?.authorizedUntil))
+    setEditing(true)
+  }
 
   async function saveEdit() {
     if (
@@ -160,7 +193,13 @@ function DomainCard({
     )
       return
     try {
-      await api.updateDomain(d.id, { label: labelDraft.trim() || null, mode: modeDraft })
+      await api.updateDomain(d.id, {
+        label: labelDraft.trim() || null,
+        mode: modeDraft,
+        scopeConfig: { allow: linesToList(allowDraft), deny: linesToList(denyDraft) },
+        authorizedFrom: fromLocalInput(fromDraft),
+        authorizedUntil: fromLocalInput(untilDraft),
+      })
       setEditing(false)
       await onChanged()
     } catch (err) {
@@ -263,16 +302,65 @@ function DomainCard({
               <option value="active_authorized">active_authorized (enables nmap/nuclei/ffuf/OWASP)</option>
             </select>
           </label>
+
+          {/* Engagement scope + authorization window (enforced on active scans) */}
+          <div className="mt-1 border-t border-hair/60 pt-2">
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+              Authorized scope & window
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-xs text-zinc-400">
+                Allow (hosts / CIDRs)
+                <textarea
+                  value={allowDraft}
+                  onChange={(e) => setAllowDraft(e.target.value)}
+                  rows={3}
+                  placeholder={'example.com\n203.0.113.0/24'}
+                  className="mt-1 block w-full rounded-lg border border-hair bg-ink-950 px-2.5 py-1 font-mono text-xs outline-none focus:border-accent-500"
+                />
+              </label>
+              <label className="block text-xs text-zinc-400">
+                Deny (hosts / CIDRs)
+                <textarea
+                  value={denyDraft}
+                  onChange={(e) => setDenyDraft(e.target.value)}
+                  rows={3}
+                  placeholder={'staging.example.com'}
+                  className="mt-1 block w-full rounded-lg border border-hair bg-ink-950 px-2.5 py-1 font-mono text-xs outline-none focus:border-accent-500"
+                />
+              </label>
+            </div>
+            <p className="mt-1 text-[10px] text-zinc-600">
+              Empty allow = anything within the domain. Deny always wins. Enforced on active scans only.
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <label className="block text-xs text-zinc-400">
+                Authorized from
+                <input
+                  type="datetime-local"
+                  value={fromDraft}
+                  onChange={(e) => setFromDraft(e.target.value)}
+                  className="mt-1 block w-full rounded-lg border border-hair bg-ink-950 px-2.5 py-1 text-xs outline-none focus:border-accent-500"
+                />
+              </label>
+              <label className="block text-xs text-zinc-400">
+                Authorized until
+                <input
+                  type="datetime-local"
+                  value={untilDraft}
+                  onChange={(e) => setUntilDraft(e.target.value)}
+                  className="mt-1 block w-full rounded-lg border border-hair bg-ink-950 px-2.5 py-1 text-xs outline-none focus:border-accent-500"
+                />
+              </label>
+            </div>
+            <p className="mt-1 text-[10px] text-zinc-600">
+              Outside this window, active scans are refused. Leave blank for no time limit.
+            </p>
+          </div>
+
           <div className="flex gap-1.5">
             <Button variant="loud" onClick={saveEdit}>Save</Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setEditing(false)
-                setLabelDraft(d.label ?? '')
-                setModeDraft(d.mode)
-              }}
-            >
+            <Button variant="ghost" onClick={() => setEditing(false)}>
               Cancel
             </Button>
           </div>
@@ -302,7 +390,7 @@ function DomainCard({
           <option value={24}>every 24h</option>
         </select>
         <div className="ml-auto flex gap-1.5">
-          <Button variant="ghost" onClick={() => setEditing((v) => !v)}>
+          <Button variant="ghost" onClick={() => (editing ? setEditing(false) : openEdit())}>
             {editing ? 'Close' : 'Edit'}
           </Button>
           <Button variant={selected ? 'default' : 'ghost'} onClick={onSelect}>

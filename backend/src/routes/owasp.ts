@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { getDomain } from '../domains/store'
+import { assertScanAllowed, ScanPolicyError } from '../domains/scanPolicy'
 import { enqueueJob } from '../jobs/queue'
+import { actorName, writeAudit } from '../audit/store'
 import {
   applicableCategories,
   OWASP_CATALOG,
@@ -22,47 +23,62 @@ export const owaspRoutes: FastifyPluginAsync = async (app) => {
     '/api/domains/:id/owasp',
     async (request, reply) => {
       const id = Number(request.params.id)
-      const domain = getDomain(id)
-      if (!domain) return reply.code(404).send({ error: 'domain not found' })
-      if (domain.mode !== 'active_authorized' && request.body?.confirm !== true) {
-        return reply
-          .code(400)
-          .send({ error: `domain "${domain.host}" is passive_only — confirm you are authorized to actively scan it` })
-      }
+      try {
+        const { domain } = await assertScanAllowed({
+          domainId: id,
+          confirm: request.body?.confirm === true,
+          jobType: 'owasp_active',
+        })
 
-      const profile = safeJsonParse<ProfileFlags>(domain.profile, {})
-      let cats = applicableCategories(profile)
-      const requested = request.body?.categoryIds
-      if (Array.isArray(requested) && requested.length) {
-        cats = cats.filter((c) => requested.includes(c.id))
-      }
-      if (cats.length === 0) {
-        return reply
-          .code(400)
-          .send({ error: 'no applicable OWASP categories for this domain profile/selection' })
-      }
+        const profile = safeJsonParse<ProfileFlags>(domain.profile, {})
+        let cats = applicableCategories(profile)
+        const requested = request.body?.categoryIds
+        if (Array.isArray(requested) && requested.length) {
+          cats = cats.filter((c) => requested.includes(c.id))
+        }
+        if (cats.length === 0) {
+          return reply
+            .code(400)
+            .send({ error: 'no applicable OWASP categories for this domain profile/selection' })
+        }
 
-      const tags = tagsForCategories(cats.map((c) => c.id))
-      const scheme = request.body?.scheme === 'http' ? 'http' : 'https'
+        const tags = tagsForCategories(cats.map((c) => c.id))
+        const scheme = request.body?.scheme === 'http' ? 'http' : 'https'
 
-      // Primary: our own active HTTP checks (no nuclei dependency) — headers,
-      // sensitive files, reflected XSS, open redirect, CORS, TRACE, listings.
-      const jobs: number[] = []
-      jobs.push(enqueueJob('owasp_active', { domainId: id, target: domain.host, scheme }))
-      // Complementary: a nuclei pass over the selected categories' tags (only if
-      // the operator wants it / the binary is present — degrades gracefully).
-      if (request.body?.nuclei !== false) {
-        jobs.push(
-          enqueueJob('nuclei_scan', {
-            domainId: id,
-            target: domain.host,
-            scheme,
-            tags,
-            owaspCategory: cats.map((c) => c.id).join(','),
-          }),
-        )
+        // Primary: our own active HTTP checks (no nuclei dependency) — headers,
+        // sensitive files, reflected XSS, open redirect, CORS, TRACE, listings.
+        const jobs: number[] = []
+        jobs.push(enqueueJob('owasp_active', { domainId: id, target: domain.host, scheme }))
+        // Complementary: a nuclei pass over the selected categories' tags (only if
+        // the operator wants it / the binary is present — degrades gracefully).
+        if (request.body?.nuclei !== false) {
+          jobs.push(
+            enqueueJob('nuclei_scan', {
+              domainId: id,
+              target: domain.host,
+              scheme,
+              tags,
+              owaspCategory: cats.map((c) => c.id).join(','),
+            }),
+          )
+        }
+        writeAudit({
+          actor: actorName(request.session.userId),
+          action: 'enqueue:owasp',
+          domainId: id,
+          target: domain.host,
+          mode: domain.mode,
+          jobId: jobs[0],
+          detail: { categories: cats.map((c) => c.id), nuclei: request.body?.nuclei !== false, jobs },
+        })
+        return reply.code(202).send({ jobId: jobs[0], jobs, categories: cats.map((c) => c.id), tags })
+      } catch (err) {
+        if (err instanceof ScanPolicyError) {
+          if (err.retryAfterSec) reply.header('Retry-After', String(err.retryAfterSec))
+          return reply.code(err.status).send({ error: err.message, code: err.code })
+        }
+        throw err
       }
-      return reply.code(202).send({ jobId: jobs[0], jobs, categories: cats.map((c) => c.id), tags })
     },
   )
 }

@@ -1,49 +1,40 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { DomainValidationError, getDomain } from '../domains/store'
+import { assertScanAllowed, ScanPolicyError } from '../domains/scanPolicy'
 import { enqueueJob, type JobType } from '../jobs/queue'
-import { hostBelongsToDomain, isValidHostname } from '../util/validate'
+import { actorName, writeAudit } from '../audit/store'
 
-// ACTIVE / LOUD scans. active_authorized domains run freely; passive_only
-// domains require an explicit `confirm` (the UI shows a loud warning first), so
-// the operator can't run these by accident. The target must always belong to the
-// domain regardless.
+// ACTIVE / LOUD scans. All gating (mode/confirm, target-belongs, authorization
+// window, engagement scope, pending guard, cooldown) lives in assertScanAllowed;
+// every allowed enqueue is written to the append-only audit ledger.
 export const scanRoutes: FastifyPluginAsync = async (app) => {
-  function gate(idRaw: string, target: string | undefined, confirm: boolean): { domainHost: string; target: string } {
-    const id = Number(idRaw)
-    const domain = getDomain(id)
-    if (!domain) throw new DomainValidationError('domain not found')
-    if (domain.mode !== 'active_authorized' && !confirm) {
-      throw new DomainValidationError(
-        `domain "${domain.host}" is passive_only — confirm you are authorized to actively scan it`,
-      )
-    }
-    const t = (target ?? domain.host).trim().toLowerCase()
-    if (!isValidHostname(t) && t !== domain.host) {
-      throw new DomainValidationError(`invalid target: ${target}`)
-    }
-    if (t !== domain.host && !hostBelongsToDomain(t, domain.host)) {
-      throw new DomainValidationError(`target ${t} is not within domain ${domain.host}`)
-    }
-    return { domainHost: domain.host, target: t }
-  }
-
   function makeRoute(path: string, jobType: JobType, build: (body: any, target: string) => Record<string, unknown>) {
     app.post<{ Params: { id: string }; Body: Record<string, unknown> }>(
       path,
       async (request, reply) => {
         const id = Number(request.params.id)
         try {
-          const { target } = gate(
-            request.params.id,
-            request.body?.target as string | undefined,
-            request.body?.confirm === true,
-          )
+          const { domain, target } = await assertScanAllowed({
+            domainId: id,
+            target: request.body?.target as string | undefined,
+            confirm: request.body?.confirm === true,
+            jobType,
+          })
           const params = { domainId: id, target, ...build(request.body ?? {}, target) }
-          return reply.code(202).send({ jobId: enqueueJob(jobType, params) })
+          const jobId = enqueueJob(jobType, params)
+          writeAudit({
+            actor: actorName(request.session.userId),
+            action: `enqueue:${jobType}`,
+            domainId: id,
+            target,
+            mode: domain.mode,
+            jobId,
+            detail: build(request.body ?? {}, target),
+          })
+          return reply.code(202).send({ jobId })
         } catch (err) {
-          if (err instanceof DomainValidationError) {
-            const code = err.message === 'domain not found' ? 404 : 400
-            return reply.code(code).send({ error: err.message })
+          if (err instanceof ScanPolicyError) {
+            if (err.retryAfterSec) reply.header('Retry-After', String(err.retryAfterSec))
+            return reply.code(err.status).send({ error: err.message, code: err.code })
           }
           throw err
         }

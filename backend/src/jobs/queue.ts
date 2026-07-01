@@ -63,6 +63,26 @@ export function hasPendingJob(type: JobType, domainId: number): boolean {
   return !!row
 }
 
+// When the most recent SUCCESSFUL job of this type for this domain finished
+// (null if none). Powers the per-target active-scan cooldown so a fat-fingered
+// double-click / backed-up scheduler can't machine-gun a fragile target.
+export function lastFinishedJobAt(type: JobType, domainId: number): Date | null {
+  const row = db
+    .select({ finishedAt: jobs.finishedAt })
+    .from(jobs)
+    .where(and(eq(jobs.type, type), eq(jobs.domainId, domainId), eq(jobs.status, 'done')))
+    .orderBy(desc(jobs.finishedAt))
+    .limit(1)
+    .all()[0]
+  return row?.finishedAt ?? null
+}
+
+// Loud/active job types (do-not-auto-resume set) — also used to decide which
+// jobs to write to the audit ledger at start/finish.
+export function isLoudJob(type: string): boolean {
+  return LOUD_TYPES.has(type as JobType)
+}
+
 export function getJob(id: number) {
   return db.select().from(jobs).where(eq(jobs.id, id)).limit(1).all()[0]
 }

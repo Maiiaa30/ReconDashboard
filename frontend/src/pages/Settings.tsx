@@ -186,6 +186,47 @@ function BackupPanel() {
   const [passphrase, setPassphrase] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [file, setFile] = useState<File | null>(null)
+  const [checkMsg, setCheckMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const canUsePass = serverConfigured || passphrase.length >= 12
+
+  async function verify() {
+    if (!file) return
+    setBusy(true)
+    setCheckMsg(null)
+    try {
+      const r = await api.backupVerify(file, serverConfigured ? undefined : passphrase)
+      setCheckMsg({
+        ok: !!r.ok,
+        text: r.ok ? `Valid backup — ${(r.bytes ?? 0).toLocaleString()} bytes, loads cleanly.` : r.error || 'invalid backup',
+      })
+    } catch (e) {
+      setCheckMsg({ ok: false, text: e instanceof Error ? e.message : 'verify failed' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function restore() {
+    if (!file) return
+    if (
+      !confirm(
+        'Stage this backup for restore? It will REPLACE the current database on the next backend restart (the current DB is kept as a .pre-restore copy).',
+      )
+    )
+      return
+    setBusy(true)
+    setCheckMsg(null)
+    try {
+      const r = await api.backupRestore(file, serverConfigured ? undefined : passphrase)
+      setCheckMsg({ ok: !!r.ok, text: r.ok ? r.message || 'Restore staged — restart the backend to apply.' : r.error || 'restore failed' })
+    } catch (e) {
+      setCheckMsg({ ok: false, text: e instanceof Error ? e.message : 'restore failed' })
+    } finally {
+      setBusy(false)
+    }
+  }
 
   useEffect(() => {
     api
@@ -253,6 +294,35 @@ function BackupPanel() {
       >
         {busy ? 'Preparing…' : 'Download encrypted backup'}
       </Button>
+
+      {/* Verify / restore */}
+      <div className="mt-5 border-t border-hair pt-4">
+        <h3 className="text-sm font-semibold">Verify or restore a backup</h3>
+        <p className="mt-1 text-sm text-zinc-400">
+          Confirm a backup is decryptable and loads (safe — never touches the live DB), or stage it to
+          replace the database on the next restart. Uses the same passphrase as above.
+        </p>
+        <input
+          type="file"
+          accept=".rdb,application/octet-stream"
+          onChange={(e) => {
+            setFile(e.target.files?.[0] ?? null)
+            setCheckMsg(null)
+          }}
+          className="mt-3 block w-full text-sm text-zinc-400 file:mr-3 file:rounded-lg file:border-0 file:bg-ink-800 file:px-3 file:py-1.5 file:text-sm file:text-zinc-200 hover:file:bg-ink-700"
+        />
+        {checkMsg && (
+          <p className={`mt-2 text-sm ${checkMsg.ok ? 'text-green-400' : 'text-red-400'}`}>{checkMsg.text}</p>
+        )}
+        <div className="mt-3 flex gap-2">
+          <Button onClick={verify} disabled={busy || !file || !canUsePass}>
+            {busy ? '…' : 'Verify backup'}
+          </Button>
+          <Button variant="danger" onClick={restore} disabled={busy || !file || !canUsePass}>
+            {busy ? '…' : 'Stage restore'}
+          </Button>
+        </div>
+      </div>
     </Card>
   )
 }

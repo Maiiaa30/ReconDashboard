@@ -44,9 +44,38 @@ export const domains = sqliteTable('domains', {
   // Auto-monitoring: re-run passive recon every N hours (0 = off).
   monitorIntervalHours: integer('monitor_interval_hours').notNull().default(0),
   lastMonitoredAt: integer('last_monitored_at', { mode: 'timestamp_ms' }),
+  // Engagement scope (JSON): { allow: string[], deny: string[] } of hosts or
+  // CIDRs. Empty/absent allow = "anything within the domain"; deny always wins.
+  // Enforced on active scans so we can't be pointed at out-of-scope assets.
+  scopeConfig: text('scope_config'),
+  // Authorization window for ACTIVE/loud scans. Outside [from, until] active
+  // scans are refused (a real engagement is time-boxed). Null = unbounded.
+  authorizedFrom: integer('authorized_from', { mode: 'timestamp_ms' }),
+  authorizedUntil: integer('authorized_until', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
 })
+
+// --- Audit --------------------------------------------------------------------
+
+// Append-only ledger of active actions against targets. Written at every active
+// enqueue and at job start/finish. Never UPDATEd or DELETEd — legal cover for an
+// authorized engagement ("who ran what, against whom, when, under which mode").
+export const auditLog = sqliteTable(
+  'audit_log',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    ts: integer('ts', { mode: 'timestamp_ms' }).notNull().default(now),
+    actor: text('actor').notNull(), // operator username, or 'worker'
+    action: text('action').notNull(), // e.g. 'enqueue:nmap_scan', 'job:start', 'job:done'
+    domainId: integer('domain_id'),
+    target: text('target'),
+    mode: text('mode'), // domain mode at action time
+    jobId: integer('job_id'),
+    detail: text('detail'), // short JSON/text context (params summary, outcome)
+  },
+  (t) => [index('audit_ts_idx').on(t.ts), index('audit_domain_idx').on(t.domainId)],
+)
 
 export const subdomains = sqliteTable(
   'subdomains',
@@ -166,3 +195,4 @@ export type User = typeof users.$inferSelect
 export type Domain = typeof domains.$inferSelect
 export type Subdomain = typeof subdomains.$inferSelect
 export type Job = typeof jobs.$inferSelect
+export type AuditEntry = typeof auditLog.$inferSelect

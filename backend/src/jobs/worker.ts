@@ -1,7 +1,8 @@
 import type { FastifyBaseLogger } from 'fastify'
 import type { Job } from '../db/schema'
-import { claimNextQueued, failJob, finishJob, requeueStaleRunning } from './queue'
+import { claimNextQueued, failJob, finishJob, isLoudJob, requeueStaleRunning } from './queue'
 import type { JobType } from './queue'
+import { writeAudit } from '../audit/store'
 
 export interface JobContext {
   job: Job
@@ -65,14 +66,45 @@ async function tick(log: FastifyBaseLogger): Promise<void> {
       }
 
       log.info({ jobId: job.id, type: job.type }, 'job started')
+      const loud = isLoudJob(job.type)
+      if (loud) {
+        writeAudit({
+          actor: 'worker',
+          action: 'job:start',
+          domainId: job.domainId ?? undefined,
+          target: typeof params.target === 'string' ? params.target : undefined,
+          jobId: job.id,
+          detail: { type: job.type, attempt: job.attempts },
+        })
+      }
       try {
         const result = await withTimeout(handler({ job, params, log }), JOB_TIMEOUT_MS)
         finishJob(job.id, result)
         log.info({ jobId: job.id, type: job.type }, 'job done')
+        if (loud) {
+          writeAudit({
+            actor: 'worker',
+            action: 'job:done',
+            domainId: job.domainId ?? undefined,
+            target: typeof params.target === 'string' ? params.target : undefined,
+            jobId: job.id,
+            detail: { type: job.type },
+          })
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         failJob(job.id, message)
         log.error({ jobId: job.id, type: job.type, err: message }, 'job failed')
+        if (loud) {
+          writeAudit({
+            actor: 'worker',
+            action: 'job:error',
+            domainId: job.domainId ?? undefined,
+            target: typeof params.target === 'string' ? params.target : undefined,
+            jobId: job.id,
+            detail: { type: job.type, error: message.slice(0, 500) },
+          })
+        }
       }
     }
   } finally {

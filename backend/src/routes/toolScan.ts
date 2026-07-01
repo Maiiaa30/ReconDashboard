@@ -1,40 +1,47 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { getDomain } from '../domains/store'
+import { assertScanAllowed, ScanPolicyError } from '../domains/scanPolicy'
 import { enqueueJob } from '../jobs/queue'
 import { TOOL_IDS } from '../jobs/handlers/toolScan'
-import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../util/validate'
+import { actorName, writeAudit } from '../audit/store'
 
 // Run one of the extra active tools (katana/naabu/dalfox/sslscan/wpenum) against
-// a target. active_authorized runs freely; passive_only needs confirm:true.
+// a target. Gating + audit go through the shared scan policy.
 export const toolScanRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: { id: string }; Body: { tool?: string; target?: string; scheme?: string; confirm?: boolean } }>(
     '/api/domains/:id/tool',
     async (request, reply) => {
       const id = Number(request.params.id)
-      const domain = getDomain(id)
-      if (!domain) return reply.code(404).send({ error: 'domain not found' })
-
       const tool = String(request.body?.tool ?? '')
       if (!(TOOL_IDS as readonly string[]).includes(tool)) {
         return reply.code(400).send({ error: `unknown tool — one of: ${TOOL_IDS.join(', ')}` })
       }
-      if (domain.mode !== 'active_authorized' && request.body?.confirm !== true) {
-        return reply
-          .code(400)
-          .send({ error: `domain "${domain.host}" is passive_only — confirm you are authorized to actively scan it` })
-      }
 
-      const target = (request.body?.target ?? domain.host).trim().toLowerCase()
-      if (!isValidHostname(target) && !isValidDomain(target)) {
-        return reply.code(400).send({ error: `invalid target: ${target}` })
+      try {
+        const { domain, target } = await assertScanAllowed({
+          domainId: id,
+          target: request.body?.target,
+          confirm: request.body?.confirm === true,
+          jobType: 'tool_scan',
+        })
+        const scheme = request.body?.scheme === 'http' ? 'http' : 'https'
+        const jobId = enqueueJob('tool_scan', { domainId: id, tool, target, scheme })
+        writeAudit({
+          actor: actorName(request.session.userId),
+          action: `enqueue:tool_scan`,
+          domainId: id,
+          target,
+          mode: domain.mode,
+          jobId,
+          detail: { tool, scheme },
+        })
+        return reply.code(202).send({ jobId, tool, target })
+      } catch (err) {
+        if (err instanceof ScanPolicyError) {
+          if (err.retryAfterSec) reply.header('Retry-After', String(err.retryAfterSec))
+          return reply.code(err.status).send({ error: err.message, code: err.code })
+        }
+        throw err
       }
-      if (target !== domain.host && !hostBelongsToDomain(target, domain.host)) {
-        return reply.code(400).send({ error: `target ${target} is not within domain ${domain.host}` })
-      }
-      const scheme = request.body?.scheme === 'http' ? 'http' : 'https'
-
-      const jobId = enqueueJob('tool_scan', { domainId: id, tool, target, scheme })
-      return reply.code(202).send({ jobId, tool, target })
     },
   )
 }

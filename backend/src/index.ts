@@ -27,6 +27,7 @@ import { screenshotRoutes } from './routes/screenshots'
 import { noteRoutes } from './routes/notes'
 import { drawingRoutes } from './routes/drawings'
 import { backupRoutes } from './routes/backup'
+import { auditRoutes } from './routes/audit'
 import { metaRoutes } from './routes/meta'
 
 async function main() {
@@ -59,7 +60,10 @@ async function main() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      sameSite: 'lax',
+      // strict: the app is reached only over Tailscale and has no legitimate
+      // cross-site entry point, so the session cookie should never ride along on
+      // a cross-site request — a cheap CSRF hardening with no UX cost here.
+      sameSite: 'strict',
       secure: config.isProd,
       path: '/',
       maxAge: Math.floor(config.sessionMaxAgeMs / 1000),
@@ -87,6 +91,7 @@ async function main() {
   await app.register(noteRoutes)
   await app.register(drawingRoutes)
   await app.register(backupRoutes)
+  await app.register(auditRoutes)
   await app.register(metaRoutes)
 
   // Background processing.

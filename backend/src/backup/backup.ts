@@ -1,9 +1,32 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto'
-import { readFile, rm } from 'node:fs/promises'
+import { readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import Database from 'better-sqlite3'
 import { sqlite } from '../db/index'
+
+// The first 16 bytes of every SQLite database file.
+const SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'latin1')
+
+export function isSqliteBuffer(buf: Buffer): boolean {
+  return buf.length >= 16 && buf.subarray(0, 16).equals(SQLITE_HEADER)
+}
+
+// Open a candidate DB file read-only and run a quick integrity check, so we only
+// ever accept a backup we've confirmed actually loads.
+function integrityOk(path: string): boolean {
+  let dbc: Database.Database | null = null
+  try {
+    dbc = new Database(path, { readonly: true, fileMustExist: true })
+    const row = dbc.pragma('quick_check', { simple: true })
+    return row === 'ok'
+  } catch {
+    return false
+  } finally {
+    dbc?.close()
+  }
+}
 
 // Phase 8: encrypted backup of the SQLite database, so a host suspension never
 // loses data. We take a consistent snapshot via SQLite's online backup API,
@@ -41,7 +64,8 @@ export async function createEncryptedBackup(passphrase: string): Promise<Buffer>
   }
 }
 
-// Decryption helper (not exposed via API; documented for restores via a script).
+// Decrypt an encrypted backup blob back to the raw SQLite bytes. Throws if the
+// magic/format is wrong or the GCM auth tag fails (wrong passphrase / tampered).
 export function decryptBackup(blob: Buffer, passphrase: string): Buffer {
   if (!blob.subarray(0, 4).equals(MAGIC)) throw new Error('not a recon-dashboard backup')
   const salt = blob.subarray(4, 20)
@@ -52,4 +76,45 @@ export function decryptBackup(blob: Buffer, passphrase: string): Buffer {
   const decipher = createDecipheriv('aes-256-gcm', key, iv)
   decipher.setAuthTag(authTag)
   return Buffer.concat([decipher.update(ciphertext), decipher.final()])
+}
+
+export interface BackupCheck {
+  ok: boolean
+  error?: string
+  bytes?: number
+}
+
+// Confirm a backup is decryptable AND a loadable SQLite database — so the
+// operator can trust it before ever needing it. Decrypts to a temp file and runs
+// an integrity check, then cleans up. Never touches the live DB.
+export async function verifyBackup(blob: Buffer, passphrase: string): Promise<BackupCheck> {
+  let plain: Buffer
+  try {
+    plain = decryptBackup(blob, passphrase)
+  } catch {
+    return { ok: false, error: 'decryption failed — wrong passphrase or corrupt/incomplete backup' }
+  }
+  if (!isSqliteBuffer(plain)) return { ok: false, error: 'decrypted data is not a SQLite database' }
+  const tmp = join(tmpdir(), `recon-verify-${randomUUID()}.db`)
+  try {
+    await writeFile(tmp, plain)
+    if (!integrityOk(tmp)) return { ok: false, error: 'SQLite integrity check failed on the decrypted backup' }
+    return { ok: true, bytes: plain.length }
+  } finally {
+    await rm(tmp, { force: true }).catch(() => {})
+  }
+}
+
+// Stage a verified backup for restore-on-next-boot. We do NOT hot-swap the live
+// DB under an open handle; instead we write the verified bytes to
+// "<dbPath>.restore" and db/index.ts atomically swaps it in on the next start
+// (keeping the previous DB as a ".pre-restore-*" safety copy).
+export async function stageRestore(blob: Buffer, passphrase: string, dbPath: string): Promise<BackupCheck> {
+  const check = await verifyBackup(blob, passphrase)
+  if (!check.ok) return check
+  const plain = decryptBackup(blob, passphrase)
+  const tmp = `${dbPath}.restore.tmp-${randomUUID()}`
+  await writeFile(tmp, plain)
+  await rename(tmp, `${dbPath}.restore`) // atomic on the same filesystem
+  return check
 }

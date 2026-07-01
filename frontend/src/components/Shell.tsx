@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
   Activity, ScanSearch, ShieldCheck, Flag, StickyNote, PenTool, ScrollText,
-  Settings as SettingsIcon, LogOut, Menu, Radar as RadarLogo, Wrench, type LucideIcon,
+  Settings as SettingsIcon, LogOut, Menu, Radar as RadarLogo, Wrench, History, type LucideIcon,
 } from 'lucide-react'
 import type { Me } from '../api'
 import { api } from '../api'
@@ -24,6 +24,7 @@ import { Notes } from '../pages/Notes'
 import { Canvas } from '../pages/Canvas'
 import { Findings } from '../pages/Findings'
 import { Jobs } from '../pages/Jobs'
+import { Audit } from '../pages/Audit'
 import { Settings } from '../pages/Settings'
 
 const MODULES: { key: string; label: string; icon: LucideIcon }[] = [
@@ -44,6 +45,7 @@ const MODULES: { key: string; label: string; icon: LucideIcon }[] = [
   { key: 'notes', label: 'Notes', icon: StickyNote },
   { key: 'canvas', label: 'Canvas', icon: PenTool },
   { key: 'jobs', label: 'Logs', icon: ScrollText },
+  { key: 'audit', label: 'Audit', icon: History },
   { key: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
 
@@ -155,6 +157,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         {active === 'notes' && <Notes />}
         {active === 'canvas' && <Canvas />}
         {active === 'jobs' && <Jobs />}
+        {active === 'audit' && <Audit />}
         {active === 'settings' && <Settings totpEnabled={me.user.totpEnabled} />}
       </main>
     </div>

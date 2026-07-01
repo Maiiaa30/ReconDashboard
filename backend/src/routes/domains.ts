@@ -19,6 +19,7 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
       ...d,
       profile: safeJsonParse<Record<string, boolean>>(d.profile, {}),
       owaspConfig: safeJsonParse<Record<string, unknown>>(d.owaspConfig, {}),
+      scopeConfig: safeJsonParse<Record<string, unknown>>(d.scopeConfig, {}),
     })),
   }))
 
@@ -63,6 +64,9 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
       profile?: Record<string, unknown>
       monitorIntervalHours?: number
       owaspConfig?: Record<string, unknown>
+      scopeConfig?: { allow?: string[]; deny?: string[] }
+      authorizedFrom?: number | null
+      authorizedUntil?: number | null
     }
   }>(
     '/api/domains/:id',
@@ -74,6 +78,18 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
             mode: { type: 'string', enum: ['passive_only', 'active_authorized'] },
             label: { type: ['string', 'null'], maxLength: 200 },
             monitorIntervalHours: { type: 'integer', minimum: 0, maximum: 168 },
+            // Engagement scope: allow/deny lists of hosts or CIDRs (active scans).
+            scopeConfig: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                allow: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: 500 },
+                deny: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: 500 },
+              },
+            },
+            // Authorization window for active scans (epoch ms; null/0 clears).
+            authorizedFrom: { type: ['integer', 'null'], minimum: 0 },
+            authorizedUntil: { type: ['integer', 'null'], minimum: 0 },
             // Per-domain OWASP tuning: custom payloads/params/paths + auth header.
             owaspConfig: {
               type: 'object',
