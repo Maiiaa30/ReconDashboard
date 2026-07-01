@@ -41,12 +41,19 @@ export function updateDomainMode(id: number, mode: DomainMode) {
 
 export function updateDomain(
   id: number,
-  patch: { mode?: DomainMode; label?: string | null; profile?: unknown; monitorIntervalHours?: number },
+  patch: {
+    mode?: DomainMode
+    label?: string | null
+    profile?: unknown
+    monitorIntervalHours?: number
+    owaspConfig?: unknown
+  },
 ) {
   const set: Record<string, unknown> = { updatedAt: new Date() }
   if (patch.mode === 'passive_only' || patch.mode === 'active_authorized') set.mode = patch.mode
   if (patch.label !== undefined) set.label = patch.label?.toString().trim() || null
   if (patch.profile !== undefined) set.profile = JSON.stringify(patch.profile ?? {})
+  if (patch.owaspConfig !== undefined) set.owaspConfig = JSON.stringify(patch.owaspConfig ?? {})
   if (patch.monitorIntervalHours !== undefined) {
     const h = Math.trunc(Number(patch.monitorIntervalHours))
     set.monitorIntervalHours = Number.isFinite(h) && h > 0 ? Math.min(h, 168) : 0

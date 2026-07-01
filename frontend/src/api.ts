@@ -56,12 +56,21 @@ export interface DomainProfile {
   hasRedirects?: boolean
 }
 
+export interface OwaspConfig {
+  xssParams?: string[]
+  xssPayloads?: string[]
+  redirectParams?: string[]
+  sensitivePaths?: string[]
+  authHeader?: string
+}
+
 export interface Domain {
   id: number
   host: string
   label: string | null
   mode: DomainMode
   profile?: DomainProfile
+  owaspConfig?: OwaspConfig
   monitorIntervalHours?: number
   createdAt: string
   updatedAt: string
@@ -260,7 +269,13 @@ export const api = {
   setDomainMode: (id: number, mode: DomainMode) => patch<{ domain: Domain }>(`/domains/${id}`, { mode }),
   updateDomain: (
     id: number,
-    patchBody: { mode?: DomainMode; label?: string | null; profile?: DomainProfile; monitorIntervalHours?: number },
+    patchBody: {
+      mode?: DomainMode
+      label?: string | null
+      profile?: DomainProfile
+      monitorIntervalHours?: number
+      owaspConfig?: OwaspConfig
+    },
   ) => patch<{ domain: Domain }>(`/domains/${id}`, patchBody),
   deleteDomain: (id: number) => del<{ ok: true }>(`/domains/${id}`),
 

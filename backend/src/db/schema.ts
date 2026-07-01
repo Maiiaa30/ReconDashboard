@@ -38,6 +38,9 @@ export const domains = sqliteTable('domains', {
   mode: text('mode').notNull().default('passive_only'),
   // App characteristics profile (JSON) used to filter which OWASP tests apply.
   profile: text('profile'),
+  // Per-domain OWASP tuning (JSON): custom XSS payloads, extra params/paths,
+  // and an optional auth header for authenticated active checks.
+  owaspConfig: text('owasp_config'),
   // Auto-monitoring: re-run passive recon every N hours (0 = off).
   monitorIntervalHours: integer('monitor_interval_hours').notNull().default(0),
   lastMonitoredAt: integer('last_monitored_at', { mode: 'timestamp_ms' }),

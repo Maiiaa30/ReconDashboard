@@ -18,6 +18,7 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
     domains: listDomains().map((d) => ({
       ...d,
       profile: safeJsonParse<Record<string, boolean>>(d.profile, {}),
+      owaspConfig: safeJsonParse<Record<string, unknown>>(d.owaspConfig, {}),
     })),
   }))
 
@@ -56,7 +57,13 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
 
   app.patch<{
     Params: { id: string }
-    Body: { mode?: DomainMode; label?: string | null; profile?: Record<string, unknown>; monitorIntervalHours?: number }
+    Body: {
+      mode?: DomainMode
+      label?: string | null
+      profile?: Record<string, unknown>
+      monitorIntervalHours?: number
+      owaspConfig?: Record<string, unknown>
+    }
   }>(
     '/api/domains/:id',
     {
@@ -67,6 +74,18 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
             mode: { type: 'string', enum: ['passive_only', 'active_authorized'] },
             label: { type: ['string', 'null'], maxLength: 200 },
             monitorIntervalHours: { type: 'integer', minimum: 0, maximum: 168 },
+            // Per-domain OWASP tuning: custom payloads/params/paths + auth header.
+            owaspConfig: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                xssParams: { type: 'array', items: { type: 'string', maxLength: 64 }, maxItems: 50 },
+                xssPayloads: { type: 'array', items: { type: 'string', maxLength: 300 }, maxItems: 30 },
+                redirectParams: { type: 'array', items: { type: 'string', maxLength: 64 }, maxItems: 50 },
+                sensitivePaths: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: 50 },
+                authHeader: { type: 'string', maxLength: 400 },
+              },
+            },
             // Only the known OWASP profile flags, booleans, nothing else.
             profile: {
               type: 'object',

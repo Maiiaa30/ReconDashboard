@@ -1,8 +1,44 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
-import { runActiveChecks } from '../../owasp/activeChecks'
+import { listFindings } from '../../findings/store'
+import { runActiveChecks, type OwaspChecksOptions } from '../../owasp/activeChecks'
+import { safeJsonParse } from '../../util/json'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
 import type { JobContext } from '../worker'
+
+const PARAM_RE = /^[a-zA-Z0-9_.[\]-]{1,64}$/
+
+// Collect query-parameter names from URL strings.
+function paramsFromUrls(urls: string[]): string[] {
+  const out = new Set<string>()
+  for (const u of urls) {
+    const qi = typeof u === 'string' ? u.indexOf('?') : -1
+    if (qi < 0) continue
+    for (const pair of u.slice(qi + 1).split('&')) {
+      const name = pair.split('=')[0]
+      if (name && PARAM_RE.test(name)) out.add(name)
+    }
+  }
+  return [...out]
+}
+
+// Pull the real query params this target is known to use, from URLs discovered
+// by Wayback / Common Crawl / katana / ffuf / prior findings. This is what makes
+// the checks "per target" — XSS/redirect probes hit parameters the app uses.
+function discoveredParamsFor(domainId: number): string[] {
+  const findings = listFindings({ domainId, limit: 2000 })
+  const urls: string[] = []
+  for (const f of findings) {
+    const d = f.data as any
+    if (!d) continue
+    if (Array.isArray(d?.wayback?.withParams)) urls.push(...d.wayback.withParams)
+    if (Array.isArray(d?.commoncrawl?.withParams)) urls.push(...d.commoncrawl.withParams)
+    if (f.type === 'tool' && Array.isArray(d.items)) urls.push(...d.items.filter((x: unknown) => typeof x === 'string'))
+    if (typeof d.url === 'string') urls.push(d.url)
+    if (typeof d.matched === 'string') urls.push(d.matched)
+  }
+  return paramsFromUrls(urls).slice(0, 40)
+}
 
 // OWASP active checks: direct HTTP probes (headers, sensitive files, reflected
 // XSS, open redirect, CORS, TRACE, directory listing) that don't depend on
@@ -20,7 +56,18 @@ export async function owaspActiveHandler({ params, log }: JobContext) {
   }
   const scheme = params.scheme === 'http' ? 'http' : 'https'
 
-  const { findings, reachable } = await runActiveChecks(scheme, target)
+  // Per-target tuning: operator's custom config + auto-discovered params.
+  const cfg = safeJsonParse<OwaspChecksOptions>(domain.owaspConfig, {})
+  const opts: OwaspChecksOptions = {
+    xssParams: cfg.xssParams,
+    xssPayloads: cfg.xssPayloads,
+    redirectParams: cfg.redirectParams,
+    sensitivePaths: cfg.sensitivePaths,
+    authHeader: cfg.authHeader,
+    discoveredParams: discoveredParamsFor(domainId),
+  }
+
+  const { findings, reachable, targetedParams } = await runActiveChecks(scheme, target, opts)
   if (!reachable) {
     log.warn({ target }, 'owasp active checks: target not reachable / internal')
     return { reachable: false, target, count: 0 }
@@ -35,6 +82,12 @@ export async function owaspActiveHandler({ params, log }: JobContext) {
     })
   }
 
-  log.info({ target, findings: findings.length }, 'owasp active checks complete')
-  return { reachable: true, target, count: findings.length, categories: [...new Set(findings.map((f) => f.category))] }
+  log.info({ target, findings: findings.length, targetedParams }, 'owasp active checks complete')
+  return {
+    reachable: true,
+    target,
+    count: findings.length,
+    targetedParams,
+    categories: [...new Set(findings.map((f) => f.category))],
+  }
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, ApiError } from '../api'
-import type { OwaspCategory, OwaspProfileKey, DomainProfile, Finding } from '../api'
+import type { OwaspCategory, OwaspProfileKey, DomainProfile, Finding, OwaspConfig } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
 import { timeAgo } from '../lib/format'
@@ -108,6 +108,100 @@ function CategoryCard({
               </code>
             ))
           )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+const listToText = (a?: string[]) => (a ?? []).join('\n')
+const parseList = (t: string) => t.split(/[\n,]/).map((s) => s.trim()).filter(Boolean)
+
+// Per-domain OWASP tuning: custom payloads, extra params/paths, auth header.
+function CustomPayloadsCard({ domainId, config, onSaved }: { domainId: number; config: OwaspConfig; onSaved: () => Promise<void> }) {
+  const [open, setOpen] = useState(false)
+  const [xssPayloads, setXssPayloads] = useState(listToText(config.xssPayloads))
+  const [xssParams, setXssParams] = useState(listToText(config.xssParams))
+  const [redirectParams, setRedirectParams] = useState(listToText(config.redirectParams))
+  const [sensitivePaths, setSensitivePaths] = useState(listToText(config.sensitivePaths))
+  const [authHeader, setAuthHeader] = useState(config.authHeader ?? '')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  // Re-seed the fields when the selected domain changes.
+  useEffect(() => {
+    setXssPayloads(listToText(config.xssPayloads))
+    setXssParams(listToText(config.xssParams))
+    setRedirectParams(listToText(config.redirectParams))
+    setSensitivePaths(listToText(config.sensitivePaths))
+    setAuthHeader(config.authHeader ?? '')
+  }, [domainId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function save() {
+    setSaving(true)
+    setMsg(null)
+    try {
+      await api.updateDomain(domainId, {
+        owaspConfig: {
+          xssPayloads: parseList(xssPayloads),
+          xssParams: parseList(xssParams),
+          redirectParams: parseList(redirectParams),
+          sensitivePaths: parseList(sensitivePaths),
+          authHeader: authHeader.trim() || undefined,
+        },
+      })
+      await onSaved()
+      setMsg('Saved')
+    } catch (err) {
+      setMsg(err instanceof ApiError ? err.message : 'failed to save')
+    } finally {
+      setSaving(false)
+      setTimeout(() => setMsg(null), 2500)
+    }
+  }
+
+  const ta = 'mt-1 block w-full rounded-lg border border-hair bg-ink-950 px-2.5 py-1.5 font-mono text-xs outline-none focus:border-accent-500'
+
+  return (
+    <Card className="mb-6">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-start justify-between gap-2">
+        <div className="text-left">
+          <h2 className="text-sm font-semibold text-zinc-200">Custom payloads &amp; targets</h2>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            Per-domain XSS payloads, extra params/paths, and an auth header. The active checks also auto-test the real
+            query parameters discovered for this target (Wayback / Common Crawl / crawl).
+          </p>
+        </div>
+        <span className="shrink-0 text-xs text-zinc-500">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="text-sm">
+            <span className="text-zinc-400">Custom XSS payloads (one per line)</span>
+            <textarea value={xssPayloads} onChange={(e) => setXssPayloads(e.target.value)} rows={4} placeholder={'"><script>alert(1)</script>'} className={ta} />
+          </label>
+          <label className="text-sm">
+            <span className="text-zinc-400">Extra params to fuzz (XSS)</span>
+            <textarea value={xssParams} onChange={(e) => setXssParams(e.target.value)} rows={4} placeholder={'token\nkeyword'} className={ta} />
+          </label>
+          <label className="text-sm">
+            <span className="text-zinc-400">Extra open-redirect params</span>
+            <textarea value={redirectParams} onChange={(e) => setRedirectParams(e.target.value)} rows={3} placeholder={'goto\ncallback'} className={ta} />
+          </label>
+          <label className="text-sm">
+            <span className="text-zinc-400">Extra sensitive paths</span>
+            <textarea value={sensitivePaths} onChange={(e) => setSensitivePaths(e.target.value)} rows={3} placeholder={'/backup.zip\n/api/debug'} className={ta} />
+          </label>
+          <label className="text-sm sm:col-span-2">
+            <span className="text-zinc-400">Auth header (sent on every check — for authenticated scans)</span>
+            <input value={authHeader} onChange={(e) => setAuthHeader(e.target.value)} placeholder="Cookie: session=abc123" className="mt-1 block w-full rounded-lg border border-hair bg-ink-950 px-2.5 py-1.5 font-mono text-xs outline-none focus:border-accent-500" />
+          </label>
+          <div className="flex items-center gap-2 sm:col-span-2">
+            <Button variant="loud" onClick={save} disabled={saving}>
+              {saving ? 'Saving…' : 'Save config'}
+            </Button>
+            {msg && <span className="text-xs text-zinc-400">{msg}</span>}
+          </div>
         </div>
       )}
     </Card>
@@ -312,6 +406,8 @@ export function Owasp() {
           })}
         </div>
       </Card>
+
+      <CustomPayloadsCard domainId={selected.id} config={selected.owaspConfig ?? {}} onSaved={refreshDomains} />
 
       {/* Run all */}
       <div className="mb-4 flex flex-wrap items-center gap-3">

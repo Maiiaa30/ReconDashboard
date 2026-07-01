@@ -5,6 +5,10 @@ import { isInternalIp } from '../util/validate'
 // useful without leaning entirely on nuclei. Each check sends benign probes a
 // pentester would send by hand and reports concrete evidence. SSRF-guarded;
 // only ever run against an authorized target (the route enforces the gate).
+//
+// Target-aware: callers can pass custom payloads, extra params/paths, an auth
+// header (for authenticated scans), and the real query params discovered for
+// the target — so XSS/redirect checks hit the parameters the app actually uses.
 
 export type Severity = 'info' | 'low' | 'medium' | 'high' | 'critical'
 
@@ -16,9 +20,33 @@ export interface ActiveFinding {
   evidence: string
 }
 
+export interface OwaspChecksOptions {
+  xssParams?: string[]
+  xssPayloads?: string[] // custom XSS payloads to test for reflection
+  redirectParams?: string[]
+  sensitivePaths?: string[] // custom paths to probe (reported on 200)
+  authHeader?: string // "Name: value" — sent on every request
+  discoveredParams?: string[] // real query params seen for this target
+}
+
 const TIMEOUT_MS = 8_000
 const MAX_BODY = 256 * 1024
 const UA = 'recon-dashboard/0.1 (+authorized owasp check)'
+
+const SAFE_PARAM = /^[a-zA-Z0-9_.[\]-]{1,64}$/
+const SAFE_PATH = /^\/[a-zA-Z0-9_.~/-]{0,128}$/
+
+const uniqCap = (arr: (string | undefined)[], n: number): string[] =>
+  [...new Set(arr.map((s) => String(s ?? '').trim()).filter(Boolean))].slice(0, n)
+
+// Resolved, validated context passed to each check.
+interface Ctx {
+  headers: Record<string, string>
+  xssParams: string[]
+  xssPayloads: string[]
+  redirectParams: string[]
+  customPaths: string[]
+}
 
 interface RawResponse {
   status: number
@@ -101,40 +129,57 @@ const SENSITIVE_FILES: { path: string; signatures: RegExp[]; name: string; sever
   { path: '/.DS_Store', signatures: [/Bud1|\x00\x00\x00/], name: 'Exposed .DS_Store (path leak)', severity: 'low' },
 ]
 
-async function checkSensitiveFiles(baseUrl: string): Promise<ActiveFinding[]> {
+async function checkSensitiveFiles(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
   const out: ActiveFinding[] = []
   for (const f of SENSITIVE_FILES) {
-    const res = await fetchRaw(baseUrl + f.path)
+    const res = await fetchRaw(baseUrl + f.path, { headers: ctx.headers })
     if (res && res.status === 200 && f.signatures.some((re) => re.test(res.body))) {
       out.push({ category: 'A02', name: f.name, severity: f.severity, url: baseUrl + f.path, evidence: `HTTP 200 with matching content at ${f.path}` })
+    }
+  }
+  // Operator-supplied custom paths — reported on any 200 (verify manually).
+  for (const p of ctx.customPaths) {
+    const res = await fetchRaw(baseUrl + p, { headers: ctx.headers })
+    if (res && res.status === 200) {
+      out.push({ category: 'A02', name: `Custom path returned 200: ${p}`, severity: 'low', url: baseUrl + p, evidence: `Custom sensitive path ${p} responded 200 — verify` })
     }
   }
   return out
 }
 
 const XSS_PARAMS = ['q', 's', 'search', 'id', 'page', 'query']
+const DEFAULT_XSS = { inject: `"'><svg/onload=rxss9842>`, needle: `<svg/onload=rxss9842>` }
 
-async function checkReflectedXss(baseUrl: string): Promise<ActiveFinding[]> {
-  const marker = 'rxss9842'
-  const payload = `"'><svg/onload=${marker}>`
-  for (const param of XSS_PARAMS) {
-    const url = `${baseUrl}?${param}=${encodeURIComponent(payload)}`
-    const res = await fetchRaw(url, { redirect: 'follow' })
-    // Reflected unencoded (the raw < and the marker survive) → likely XSS sink.
-    if (res && res.body.includes(`<svg/onload=${marker}>`)) {
-      return [{ category: 'A03', name: 'Reflected XSS — unencoded input', severity: 'high', url, evidence: `Payload reflected unencoded via ?${param}=` }]
+async function checkReflectedXss(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
+  const out: ActiveFinding[] = []
+  // 1) Parameter coverage with the marker payload — tests the real params the
+  //    target uses (discovered + defaults + custom).
+  for (const param of ctx.xssParams) {
+    const url = `${baseUrl}?${param}=${encodeURIComponent(DEFAULT_XSS.inject)}`
+    const res = await fetchRaw(url, { redirect: 'follow', headers: ctx.headers })
+    if (res && res.body.includes(DEFAULT_XSS.needle)) {
+      out.push({ category: 'A03', name: 'Reflected XSS — unencoded input', severity: 'high', url, evidence: `Payload reflected unencoded via ?${param}=` })
+      break // one confirmed sink is enough to flag
     }
   }
-  return []
+  // 2) Custom payloads (operator's bypass attempts) reflected on a common param.
+  for (const p of ctx.xssPayloads) {
+    const url = `${baseUrl}?q=${encodeURIComponent(p)}`
+    const res = await fetchRaw(url, { redirect: 'follow', headers: ctx.headers })
+    if (res && res.body.includes(p)) {
+      out.push({ category: 'A03', name: 'Custom XSS payload reflected', severity: 'high', url, evidence: `Custom payload reflected unencoded: ${p.slice(0, 80)}` })
+    }
+  }
+  return out
 }
 
 const REDIRECT_PARAMS = ['url', 'next', 'redirect', 'return', 'dest', 'r', 'u', 'continue']
 
-async function checkOpenRedirect(baseUrl: string): Promise<ActiveFinding[]> {
+async function checkOpenRedirect(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
   const evil = 'https://example.org/owasp-redirect-probe'
-  for (const param of REDIRECT_PARAMS) {
+  for (const param of ctx.redirectParams) {
     const url = `${baseUrl}?${param}=${encodeURIComponent(evil)}`
-    const res = await fetchRaw(url, { redirect: 'manual' })
+    const res = await fetchRaw(url, { redirect: 'manual', headers: ctx.headers })
     if (res && res.status >= 300 && res.status < 400) {
       const loc = res.headers.get('location') ?? ''
       if (/^https?:\/\/(www\.)?example\.org/i.test(loc) || loc.startsWith('//example.org')) {
@@ -145,9 +190,9 @@ async function checkOpenRedirect(baseUrl: string): Promise<ActiveFinding[]> {
   return []
 }
 
-async function checkCors(baseUrl: string): Promise<ActiveFinding[]> {
+async function checkCors(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
   const evil = 'https://evil.example.org'
-  const res = await fetchRaw(baseUrl, { headers: { Origin: evil } })
+  const res = await fetchRaw(baseUrl, { headers: { ...ctx.headers, Origin: evil } })
   if (!res) return []
   const acao = res.headers.get('access-control-allow-origin')
   const acac = res.headers.get('access-control-allow-credentials')
@@ -164,8 +209,8 @@ async function checkCors(baseUrl: string): Promise<ActiveFinding[]> {
   return []
 }
 
-async function checkTrace(baseUrl: string): Promise<ActiveFinding[]> {
-  const res = await fetchRaw(baseUrl, { method: 'TRACE' })
+async function checkTrace(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
+  const res = await fetchRaw(baseUrl, { method: 'TRACE', headers: ctx.headers })
   if (res && res.status === 200 && /TRACE\s|X-Recon-Probe/i.test(res.body)) {
     return [{ category: 'A05', name: 'HTTP TRACE method enabled (XST)', severity: 'low', url: baseUrl, evidence: 'TRACE returned 200 and echoed the request' }]
   }
@@ -174,9 +219,9 @@ async function checkTrace(baseUrl: string): Promise<ActiveFinding[]> {
 
 const LISTING_DIRS = ['/uploads/', '/files/', '/backup/', '/images/', '/assets/', '/static/']
 
-async function checkDirListing(baseUrl: string): Promise<ActiveFinding[]> {
+async function checkDirListing(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
   for (const dir of LISTING_DIRS) {
-    const res = await fetchRaw(baseUrl + dir)
+    const res = await fetchRaw(baseUrl + dir, { headers: ctx.headers })
     if (res && res.status === 200 && /<title>Index of \/|Directory listing for/i.test(res.body)) {
       return [{ category: 'A05', name: 'Directory listing enabled', severity: 'low', url: baseUrl + dir, evidence: `Index listing at ${dir}` }]
     }
@@ -189,28 +234,48 @@ async function checkDirListing(baseUrl: string): Promise<ActiveFinding[]> {
 export async function runActiveChecks(
   scheme: 'https' | 'http',
   host: string,
-): Promise<{ findings: ActiveFinding[]; reachable: boolean }> {
+  opts: OwaspChecksOptions = {},
+): Promise<{ findings: ActiveFinding[]; reachable: boolean; targetedParams: number }> {
   const baseUrl = `${scheme}://${host}`
+
+  // Auth header for authenticated scans, e.g. "Cookie: session=abc".
+  const headers: Record<string, string> = {}
+  if (opts.authHeader && opts.authHeader.includes(':')) {
+    const i = opts.authHeader.indexOf(':')
+    const name = opts.authHeader.slice(0, i).trim()
+    const value = opts.authHeader.slice(i + 1).trim()
+    if (/^[a-zA-Z0-9-]{1,64}$/.test(name) && value) headers[name] = value
+  }
+
+  const discovered = (opts.discoveredParams ?? []).filter((p) => SAFE_PARAM.test(p))
+  const customXssParams = (opts.xssParams ?? []).filter((p) => SAFE_PARAM.test(p))
+  const customRedirect = (opts.redirectParams ?? []).filter((p) => SAFE_PARAM.test(p))
+
+  const ctx: Ctx = {
+    headers,
+    xssParams: uniqCap([...XSS_PARAMS, ...discovered, ...customXssParams], 25),
+    xssPayloads: uniqCap(opts.xssPayloads ?? [], 6),
+    redirectParams: uniqCap([...REDIRECT_PARAMS, ...discovered, ...customRedirect], 25),
+    customPaths: uniqCap((opts.sensitivePaths ?? []).filter((p) => SAFE_PATH.test(p)), 25),
+  }
 
   // SSRF guard — refuse a target that resolves to an internal address.
   const dns = await resolveDns(host).catch(() => null)
   const ip = dns?.a[0] ?? null
-  if (ip && isInternalIp(ip)) {
-    return { findings: [], reachable: false }
-  }
+  if (ip && isInternalIp(ip)) return { findings: [], reachable: false, targetedParams: 0 }
 
-  const base = await fetchRaw(baseUrl, { redirect: 'follow' })
-  if (!base) return { findings: [], reachable: false }
+  const base = await fetchRaw(baseUrl, { redirect: 'follow', headers })
+  if (!base) return { findings: [], reachable: false, targetedParams: 0 }
 
   const findings: ActiveFinding[] = [...checkSecurityHeaders(base, baseUrl)]
   const groups = await Promise.all([
-    checkSensitiveFiles(baseUrl),
-    checkReflectedXss(baseUrl),
-    checkOpenRedirect(baseUrl),
-    checkCors(baseUrl),
-    checkTrace(baseUrl),
-    checkDirListing(baseUrl),
+    checkSensitiveFiles(baseUrl, ctx),
+    checkReflectedXss(baseUrl, ctx),
+    checkOpenRedirect(baseUrl, ctx),
+    checkCors(baseUrl, ctx),
+    checkTrace(baseUrl, ctx),
+    checkDirListing(baseUrl, ctx),
   ])
   for (const g of groups) findings.push(...g)
-  return { findings, reachable: true }
+  return { findings, reachable: true, targetedParams: discovered.length }
 }

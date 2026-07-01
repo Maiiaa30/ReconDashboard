@@ -1,0 +1,1 @@
+ALTER TABLE `domains` ADD `owasp_config` text;
