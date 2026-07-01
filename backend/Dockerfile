@@ -48,8 +48,10 @@ RUN set -ux; \
     ( [ -n "$NAB" ] && curl -fsSL -o naabu.zip "https://github.com/projectdiscovery/naabu/releases/download/v${NAB}/naabu_${NAB}_linux_${GOARCH}.zip" \
       && unzip -o naabu.zip naabu -d /usr/local/bin ) || echo "WARN: naabu install failed"; \
     DAL="$(ver hahwul/dalfox)"; \
-    ( [ -n "$DAL" ] && curl -fsSL -o dalfox.tar.gz "https://github.com/hahwul/dalfox/releases/download/v${DAL}/dalfox_${DAL}_linux_${GOARCH}.tar.gz" \
-      && tar -xzf dalfox.tar.gz -C /usr/local/bin dalfox ) || echo "WARN: dalfox install failed"; \
+    case "$GOARCH" in amd64) DALARCH=x86_64 ;; arm64) DALARCH=aarch64 ;; *) DALARCH=x86_64 ;; esac; \
+    ( [ -n "$DAL" ] && curl -fsSL -o dalfox.tar.gz "https://github.com/hahwul/dalfox/releases/download/v${DAL}/dalfox-v${DAL}-linux-${DALARCH}.tar.gz" \
+      && tar -xzf dalfox.tar.gz -C /usr/local/bin --strip-components=0 dalfox 2>/dev/null \
+      || tar -xzf dalfox.tar.gz -C /usr/local/bin --wildcards --transform='s#.*/##' '*/dalfox' 2>/dev/null ) || echo "WARN: dalfox install failed"; \
     chmod +x /usr/local/bin/katana /usr/local/bin/naabu /usr/local/bin/dalfox 2>/dev/null || true; \
     rm -f /tmp/*.zip /tmp/*.tar.gz; \
     katana -version || true; naabu -version || true; dalfox version || true
