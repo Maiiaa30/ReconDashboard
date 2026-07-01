@@ -1,4 +1,4 @@
-import { run } from '../util/exec'
+import { run, ToolNotFoundError } from '../util/exec'
 import { assertPublicHost, guardedFetch } from './guard'
 import type { Severity } from '../owasp/activeChecks'
 
@@ -133,6 +133,55 @@ export async function runSslscan(host: string, signal?: AbortSignal): Promise<To
   }
 }
 
+// --- sqlmap (SQL injection) --------------------------------------------------
+// Autonomous run against a host: crawl for testable URLs + submit forms, then
+// probe them for SQLi at the default (light) level/risk. --batch makes it fully
+// non-interactive. sqlmap can be slow, so a longer 10-min cap (the job worker's
+// 20-min timeout + AbortSignal still bound it and allow operator cancel).
+export async function runSqlmap(scheme: string, host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
+  let stdout = ''
+  try {
+    const res = await run(
+      'sqlmap',
+      [
+        '-u', `${scheme}://${host}`,
+        '--batch', // non-interactive: accept the safe defaults
+        '--crawl=2', // discover testable URLs under the host
+        '--forms', // also submit + test HTML forms
+        '--level=1', '--risk=1', // keep it light (default depth/aggressiveness)
+        '--random-agent',
+        '--disable-coloring',
+        '--timeout=10', '--retries=1',
+        '--flush-session',
+      ],
+      { timeoutMs: 600_000, signal },
+    )
+    stdout = res.stdout
+  } catch (err) {
+    if (err instanceof ToolNotFoundError) throw err // -> handler reports "not installed"
+    stdout = (err as { stdout?: string }).stdout ?? '' // sqlmap can exit non-zero with useful output
+  }
+
+  if (!/injection point|is vulnerable|appears to be injectable/i.test(stdout)) return null
+
+  const params = [...new Set([...stdout.matchAll(/Parameter:\s*([^\n(]+?)\s*\(/gi)].map((m) => m[1].trim()))]
+  const dbms = stdout.match(/back-end DBMS:\s*(.+)/i)?.[1]?.trim()
+  const techniques = [...new Set([...stdout.matchAll(/^\s*Type:\s*(.+)$/gim)].map((m) => m[1].trim()))]
+  const items = [
+    ...params.map((p) => `Injectable parameter: ${p}`),
+    ...(dbms ? [`Back-end DBMS: ${dbms}`] : []),
+    ...techniques.map((t) => `Technique: ${t}`),
+  ]
+  return {
+    tool: 'sqlmap',
+    target: host,
+    severity: 'high',
+    title: `SQL injection — ${params.length || 1} parameter(s)`,
+    detail: dbms ? `Confirmed SQLi (back-end DBMS: ${dbms})` : 'sqlmap confirmed SQL injection',
+    items: items.length ? items.slice(0, MAX_ITEMS) : ['sqlmap flagged the target as injectable'],
+  }
+}
+
 // --- WordPress enumeration (HTTP, no binary) ---------------------------------
 const WP_TIMEOUT = 9_000
 
@@ -189,5 +238,73 @@ export async function runWpEnum(scheme: string, host: string): Promise<ToolFindi
     title: 'WordPress detected',
     detail: version ? `Version ${version}` : 'Version not disclosed',
     items,
+  }
+}
+
+// --- 403/401 bypass (HTTP, no binary) ----------------------------------------
+// Finds commonly-protected paths that return 401/403, then retries each with a
+// battery of classic access-control bypass tricks (spoofed client-IP headers,
+// X-Original-URL / X-Rewrite-URL routing headers, path-normalisation quirks, and
+// alternate HTTP methods). A retry that returns 2xx where the plain GET was
+// forbidden is a real bypass. Every request goes through guardedFetch, so each
+// hop is re-resolved and SSRF-blocked. Bounded so it can't fan out unboundedly.
+const BYPASS_PATHS = [
+  '/admin', '/admin/', '/.git/config', '/server-status', '/manager/html',
+  '/.env', '/actuator', '/api/admin', '/wp-admin/', '/private', '/config', '/dashboard',
+]
+const IP_SPOOF_HEADERS = [
+  'X-Forwarded-For', 'X-Forwarded-Host', 'X-Originating-IP', 'X-Remote-IP',
+  'X-Client-IP', 'X-Host', 'X-Custom-IP-Authorization', 'X-Real-IP',
+]
+const BYPASS_METHODS = ['POST', 'HEAD', 'OPTIONS', 'PUT', 'TRACE']
+const MAX_FORBIDDEN = 5 // cap how many protected paths we exhaustively retry
+const BYPASS_TIMEOUT = 8_000
+
+function pathMutations(p: string): string[] {
+  return [
+    `${p}/`, `${p}/.`, `/.${p}`, `//${p}//`, `${p}%20`, `${p}%09`,
+    `${p}?`, `${p}#`, `${p}/..;/`, `${p};/`, `${p}.json`, p.toUpperCase(),
+  ]
+}
+
+export async function runBypass403(scheme: string, host: string): Promise<ToolFinding | null> {
+  await assertPublicHost(host)
+  const base = `${scheme}://${host}`
+
+  // 1. Find protected paths (plain GET returns 401/403).
+  const forbidden: string[] = []
+  for (const p of BYPASS_PATHS) {
+    const res = await guardedFetch(`${base}${p}`, { timeoutMs: BYPASS_TIMEOUT })
+    if (res && (res.status === 401 || res.status === 403)) forbidden.push(p)
+    if (forbidden.length >= MAX_FORBIDDEN) break
+  }
+  if (!forbidden.length) return null
+
+  // 2. For each, try the bypass battery; a 2xx means access was granted.
+  const hits: string[] = []
+  for (const p of forbidden) {
+    const attempts: { url: string; method?: string; headers?: Record<string, string>; label: string }[] = [
+      ...IP_SPOOF_HEADERS.map((h) => ({ url: `${base}${p}`, headers: { [h]: '127.0.0.1' }, label: `header ${h}: 127.0.0.1` })),
+      { url: `${base}/`, headers: { 'X-Original-URL': p }, label: `header X-Original-URL: ${p}` },
+      { url: `${base}/`, headers: { 'X-Rewrite-URL': p }, label: `header X-Rewrite-URL: ${p}` },
+      ...pathMutations(p).map((mp) => ({ url: `${base}${mp}`, label: `path ${mp}` })),
+      ...BYPASS_METHODS.map((m) => ({ url: `${base}${p}`, method: m, label: `method ${m}` })),
+    ]
+    for (const a of attempts) {
+      const res = await guardedFetch(a.url, { timeoutMs: BYPASS_TIMEOUT, headers: a.headers, method: a.method })
+      if (res && res.status >= 200 && res.status < 300) {
+        hits.push(`${p} → ${res.status} via ${a.label}`)
+      }
+    }
+  }
+
+  if (!hits.length) return null
+  return {
+    tool: 'bypass403',
+    target: host,
+    severity: 'high',
+    title: `403/401 bypass — ${hits.length} on ${forbidden.length} protected path(s)`,
+    detail: 'A restricted path returned 2xx after an access-control bypass trick',
+    items: hits.slice(0, MAX_ITEMS),
   }
 }

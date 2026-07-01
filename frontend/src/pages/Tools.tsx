@@ -16,7 +16,9 @@ const TOOLS: ToolDef[] = [
   { id: 'naabu', label: 'naabu', desc: 'Fast TCP connect port scan (top 1000 ports).', metaKey: 'naabu' },
   { id: 'dalfox', label: 'dalfox', desc: 'Active cross-site-scripting (XSS) scanner.', metaKey: 'dalfox' },
   { id: 'sslscan', label: 'sslscan', desc: 'TLS protocol & cipher audit (weak/expired detection).', metaKey: 'sslscan' },
+  { id: 'sqlmap', label: 'sqlmap', desc: 'Active SQL-injection scanner (crawls + tests URLs/forms, --batch).', metaKey: 'sqlmap' },
   { id: 'wpenum', label: 'WordPress enum', desc: 'Version, users (REST), plugins, exposed endpoints. No binary.', metaKey: 'wpenum' },
+  { id: 'bypass403', label: '403 bypass', desc: 'Retries protected (401/403) paths with header, path & method tricks. No binary.', metaKey: 'bypass403' },
 ]
 
 function severityTone(sev: unknown): 'zinc' | 'green' | 'amber' | 'red' | 'blue' {

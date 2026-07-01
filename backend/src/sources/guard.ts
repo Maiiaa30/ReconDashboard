@@ -50,7 +50,13 @@ export interface GuardedResponse {
  */
 export async function guardedFetch(
   url: string,
-  opts: { timeoutMs?: number; headers?: Record<string, string>; maxRedirects?: number; maxBytes?: number } = {},
+  opts: {
+    timeoutMs?: number
+    headers?: Record<string, string>
+    maxRedirects?: number
+    maxBytes?: number
+    method?: string
+  } = {},
 ): Promise<GuardedResponse | null> {
   const timeoutMs = opts.timeoutMs ?? 9_000
   const maxRedirects = opts.maxRedirects ?? 5
@@ -75,6 +81,7 @@ export async function guardedFetch(
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {
       const res = await fetch(current, {
+        method: opts.method,
         redirect: 'manual',
         signal: controller.signal,
         headers: { 'User-Agent': 'recon-dashboard/0.1', ...opts.headers },

@@ -238,7 +238,9 @@ export interface MetaStatus {
     naabu?: boolean
     dalfox?: boolean
     sslscan?: boolean
+    sqlmap?: boolean
     wpenum?: boolean
+    bypass403?: boolean
   }
   wordlists: Wordlist[]
 }

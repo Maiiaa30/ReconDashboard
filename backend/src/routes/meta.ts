@@ -35,7 +35,7 @@ function listWordlists(): { path: string; name: string; sizeKb: number }[] {
 export const metaRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/meta/status', async () => {
     if (!toolCache) {
-      const [subfinder, nmap, nuclei, ffuf, chromium, dig, katana, naabu, dalfox, sslscan] = await Promise.all([
+      const [subfinder, nmap, nuclei, ffuf, chromium, dig, katana, naabu, dalfox, sslscan, sqlmap] = await Promise.all([
         toolExists('subfinder'),
         toolExists('nmap'),
         toolExists('nuclei'),
@@ -46,9 +46,10 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
         toolExists('naabu'),
         toolExists('dalfox'),
         toolExists('sslscan'),
+        toolExists('sqlmap'),
       ])
-      // wpenum is an HTTP routine (no binary) — always available.
-      toolCache = { subfinder, nmap, nuclei, ffuf, chromium, dig, katana, naabu, dalfox, sslscan, wpenum: true }
+      // wpenum + bypass403 are HTTP routines (no binary) — always available.
+      toolCache = { subfinder, nmap, nuclei, ffuf, chromium, dig, katana, naabu, dalfox, sslscan, sqlmap, wpenum: true, bypass403: true }
     }
     return {
       scorer: getScorer().name,

@@ -1,12 +1,12 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
-import { runDalfox, runKatana, runNaabu, runSslscan, runWpEnum, type ToolFinding } from '../../sources/binTools'
+import { runBypass403, runDalfox, runKatana, runNaabu, runSqlmap, runSslscan, runWpEnum, type ToolFinding } from '../../sources/binTools'
 import { assertPublicHost } from '../../sources/guard'
 import { ToolNotFoundError } from '../../util/exec'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
 import type { JobContext } from '../worker'
 
-export const TOOL_IDS = ['katana', 'naabu', 'dalfox', 'sslscan', 'wpenum'] as const
+export const TOOL_IDS = ['katana', 'naabu', 'dalfox', 'sslscan', 'sqlmap', 'wpenum', 'bypass403'] as const
 export type ToolId = (typeof TOOL_IDS)[number]
 
 // One active tool against a target. Authorization (active_authorized OR confirm)
@@ -24,9 +24,9 @@ export async function toolScanHandler({ params, log, signal, progress }: JobCont
   const scheme = params.scheme === 'http' ? 'http' : 'https'
   const tool = String(params.tool) as ToolId
 
-  // SSRF: katana/naabu/dalfox/sslscan connect to whatever the host resolves to.
-  // Refuse a target that resolves to an internal/Tailscale address before any
-  // binary runs (throws SsrfBlockedError -> job fails with a clear reason).
+  // SSRF: katana/naabu/dalfox/sslscan/sqlmap connect to whatever the host
+  // resolves to. Refuse a target that resolves to an internal/Tailscale address
+  // before any binary runs (throws SsrfBlockedError -> job fails with a reason).
   await assertPublicHost(target)
   progress(`running ${tool} against ${target}`)
 
@@ -45,8 +45,14 @@ export async function toolScanHandler({ params, log, signal, progress }: JobCont
       case 'sslscan':
         finding = await runSslscan(target, signal)
         break
+      case 'sqlmap':
+        finding = await runSqlmap(scheme, target, signal)
+        break
       case 'wpenum':
         finding = await runWpEnum(scheme, target)
+        break
+      case 'bypass403':
+        finding = await runBypass403(scheme, target)
         break
       default:
         throw new Error(`unknown tool: ${tool}`)
