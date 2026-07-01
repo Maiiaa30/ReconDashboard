@@ -47,6 +47,47 @@ export async function alertText(text: string): Promise<void> {
   await postContent(text.slice(0, MAX_CONTENT))
 }
 
+/** True if a Discord webhook is configured. */
+export function isDiscordConfigured(): boolean {
+  return Boolean(config.discordWebhookUrl)
+}
+
+// Like postContent but reports whether Discord accepted the message — used by
+// the on-demand "send note" action so the operator gets real feedback.
+async function postContentChecked(content: string): Promise<boolean> {
+  if (!config.discordWebhookUrl) return false
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10_000)
+  try {
+    const res = await fetch(config.discordWebhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+      signal: controller.signal,
+    })
+    return res.ok
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** Push a note (title + body) to the webhook, chunked. Reports success. */
+export async function sendNoteToDiscord(
+  title: string | null,
+  body: string | null,
+): Promise<{ ok: boolean; reason?: string }> {
+  if (!config.discordWebhookUrl) return { ok: false, reason: 'no Discord webhook configured' }
+  const heading = title?.trim() ? `**Note — ${title.trim()}**` : '**Note**'
+  const text = body?.trim() ? `${heading}\n${body.trim()}` : heading
+  let failed = false
+  for (let i = 0; i < text.length; i += MAX_CONTENT) {
+    if (!(await postContentChecked(text.slice(i, i + MAX_CONTENT)))) failed = true
+  }
+  return failed ? { ok: false, reason: 'Discord rejected the message' } : { ok: true }
+}
+
 export interface SubdomainAlert {
   host: string
   status: number | null

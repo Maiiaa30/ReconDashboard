@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { createNote, deleteNote, getNote, listNotes, updateNote } from '../notes/store'
+import { sendNoteToDiscord } from '../notify/discord'
 
 export const noteRoutes: FastifyPluginAsync = async (app) => {
   // domainId query param: numeric => domain notes; omitted/"global" => global notes.
@@ -31,5 +32,15 @@ export const noteRoutes: FastifyPluginAsync = async (app) => {
     if (!getNote(id)) return reply.code(404).send({ error: 'note not found' })
     deleteNote(id)
     return reply.send({ ok: true })
+  })
+
+  // Push a note to the configured Discord webhook on demand.
+  app.post<{ Params: { id: string } }>('/api/notes/:id/discord', async (request, reply) => {
+    const id = Number(request.params.id)
+    const note = getNote(id)
+    if (!note) return reply.code(404).send({ error: 'note not found' })
+    const result = await sendNoteToDiscord(note.title, note.body)
+    if (!result.ok) return reply.code(400).send({ error: result.reason ?? 'failed to send to Discord' })
+    return { ok: true }
   })
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Send } from 'lucide-react'
 import { api, type Note } from '../api'
 import { useApp } from '../state'
 import { Button, Card, Empty, PageHeader } from '../components/ui'
@@ -10,6 +11,8 @@ export function Notes() {
   const [editing, setEditing] = useState<Note | null>(null)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
+  const [discordOk, setDiscordOk] = useState(false)
+  const [sendState, setSendState] = useState<Record<number, 'sending' | 'sent' | 'error'>>({})
 
   const scopeId: number | 'global' = scope === 'global' || !selected ? 'global' : selected.id
 
@@ -21,6 +24,21 @@ export function Notes() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    api.meta().then((m) => setDiscordOk(m.discordConfigured)).catch(() => setDiscordOk(false))
+  }, [])
+
+  async function sendToDiscord(id: number) {
+    setSendState((s) => ({ ...s, [id]: 'sending' }))
+    try {
+      await api.sendNoteToDiscord(id)
+      setSendState((s) => ({ ...s, [id]: 'sent' }))
+    } catch {
+      setSendState((s) => ({ ...s, [id]: 'error' }))
+    }
+    setTimeout(() => setSendState((s) => { const n = { ...s }; delete n[id]; return n }), 3000)
+  }
 
   function startNew() {
     setEditing(null)
@@ -86,16 +104,39 @@ export function Notes() {
           ) : (
             notes.map((n) => (
               <Card key={n.id} className="flex items-start justify-between gap-2">
-                <button onClick={() => startEdit(n)} className="text-left">
+                <button onClick={() => startEdit(n)} className="min-w-0 flex-1 text-left">
                   <div className="font-medium">{n.title || 'Untitled'}</div>
                   <div className="line-clamp-2 whitespace-pre-wrap text-xs text-zinc-500">{n.body}</div>
                   <div className="mt-1 text-[10px] text-zinc-600">
                     {new Date(n.updatedAt).toLocaleString()}
                   </div>
                 </button>
-                <button onClick={() => remove(n.id)} className="text-xs text-red-400 hover:text-red-300">
-                  ✕
-                </button>
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  <button
+                    onClick={() => sendToDiscord(n.id)}
+                    disabled={!discordOk || sendState[n.id] === 'sending'}
+                    title={discordOk ? 'Send this note to Discord' : 'Set DISCORD_WEBHOOK_URL to enable'}
+                    className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition disabled:opacity-40 ${
+                      sendState[n.id] === 'sent'
+                        ? 'border-green-900 text-green-300'
+                        : sendState[n.id] === 'error'
+                          ? 'border-red-900 text-red-300'
+                          : 'border-hair text-zinc-300 hover:border-hair-strong hover:bg-ink-800'
+                    }`}
+                  >
+                    <Send size={12} />
+                    {sendState[n.id] === 'sending'
+                      ? 'Sending…'
+                      : sendState[n.id] === 'sent'
+                        ? 'Sent'
+                        : sendState[n.id] === 'error'
+                          ? 'Failed'
+                          : 'Discord'}
+                  </button>
+                  <button onClick={() => remove(n.id)} className="text-xs text-red-400 hover:text-red-300">
+                    ✕
+                  </button>
+                </div>
               </Card>
             ))
           )}

@@ -327,6 +327,7 @@ export const api = {
     post<{ note: Note }>('/notes', { domainId, title, body }),
   updateNote: (id: number, title: string, body: string) => put<{ note: Note }>(`/notes/${id}`, { title, body }),
   deleteNote: (id: number) => del<{ ok: true }>(`/notes/${id}`),
+  sendNoteToDiscord: (id: number) => post<{ ok: true }>(`/notes/${id}/discord`),
 
   // drawings
   drawings: () => get<{ drawings: DrawingMeta[] }>('/drawings'),
