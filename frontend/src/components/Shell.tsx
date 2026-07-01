@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
+  Home as HomeIcon, Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
   Activity, ScanSearch, ShieldCheck, Flag, StickyNote, PenTool, ScrollText,
   Settings as SettingsIcon, LogOut, Menu, Radar as RadarLogo, Wrench, History, type LucideIcon,
 } from 'lucide-react'
@@ -25,9 +25,11 @@ import { Canvas } from '../pages/Canvas'
 import { Findings } from '../pages/Findings'
 import { Jobs } from '../pages/Jobs'
 import { Audit } from '../pages/Audit'
+import { Home } from '../pages/Home'
 import { Settings } from '../pages/Settings'
 
 const MODULES: { key: string; label: string; icon: LucideIcon }[] = [
+  { key: 'home', label: 'Home', icon: HomeIcon },
   { key: 'domains', label: 'Domains', icon: Globe },
   { key: 'intel', label: 'Intel', icon: Brain },
   { key: 'subdomains', label: 'Subdomains', icon: Network },
@@ -56,8 +58,15 @@ const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'subdomains', 'screenshots', 'fuzzi
 
 export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { domains, selectedId, select } = useApp()
-  const [active, setActive] = useState<ModuleKey>('domains')
+  const [active, setActive] = useState<ModuleKey>('home')
   const [navOpen, setNavOpen] = useState(false)
+
+  // Deep-link from cross-target views (Home): switch page and optionally target.
+  const navigate = (page: string, domainId?: number) => {
+    if (domainId != null) select(domainId)
+    setActive(page)
+    setNavOpen(false)
+  }
 
   async function logout() {
     try {
@@ -140,6 +149,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           </div>
         )}
 
+        {active === 'home' && <Home navigate={navigate} />}
         {active === 'domains' && <Domains />}
         {active === 'intel' && <Intel />}
         {active === 'subdomains' && <Subdomains />}

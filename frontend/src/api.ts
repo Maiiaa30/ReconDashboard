@@ -146,9 +146,11 @@ export interface Job {
   params: unknown
   result: unknown
   error: string | null
+  progress: string | null
   createdAt: string
   startedAt: string | null
   finishedAt: string | null
+  updatedAt: string
 }
 
 export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
@@ -263,6 +265,15 @@ export interface DomainOverview {
   monitorIntervalHours: number
 }
 
+export interface HomeFinding {
+  id: number
+  domainId: number | null
+  type: string
+  data: any
+  score: number | null
+  tags: string[]
+}
+
 // --- API surface -------------------------------------------------------------
 
 export const api = {
@@ -278,6 +289,9 @@ export const api = {
     post<{ ok: true }>('/auth/password', { currentPassword, newPassword }),
   changeUsername: (password: string, newUsername: string) =>
     post<{ ok: true; username: string }>('/auth/username', { password, newUsername }),
+
+  // engagement home (cross-target overview + top open findings)
+  home: () => get<{ overview: DomainOverview[]; topFindings: HomeFinding[] }>('/home'),
 
   // meta
   meta: () => get<MetaStatus>('/meta/status'),
@@ -358,6 +372,8 @@ export const api = {
   },
   updateFinding: (id: number, patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ finding: Finding }>(`/findings/${id}`, patchBody),
+  bulkUpdateFindings: (ids: number[], patchBody: { status?: FindingStatus; note?: string | null }) =>
+    patch<{ changed: number }>('/findings/bulk', { ids, ...patchBody }),
 
   // notes
   notes: (domainId: number | 'global') =>

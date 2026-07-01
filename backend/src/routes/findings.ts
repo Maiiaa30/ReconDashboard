@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify'
 import {
+  bulkUpdateTriage,
   FINDING_STATUSES,
   getFinding,
   listFindings,
@@ -22,6 +23,26 @@ export const findingRoutes: FastifyPluginAsync = async (app) => {
       return {
         findings: listFindings({ domainId: domainNum, type: t, limit: limitNum }),
       }
+    },
+  )
+
+  // Bulk-triage many findings in one transaction. Registered before :id so the
+  // static path wins the route match.
+  app.patch<{ Body: { ids?: number[]; status?: string; note?: string | null } }>(
+    '/api/findings/bulk',
+    async (request, reply) => {
+      const { ids, status, note } = request.body ?? {}
+      if (!Array.isArray(ids) || ids.length === 0) return reply.code(400).send({ error: 'ids required' })
+      if (ids.length > 5000) return reply.code(400).send({ error: 'too many ids (max 5000)' })
+      const cleanIds = ids.map(Number).filter((n) => Number.isFinite(n))
+      if (status !== undefined && !FINDING_STATUSES.includes(status as FindingStatus)) {
+        return reply.code(400).send({ error: 'invalid status' })
+      }
+      if (note !== undefined && note !== null && (typeof note !== 'string' || note.length > MAX_NOTE)) {
+        return reply.code(400).send({ error: `note must be a string up to ${MAX_NOTE} chars` })
+      }
+      const changed = bulkUpdateTriage(cleanIds, { status: status as FindingStatus | undefined, note })
+      return { changed }
     },
   )
 

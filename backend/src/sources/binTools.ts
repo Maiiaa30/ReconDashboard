@@ -23,11 +23,11 @@ const linesOf = (s: string) =>
   s.split('\n').map((l) => l.trim()).filter(Boolean)
 
 // --- katana (crawler) --------------------------------------------------------
-export async function runKatana(scheme: string, host: string): Promise<ToolFinding | null> {
+export async function runKatana(scheme: string, host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
   const { stdout } = await run(
     'katana',
     ['-u', `${scheme}://${host}`, '-silent', '-nc', '-d', '2', '-jc', '-timeout', '10', '-c', '10'],
-    { timeoutMs: 300_000 },
+    { timeoutMs: 300_000, signal },
   )
   const urls = [...new Set(linesOf(stdout).filter((u) => /^https?:\/\//.test(u)))]
   if (!urls.length) return null
@@ -43,12 +43,12 @@ export async function runKatana(scheme: string, host: string): Promise<ToolFindi
 }
 
 // --- naabu (fast port scan) --------------------------------------------------
-export async function runNaabu(host: string): Promise<ToolFinding | null> {
+export async function runNaabu(host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
   // Connect scan (-s c) needs no raw sockets; top-1000 ports. naabu can exit
   // non-zero on its internal enumeration timeout, so keep any partial output.
   let stdout = ''
   try {
-    const res = await run('naabu', ['-host', host, '-s', 'c', '-tp', '1000', '-silent', '-nc'], { timeoutMs: 300_000 })
+    const res = await run('naabu', ['-host', host, '-s', 'c', '-tp', '1000', '-silent', '-nc'], { timeoutMs: 300_000, signal })
     stdout = res.stdout
   } catch (err) {
     const e = err as { stdout?: string; code?: string }
@@ -71,13 +71,13 @@ export async function runNaabu(host: string): Promise<ToolFinding | null> {
 }
 
 // --- dalfox (XSS) ------------------------------------------------------------
-export async function runDalfox(scheme: string, host: string): Promise<ToolFinding | null> {
+export async function runDalfox(scheme: string, host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
   let stdout = ''
   try {
     const res = await run(
       'dalfox',
       ['url', `${scheme}://${host}`, '--silence', '--no-color', '--skip-bav', '--timeout', '10', '--worker', '30'],
-      { timeoutMs: 300_000 },
+      { timeoutMs: 300_000, signal },
     )
     stdout = res.stdout
   } catch (err) {
@@ -99,10 +99,10 @@ export async function runDalfox(scheme: string, host: string): Promise<ToolFindi
 }
 
 // --- sslscan (TLS audit) -----------------------------------------------------
-export async function runSslscan(host: string): Promise<ToolFinding | null> {
+export async function runSslscan(host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
   let stdout = ''
   try {
-    const res = await run('sslscan', ['--no-colour', `${host}:443`], { timeoutMs: 90_000 })
+    const res = await run('sslscan', ['--no-colour', `${host}:443`], { timeoutMs: 90_000, signal })
     stdout = res.stdout
   } catch (err) {
     const e = err as { stdout?: string; code?: string }

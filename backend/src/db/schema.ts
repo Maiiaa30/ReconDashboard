@@ -120,6 +120,10 @@ export const jobs = sqliteTable(
     params: text('params'), // JSON
     result: text('result'), // JSON
     error: text('error'),
+    // Coarse human progress line a long handler writes as it works (e.g.
+    // "probing 40/120 hosts"), bumped with updatedAt so the UI can tell a slow
+    // job from a wedged one before the 20-min timeout.
+    progress: text('progress'),
     // Owning domain (denormalized from params) so we can dedup pending jobs and
     // cool down per-target scans with an indexed lookup. Nullable, no FK: job
     // history must survive its domain being deleted.

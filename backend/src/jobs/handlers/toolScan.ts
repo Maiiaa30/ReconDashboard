@@ -11,7 +11,7 @@ export type ToolId = (typeof TOOL_IDS)[number]
 
 // One active tool against a target. Authorization (active_authorized OR confirm)
 // is enforced at the route; here we re-check the target belongs to the domain.
-export async function toolScanHandler({ params, log }: JobContext) {
+export async function toolScanHandler({ params, log, signal, progress }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
@@ -28,21 +28,22 @@ export async function toolScanHandler({ params, log }: JobContext) {
   // Refuse a target that resolves to an internal/Tailscale address before any
   // binary runs (throws SsrfBlockedError -> job fails with a clear reason).
   await assertPublicHost(target)
+  progress(`running ${tool} against ${target}`)
 
   try {
     let finding: ToolFinding | null
     switch (tool) {
       case 'katana':
-        finding = await runKatana(scheme, target)
+        finding = await runKatana(scheme, target, signal)
         break
       case 'naabu':
-        finding = await runNaabu(target)
+        finding = await runNaabu(target, signal)
         break
       case 'dalfox':
-        finding = await runDalfox(scheme, target)
+        finding = await runDalfox(scheme, target, signal)
         break
       case 'sslscan':
-        finding = await runSslscan(target)
+        finding = await runSslscan(target, signal)
         break
       case 'wpenum':
         finding = await runWpEnum(scheme, target)

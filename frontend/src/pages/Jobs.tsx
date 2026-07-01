@@ -114,6 +114,16 @@ export function Jobs() {
     (j) => (filter === 'all' || j.status === filter) && (!typeFilter || j.type === typeFilter),
   )
 
+  // Queue position: the worker claims queued jobs oldest-id first.
+  const queuePos = new Map<number, number>()
+  jobs
+    .filter((j) => j.status === 'queued')
+    .sort((a, b) => a.id - b.id)
+    .forEach((j, i) => queuePos.set(j.id, i + 1))
+  // A running job whose updatedAt hasn't moved in a while may be wedged.
+  const isStale = (j: Job) =>
+    j.status === 'running' && !!j.updatedAt && Date.now() - new Date(j.updatedAt).getTime() > 180_000
+
   return (
     <div>
       <PageHeader
@@ -203,6 +213,13 @@ export function Jobs() {
                       <td className="px-3 py-2 text-zinc-400">
                         {j.status === 'error' ? (
                           <span className="text-red-400">{j.error?.slice(0, 80)}</span>
+                        ) : j.status === 'running' ? (
+                          <span className="flex items-center gap-2">
+                            <span className="text-amber-300">{j.progress || 'running…'}</span>
+                            {isStale(j) && <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] text-red-300">possibly stuck</span>}
+                          </span>
+                        ) : j.status === 'queued' ? (
+                          <span className="text-blue-300">#{queuePos.get(j.id) ?? '?'} in queue</span>
                         ) : (
                           summarizeJob(j.type, j.result)
                         )}
@@ -210,7 +227,7 @@ export function Jobs() {
                       <td className="px-3 py-2 text-zinc-500">{timeAgo(new Date(j.createdAt).getTime())}</td>
                       <td className="px-3 py-2 text-zinc-500">{duration(j)}</td>
                       <td className="px-3 py-2">
-                        {j.status === 'queued' && (
+                        {(j.status === 'queued' || j.status === 'running') && (
                           <Button
                             variant="danger"
                             className="px-2 py-1 text-xs"

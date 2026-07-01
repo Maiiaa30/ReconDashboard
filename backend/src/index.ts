@@ -28,6 +28,7 @@ import { noteRoutes } from './routes/notes'
 import { drawingRoutes } from './routes/drawings'
 import { backupRoutes } from './routes/backup'
 import { auditRoutes } from './routes/audit'
+import { homeRoutes } from './routes/home'
 import { metaRoutes } from './routes/meta'
 
 async function main() {
@@ -92,6 +93,7 @@ async function main() {
   await app.register(drawingRoutes)
   await app.register(backupRoutes)
   await app.register(auditRoutes)
+  await app.register(homeRoutes)
   await app.register(metaRoutes)
 
   // Background processing.

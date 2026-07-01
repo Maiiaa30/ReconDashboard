@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type Finding, type FindingStatus } from '../api'
 import { useApp } from '../state'
 import { Badge, Button, Empty, ExportLinks, PageHeader } from '../components/ui'
@@ -68,6 +68,11 @@ export function Findings() {
   const [tagFilter, setTagFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [findings, setFindings] = useState<Finding[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const lastIdxRef = useRef<number | null>(null)
+  const filteredRef = useRef<Finding[]>([])
+  const selectedIdsRef = useRef<Set<number>>(selectedIds)
+  selectedIdsRef.current = selectedIds
 
   // Follow the header target selection (selecting a domain scopes Findings to it).
   useEffect(() => {
@@ -101,6 +106,72 @@ export function Findings() {
     [load],
   )
 
+  // Clear selection when the filter set changes (ids may no longer be shown).
+  useEffect(() => {
+    setSelectedIds(new Set())
+    lastIdxRef.current = null
+  }, [domainId, type, statusFilter, tagFilter])
+
+  const toggleSelect = useCallback((id: number, idx: number, range: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (range && lastIdxRef.current != null) {
+        const [a, b] = [lastIdxRef.current, idx].sort((x, y) => x - y)
+        for (let i = a; i <= b; i++) {
+          const fid = filteredRef.current[i]?.id
+          if (fid != null) next.add(fid)
+        }
+      } else if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+    lastIdxRef.current = idx
+  }, [])
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
+  const selectAllFiltered = useCallback(() => setSelectedIds(new Set(filteredRef.current.map((f) => f.id))), [])
+
+  const bulkApply = useCallback(
+    async (status: FindingStatus) => {
+      const ids = [...selectedIdsRef.current]
+      if (!ids.length) return
+      const idSet = new Set(ids)
+      setFindings((prev) => prev.map((f) => (idSet.has(f.id) ? { ...f, status } : f)))
+      setSelectedIds(new Set())
+      try {
+        await api.bulkUpdateFindings(ids, { status })
+      } catch {
+        load()
+      }
+    },
+    [load],
+  )
+
+  // Keyboard triage: o/c/f/r/i set status on the selection, a = select all, esc = clear.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.key === 'Escape') return clearSelection()
+      if (e.key.toLowerCase() === 'a') {
+        e.preventDefault()
+        return selectAllFiltered()
+      }
+      if (selectedIdsRef.current.size === 0) return
+      const map: Record<string, FindingStatus> = { o: 'open', c: 'confirmed', f: 'false_positive', r: 'resolved', i: 'ignored' }
+      const st = map[e.key.toLowerCase()]
+      if (st) {
+        e.preventDefault()
+        void bulkApply(st)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [bulkApply, clearSelection, selectAllFiltered])
+
   const tagQuery = tagFilter.trim().toLowerCase()
   const matchesStatus = (f: Finding) =>
     statusFilter === 'all'
@@ -111,6 +182,7 @@ export function Findings() {
   const filtered = findings.filter(
     (f) => matchesStatus(f) && (tagQuery ? f.tags.some((t) => t.toLowerCase().includes(tagQuery)) : true),
   )
+  filteredRef.current = filtered
 
   const selectCls =
     'mt-1 block rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm outline-none focus:border-accent-500'
@@ -206,12 +278,44 @@ export function Findings() {
         )}
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="sticky top-0 z-10 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-accent-500/40 bg-ink-900/95 px-3 py-2 text-sm backdrop-blur">
+          <span className="font-medium text-accent-fg">{selectedIds.size} selected</span>
+          <span className="text-zinc-500">set status:</span>
+          {STATUSES.map((s) => (
+            <button
+              key={s}
+              onClick={() => bulkApply(s)}
+              className="rounded-md border border-hair px-2 py-0.5 text-xs text-zinc-200 hover:bg-ink-800"
+            >
+              {STATUS_LABEL[s]}
+            </button>
+          ))}
+          <button onClick={selectAllFiltered} className="ml-auto text-xs text-zinc-400 hover:text-zinc-200">
+            select all {filtered.length}
+          </button>
+          <button onClick={clearSelection} className="text-xs text-zinc-500 hover:text-zinc-300">
+            clear
+          </button>
+          <span className="hidden text-[10px] text-zinc-600 sm:inline">keys: o/c/f/r/i · a=all · esc</span>
+        </div>
+      )}
+
       {filtered.length === 0 ? (
         <Empty>No findings match these filters.</Empty>
       ) : (
         <div className="space-y-2">
-          {filtered.map((f) => (
-            <FindingRow key={f.id} f={f} host={hostOf(f.domainId)} onTag={setTagFilter} onUpdate={update} />
+          {filtered.map((f, idx) => (
+            <FindingRow
+              key={f.id}
+              f={f}
+              idx={idx}
+              host={hostOf(f.domainId)}
+              selected={selectedIds.has(f.id)}
+              onToggleSelect={toggleSelect}
+              onTag={setTagFilter}
+              onUpdate={update}
+            />
           ))}
         </div>
       )}
@@ -221,12 +325,18 @@ export function Findings() {
 
 function FindingRow({
   f,
+  idx,
   host,
+  selected,
+  onToggleSelect,
   onTag,
   onUpdate,
 }: {
   f: Finding
+  idx: number
   host: string
+  selected: boolean
+  onToggleSelect: (id: number, idx: number, range: boolean) => void
   onTag: (t: string) => void
   onUpdate: (id: number, patch: { status?: FindingStatus; note?: string | null }) => void
 }) {
@@ -238,8 +348,19 @@ function FindingRow({
   const dimmed = TRIAGED_AWAY.includes(f.status)
 
   return (
-    <div className={`rounded-xl border border-l-4 border-hair bg-ink-850/60 ${RISK_BORDER[risk]} ${dimmed ? 'opacity-60' : ''}`}>
+    <div className={`rounded-xl border border-l-4 border-hair bg-ink-850/60 ${RISK_BORDER[risk]} ${dimmed ? 'opacity-60' : ''} ${selected ? 'ring-1 ring-accent-500/50' : ''}`}>
       <div className="flex items-start gap-3 p-3">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => {}}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleSelect(f.id, idx, e.shiftKey)
+          }}
+          title="select (shift-click for range)"
+          className="mt-2.5 h-4 w-4 shrink-0 cursor-pointer accent-accent-500"
+        />
         <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-semibold ring-1 ${RISK_SCORE[risk]}`}>
           {f.score ?? '—'}
         </div>

@@ -148,6 +148,25 @@ export function cancelJob(id: number): boolean {
   return res.changes > 0
 }
 
+// Coarse progress line for a running job (bumps updatedAt so a stale detector
+// and the UI can distinguish a slow job from a wedged one).
+export function setJobProgress(id: number, progress: string): void {
+  db.update(jobs)
+    .set({ progress: progress.slice(0, 500), updatedAt: new Date() })
+    .where(and(eq(jobs.id, id), eq(jobs.status, 'running')))
+    .run()
+}
+
+// Mark a running job cancelled (operator aborted it). Guarded by status='running'.
+export function markJobCancelled(id: number): boolean {
+  const res = db
+    .update(jobs)
+    .set({ status: 'cancelled', error: 'cancelled by operator', finishedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(jobs.id, id), eq(jobs.status, 'running')))
+    .run()
+  return res.changes > 0
+}
+
 export function failJob(id: number, error: string): boolean {
   const res = db
     .update(jobs)

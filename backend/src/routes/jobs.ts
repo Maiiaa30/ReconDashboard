@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { cancelJob, getJob, listJobs } from '../jobs/queue'
+import { cancelRunningJob } from '../jobs/worker'
 import { safeJsonParse } from '../util/json'
 
 function parseJob(job: ReturnType<typeof getJob>) {
@@ -20,18 +21,26 @@ export const jobRoutes: FastifyPluginAsync = async (app) => {
     return { job: parseJob(job) }
   })
 
-  // Cancel a still-queued job. Running/finished jobs can't be cancelled (the
-  // worker has no mid-run abort), so this only affects the queue.
+  // Cancel a job. A queued job is dropped from the queue; a running job is
+  // aborted (its AbortSignal fires, killing the subprocess/fetch that observe
+  // it) and marked cancelled by the worker.
   app.post<{ Params: { id: string } }>('/api/jobs/:id/cancel', async (request, reply) => {
     const id = Number(request.params.id)
     const job = getJob(id)
     if (!job) return reply.code(404).send({ error: 'job not found' })
-    if (job.status !== 'queued') {
-      return reply.code(409).send({ error: `job is ${job.status} — only queued jobs can be cancelled` })
+    if (job.status === 'queued') {
+      if (!cancelJob(id)) {
+        // Lost the race — the worker just claimed it. Fall through to abort it.
+        if (!cancelRunningJob(id)) return reply.code(409).send({ error: 'job already started — too late to cancel' })
+      }
+      return { job: parseJob(getJob(id)) }
     }
-    if (!cancelJob(id)) {
-      return reply.code(409).send({ error: 'job already started — too late to cancel' })
+    if (job.status === 'running') {
+      if (!cancelRunningJob(id)) {
+        return reply.code(409).send({ error: 'job is no longer running' })
+      }
+      return { requested: true, job: parseJob(getJob(id)) }
     }
-    return { job: parseJob(getJob(id)) }
+    return reply.code(409).send({ error: `job is ${job.status} — nothing to cancel` })
   })
 }

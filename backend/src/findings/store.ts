@@ -154,6 +154,23 @@ export function updateFindingTriage(id: number, patch: { status?: FindingStatus;
   return res.changes > 0
 }
 
+// Triage many findings at once in a single transaction (bulk status/note). The
+// long tail of low-value findings is where a solo operator burns the most time.
+export function bulkUpdateTriage(ids: number[], patch: { status?: FindingStatus; note?: string | null }): number {
+  const set: Record<string, unknown> = {}
+  if (patch.status !== undefined) set.status = patch.status
+  if (patch.note !== undefined) set.note = patch.note
+  if (Object.keys(set).length === 0 || ids.length === 0) return 0
+  let changed = 0
+  db.transaction((tx) => {
+    for (let i = 0; i < ids.length; i += 500) {
+      const res = tx.update(findings).set(set).where(inArray(findings.id, ids.slice(i, i + 500))).run()
+      changed += res.changes
+    }
+  })
+  return changed
+}
+
 // One-time cleanup of duplicate finding rows created before write-time dedup
 // existed (so count(*) and the overview reflect reality). Keeps the best
 // (highest score, then newest) row per domain+type+key. Returns rows removed.

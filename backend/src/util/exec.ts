@@ -22,6 +22,8 @@ export interface RunResult {
 interface RunOptions {
   timeoutMs?: number
   maxBuffer?: number
+  // When aborted (job timeout / operator cancel), execFile kills the child.
+  signal?: AbortSignal
 }
 
 export async function run(
@@ -34,6 +36,7 @@ export async function run(
       timeout: opts.timeoutMs ?? 120_000,
       maxBuffer: opts.maxBuffer ?? 32 * 1024 * 1024,
       windowsHide: true,
+      signal: opts.signal,
       // No `shell` option — arguments are passed directly to the binary.
     })
     return { stdout: stdout.toString(), stderr: stderr.toString() }

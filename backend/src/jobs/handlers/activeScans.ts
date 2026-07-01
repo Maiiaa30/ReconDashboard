@@ -30,7 +30,7 @@ function assertTargetInDomain(target: string, domainHost: string): void {
 
 // --- nmap --------------------------------------------------------------------
 
-export async function nmapHandler({ params, log }: JobContext) {
+export async function nmapHandler({ params, log, signal, progress }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
@@ -40,6 +40,7 @@ export async function nmapHandler({ params, log }: JobContext) {
   if (!(await toolExists('nmap'))) {
     return { available: false, note: 'nmap binary not installed' }
   }
+  progress(`scanning ${target} with nmap`)
 
   const args = ['-Pn', '-T3', '-oX', '-']
   const portSpec = params.ports ? String(params.ports) : ''
@@ -53,7 +54,7 @@ export async function nmapHandler({ params, log }: JobContext) {
 
   let xml = ''
   try {
-    const res = await run('nmap', args, { timeoutMs: 300_000 })
+    const res = await run('nmap', args, { timeoutMs: 300_000, signal })
     xml = res.stdout
   } catch (err) {
     const e = err as Error & { stdout?: string }
@@ -85,7 +86,7 @@ export async function nmapHandler({ params, log }: JobContext) {
 
 // --- nuclei ------------------------------------------------------------------
 
-export async function nucleiHandler({ params, log }: JobContext) {
+export async function nucleiHandler({ params, log, signal, progress }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
@@ -95,6 +96,7 @@ export async function nucleiHandler({ params, log }: JobContext) {
   if (!(await toolExists('nuclei'))) {
     return { available: false, note: 'nuclei binary not installed' }
   }
+  progress(`running nuclei against ${target}`)
 
   const scheme = params.scheme === 'http' ? 'http' : 'https'
   const url = `${scheme}://${target}`
@@ -113,7 +115,7 @@ export async function nucleiHandler({ params, log }: JobContext) {
 
   let stdout = ''
   try {
-    const res = await run('nuclei', args, { timeoutMs: 600_000 })
+    const res = await run('nuclei', args, { timeoutMs: 600_000, signal })
     stdout = res.stdout
   } catch (err) {
     const e = err as Error & { stdout?: string }
@@ -155,7 +157,7 @@ export async function nucleiHandler({ params, log }: JobContext) {
 
 // --- ffuf --------------------------------------------------------------------
 
-export async function ffufHandler({ params, log }: JobContext) {
+export async function ffufHandler({ params, log, signal, progress }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
@@ -165,6 +167,7 @@ export async function ffufHandler({ params, log }: JobContext) {
   if (!(await toolExists('ffuf'))) {
     return { available: false, note: 'ffuf binary not installed' }
   }
+  progress(`fuzzing ${target} with ffuf`)
 
   const scheme = params.scheme === 'http' ? 'http' : 'https'
   const path = String(params.path ?? 'FUZZ')
@@ -187,7 +190,7 @@ export async function ffufHandler({ params, log }: JobContext) {
 
   try {
     try {
-      await run('ffuf', args, { timeoutMs: 600_000 })
+      await run('ffuf', args, { timeoutMs: 600_000, signal })
     } catch (err) {
       // ffuf can exit non-zero; still try to read the output file.
       log.warn({ err }, 'ffuf exited non-zero; attempting to read output')

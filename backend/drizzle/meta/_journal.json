@@ -78,6 +78,13 @@
       "when": 1782870172245,
       "tag": "0010_closed_fenris",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1782894837726,
+      "tag": "0011_black_slapstick",
+      "breakpoints": true
     }
   ]
 }
