@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from 'react'
-import { api, type Finding } from '../api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { api, type AttackPath, type Finding } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
 import { riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
@@ -9,6 +9,7 @@ import { riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib
 export function Intel() {
   const { domains, selected } = useApp()
   const [findings, setFindings] = useState<Finding[]>([])
+  const [paths, setPaths] = useState<AttackPath[]>([])
 
   // Scoped to the selected domain (matches the header target). No selection =
   // triage across all domains.
@@ -16,6 +17,15 @@ export function Intel() {
     api.findings({ domainId: selected?.id, limit: 500 }).then((r) => setFindings(r.findings)).catch(() => {})
   }, [selected])
   usePoll(load, 8000, true)
+
+  // Attack-path correlation is per-domain (needs a selected target).
+  useEffect(() => {
+    if (!selected) {
+      setPaths([])
+      return
+    }
+    api.correlate(selected.id).then((r) => setPaths(r.paths)).catch(() => setPaths([]))
+  }, [selected, findings])
 
   const hostOf = useCallback(
     (id: number | null) => (id == null ? 'global' : domains.find((d) => d.id === id)?.host ?? `#${id}`),
@@ -60,6 +70,8 @@ export function Intel() {
         <SignalTile label="Admin/interesting" value={signals.adminish} tone="blue" />
       </div>
 
+      {selected && paths.length > 0 && <AttackPaths paths={paths} host={selected.host} />}
+
       {findings.length === 0 ? (
         <Empty>No findings yet. Run discovery / exposure / OSINT on a domain to populate intel.</Empty>
       ) : (
@@ -69,6 +81,61 @@ export function Intel() {
           <Section title="🔵 Context" tone="blue" items={buckets.low} hostOf={hostOf} collapsedCount />
         </div>
       )}
+    </div>
+  )
+}
+
+// IP-centric join: host(s) -> IP (ASN) -> ports -> CVEs, worst first.
+function AttackPaths({ paths, host }: { paths: AttackPath[]; host: string }) {
+  return (
+    <div className="mb-6">
+      <h2 className="mb-2 text-sm font-semibold text-zinc-200">
+        🧭 Attack paths <span className="text-zinc-500">— {host} ({paths.length} asset{paths.length > 1 ? 's' : ''})</span>
+      </h2>
+      <div className="overflow-hidden rounded-xl border border-hair">
+        <table className="w-full text-sm">
+          <thead className="bg-ink-900/60 text-left text-xs uppercase tracking-wide text-zinc-500">
+            <tr>
+              <th className="px-3 py-2">Host(s)</th>
+              <th className="px-3 py-2 w-40">IP</th>
+              <th className="px-3 py-2 w-32">ASN</th>
+              <th className="px-3 py-2">Ports</th>
+              <th className="px-3 py-2 w-28">CVEs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paths.slice(0, 40).map((p) => (
+              <tr key={p.ip} className="border-t border-hair/60 align-top">
+                <td className="px-3 py-2 font-mono text-xs text-zinc-200">
+                  {p.hosts.length ? p.hosts.slice(0, 4).join(', ') + (p.hosts.length > 4 ? ` +${p.hosts.length - 4}` : '') : '—'}
+                </td>
+                <td className="px-3 py-2 font-mono text-xs text-zinc-300">
+                  {p.ip}
+                  {p.cdn && <span className="ml-1 text-[10px] text-zinc-600">({p.cdn})</span>}
+                </td>
+                <td className="px-3 py-2 text-xs text-zinc-400" title={p.asnName ?? ''}>
+                  {p.asn ? `AS${p.asn}` : '—'}
+                </td>
+                <td className="px-3 py-2 font-mono text-xs text-zinc-400 break-all">
+                  {p.ports.length ? p.ports.slice(0, 12).join(', ') : '—'}
+                </td>
+                <td className="px-3 py-2 text-xs">
+                  {p.cveCount > 0 ? (
+                    <span className="flex flex-wrap items-center gap-1">
+                      <Badge tone={p.worstCvss && p.worstCvss >= 9 ? 'red' : p.worstCvss && p.worstCvss >= 7 ? 'amber' : 'zinc'}>
+                        {p.cveCount} CVE{p.cveCount > 1 ? 's' : ''}
+                      </Badge>
+                      {p.kev && <Badge tone="red">KEV</Badge>}
+                    </span>
+                  ) : (
+                    <span className="text-zinc-600">—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

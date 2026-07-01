@@ -58,6 +58,7 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
         intervalMinutes: config.scheduleSubdomainsMinutes,
       },
       discordConfigured: Boolean(config.discordWebhookUrl),
+      llm: { enabled: config.llm.enabled, model: config.llm.enabled ? config.llm.model : null },
       tools: toolCache,
       wordlists: listWordlists(),
     }

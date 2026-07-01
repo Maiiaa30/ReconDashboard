@@ -11,6 +11,7 @@ import {
 import { enqueueJob } from '../jobs/queue'
 import { acknowledgeNew, listSubdomains } from '../subdomains/store'
 import { domainOverviews } from '../domains/overview'
+import { correlateDomain } from '../domains/correlate'
 import { safeJsonParse } from '../util/json'
 
 export const domainRoutes: FastifyPluginAsync = async (app) => {
@@ -130,6 +131,13 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
     if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
     await deleteDomain(id)
     return reply.send({ ok: true })
+  })
+
+  // Attack-path correlation: IP-centric join of hosts -> IP -> ports/CVEs/ASN.
+  app.get<{ Params: { id: string } }>('/api/domains/:id/correlate', async (request, reply) => {
+    const id = Number(request.params.id)
+    if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+    return { paths: correlateDomain(id) }
   })
 
   // --- Subdomains for a domain ----------------------------------------------

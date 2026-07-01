@@ -3,7 +3,8 @@ FROM node:22-bookworm-slim
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm install
+# npm ci = reproducible install from the lockfile (fails if out of sync).
+RUN npm ci
 
 COPY . .
 

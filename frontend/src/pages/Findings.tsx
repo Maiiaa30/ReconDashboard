@@ -73,6 +73,26 @@ export function Findings() {
   const filteredRef = useRef<Finding[]>([])
   const selectedIdsRef = useRef<Set<number>>(selectedIds)
   selectedIdsRef.current = selectedIds
+  const [llmOn, setLlmOn] = useState(false)
+  const [narrative, setNarrative] = useState<{ text: string; note: string } | null>(null)
+  const [narrBusy, setNarrBusy] = useState(false)
+
+  useEffect(() => {
+    api.meta().then((m) => setLlmOn(Boolean(m.llm?.enabled))).catch(() => {})
+  }, [])
+
+  async function draftNarrative() {
+    if (domainId === '') return
+    setNarrBusy(true)
+    try {
+      const r = await api.generateNarrative(domainId)
+      setNarrative({ text: r.narrative, note: r.note })
+    } catch (e) {
+      setNarrative({ text: '', note: e instanceof Error ? e.message : 'failed to generate' })
+    } finally {
+      setNarrBusy(false)
+    }
+  }
 
   // Follow the header target selection (selecting a domain scopes Findings to it).
   useEffect(() => {
@@ -210,6 +230,16 @@ export function Findings() {
                 >
                   Report (HTML/PDF)
                 </a>
+                {llmOn && (
+                  <button
+                    onClick={draftNarrative}
+                    disabled={narrBusy}
+                    className="rounded-lg border border-accent-500/40 px-2.5 py-1 text-xs text-accent-fg transition hover:bg-accent-500/10 disabled:opacity-50"
+                    title="Draft an executive summary with the configured local/cloud AI (sends target + finding summaries)"
+                  >
+                    {narrBusy ? 'Drafting…' : '✨ Draft AI summary'}
+                  </button>
+                )}
               </>
             )}
             <ExportLinks
@@ -277,6 +307,23 @@ export function Findings() {
           </button>
         )}
       </div>
+
+      {narrative && (
+        <div className="mb-4 rounded-xl border border-accent-500/30 bg-ink-900/60 p-4">
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wide text-accent-fg">AI-drafted executive summary</span>
+            <button onClick={() => setNarrative(null)} className="text-xs text-zinc-500 hover:text-zinc-300">
+              dismiss
+            </button>
+          </div>
+          {narrative.text ? (
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{narrative.text}</p>
+          ) : (
+            <p className="text-sm text-red-400">{narrative.note}</p>
+          )}
+          {narrative.text && <p className="mt-2 text-[11px] text-amber-400/80">⚠ {narrative.note}</p>}
+        </div>
+      )}
 
       {selectedIds.size > 0 && (
         <div className="sticky top-0 z-10 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-accent-500/40 bg-ink-900/95 px-3 py-2 text-sm backdrop-blur">

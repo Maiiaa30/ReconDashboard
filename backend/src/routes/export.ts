@@ -4,6 +4,8 @@ import { listSubdomains } from '../subdomains/store'
 import { listFindings, type FindingType } from '../findings/store'
 import { buildDomainReport, buildDomainReportHtml } from '../findings/report'
 import { toCsv } from '../util/csv'
+import { config } from '../config'
+import { llmComplete, llmEnabled } from '../util/llm'
 
 type Format = 'csv' | 'json' | 'txt'
 
@@ -72,6 +74,45 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
       return reply.send(md)
     },
   )
+
+  // Optional AI-DRAFTED executive narrative (grounded strictly in the finding
+  // data; scores stay deterministic). Off unless LLM_BASE_URL/LLM_MODEL are set.
+  // NOTE: this sends target hostnames + finding summaries to the configured LLM.
+  app.post<{ Params: { id: string } }>('/api/domains/:id/report/narrative', async (request, reply) => {
+    if (!llmEnabled()) return reply.code(503).send({ error: 'LLM not configured (set LLM_BASE_URL and LLM_MODEL)' })
+    const id = Number(request.params.id)
+    const domain = getDomain(id)
+    if (!domain) return reply.code(404).send({ error: 'domain not found' })
+
+    const findings = listFindings({ domainId: id, limit: 5000 }).filter(
+      (f) => (f as any).status !== 'false_positive' && (f as any).status !== 'ignored',
+    )
+    const score = (f: (typeof findings)[number]) => f.score ?? 0
+    const high = findings.filter((f) => score(f) >= 70)
+    const medium = findings.filter((f) => score(f) >= 40 && score(f) < 70)
+    const subs = listSubdomains(id)
+    const live = subs.filter((s) => s.httpStatus != null)
+    const exposures = findings.filter((f) => f.type === 'exposure')
+    const cves = exposures.reduce((n, f: any) => n + (f.data?.vulns?.length ?? 0), 0)
+    const topLines = [...high, ...medium].slice(0, 15).map((f) => `- [${f.score}] ${summarize(f.type, f.data)}`).join('\n')
+
+    const facts =
+      `Target: ${domain.host}\n` +
+      `Subdomains: ${subs.length} (${live.length} live)\n` +
+      `Findings: ${high.length} high, ${medium.length} medium\n` +
+      `CVEs across exposed IPs: ${cves}\n` +
+      `Top findings:\n${topLines || '(none above the noise floor)'}`
+
+    const system =
+      'You are a penetration-test report writer. Write a concise executive summary (120-180 words) of the ' +
+      'engagement, grounded STRICTLY in the facts provided. Do NOT invent findings, hosts, CVEs, or numbers ' +
+      'not present in the facts. Emphasise business risk and the most severe issues. Plain professional prose ' +
+      '— no bullet lists, no markdown headers, no preamble.'
+
+    const narrative = await llmComplete(system, facts)
+    if (!narrative) return reply.code(502).send({ error: 'the LLM did not return a narrative (check the endpoint/model)' })
+    return { narrative, model: config.llm.model, note: 'AI draft — verify against the findings table before use.' }
+  })
 
   // Subdomains export: csv | txt (hosts only) | json (full rows).
   app.get<{ Params: { id: string }; Querystring: { format?: string } }>(

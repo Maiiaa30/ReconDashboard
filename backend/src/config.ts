@@ -65,4 +65,15 @@ export const config = {
   // Optional passphrase for encrypted DB backups. If unset, the backup route
   // requires the passphrase to be supplied in the request.
   backupPassphrase: process.env.BACKUP_PASSPHRASE?.trim() || '',
+
+  // Optional LLM for DRAFTING report narrative only (never scoring — scores stay
+  // deterministic). Provider-agnostic: any OpenAI-compatible /chat/completions
+  // endpoint. Default OFF; point LLM_BASE_URL at Groq / Gemini / a local Ollama.
+  // e.g. LLM_BASE_URL=https://api.groq.com/openai/v1  LLM_MODEL=llama-3.3-70b-versatile
+  llm: ((): { baseUrl: string; apiKey: string; model: string; enabled: boolean } => {
+    const baseUrl = process.env.LLM_BASE_URL?.trim().replace(/\/$/, '') || ''
+    const apiKey = process.env.LLM_API_KEY?.trim() || ''
+    const model = process.env.LLM_MODEL?.trim() || ''
+    return { baseUrl, apiKey, model, enabled: Boolean(baseUrl && model) }
+  })(),
 } as const

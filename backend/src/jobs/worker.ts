@@ -3,6 +3,7 @@ import type { Job } from '../db/schema'
 import { claimNextQueued, failJob, finishJob, isLoudJob, markJobCancelled, requeueStaleRunning, setJobProgress } from './queue'
 import type { JobType } from './queue'
 import { writeAudit } from '../audit/store'
+import { chainAfter } from './chains'
 
 export interface JobContext {
   job: Job
@@ -118,6 +119,7 @@ async function tick(log: FastifyBaseLogger): Promise<void> {
           finishJob(job.id, result)
           log.info({ jobId: job.id, type: job.type }, 'job done')
           if (loud) auditJob('job:done', job, params, { type: job.type })
+          chainAfter(job, result, log)
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)

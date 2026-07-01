@@ -195,11 +195,25 @@ export interface Wordlist {
   sizeKb: number
 }
 
+export interface AttackPath {
+  ip: string
+  cdn: string | null
+  asn: string | null
+  asnName: string | null
+  hosts: string[]
+  ports: number[]
+  cveCount: number
+  worstCvss: number | null
+  kev: boolean
+  score: number
+}
+
 export interface MetaStatus {
   scorer: string
   aiProvider: string
   scheduler: { enabled: boolean; intervalMinutes: number }
   discordConfigured: boolean
+  llm?: { enabled: boolean; model: string | null }
   tools: {
     subfinder: boolean
     nmap: boolean
@@ -321,6 +335,12 @@ export const api = {
   owaspCatalog: () => get<{ catalog: OwaspCategory[]; profileKeys: OwaspProfileKey[] }>('/owasp/catalog'),
   runOwasp: (id: number, categoryIds?: string[], scheme?: string, confirm?: boolean) =>
     post<{ jobId: number; categories: string[]; tags: string[] }>(`/domains/${id}/owasp`, { categoryIds, scheme, confirm }),
+
+  // attack-path correlation
+  correlate: (id: number) => get<{ paths: AttackPath[] }>(`/domains/${id}/correlate`),
+
+  // AI-drafted report narrative (optional; only when llm.enabled)
+  generateNarrative: (id: number) => post<{ narrative: string; model: string; note: string }>(`/domains/${id}/report/narrative`),
 
   // subdomains
   subdomains: (id: number) => get<{ subdomains: Subdomain[] }>(`/domains/${id}/subdomains`),

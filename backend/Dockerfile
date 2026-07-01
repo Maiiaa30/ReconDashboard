@@ -73,7 +73,8 @@ WORKDIR /app
 
 # Install dependencies first for better layer caching.
 COPY package.json package-lock.json* ./
-RUN npm install
+# npm ci = reproducible install from the lockfile (fails if out of sync).
+RUN npm ci
 
 COPY . .
 
