@@ -81,8 +81,32 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   app.get('/api/auth/me', async (request, reply) => {
     const op = getOperatorById(request.session.userId!)
     if (!op) return reply.code(401).send({ error: 'unauthorized' })
-    return reply.send({ user: { username: op.username, totpEnabled: op.totpEnabled } })
+    return reply.send({
+      user: { username: op.username, totpEnabled: op.totpEnabled, selectedDomainId: op.selectedDomainId },
+    })
   })
+
+  // Persist the operator's selected target so it follows the account across
+  // browsers/devices (not just localStorage). null clears it.
+  app.post<{ Body: { domainId: number | null } }>(
+    '/api/auth/selected-domain',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['domainId'],
+          properties: { domainId: { type: ['integer', 'null'] } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const op = getOperatorById(request.session.userId!)
+      if (!op) return reply.code(401).send({ error: 'unauthorized' })
+      const domainId = request.body.domainId
+      db.update(users).set({ selectedDomainId: domainId, updatedAt: new Date() }).where(eq(users.id, op.id)).run()
+      return reply.send({ ok: true, selectedDomainId: domainId })
+    },
+  )
 
   // --- TOTP enrollment (returns otpauth URL as text; QR is a later add) ------
   app.get('/api/auth/enroll', async (request, reply) => {

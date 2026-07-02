@@ -241,12 +241,13 @@ export interface MetaStatus {
     sqlmap?: boolean
     wpenum?: boolean
     bypass403?: boolean
+    methods?: boolean
   }
   wordlists: Wordlist[]
 }
 
 export interface Me {
-  user: { username: string; totpEnabled: boolean }
+  user: { username: string; totpEnabled: boolean; selectedDomainId?: number | null }
 }
 
 export interface WhoisResult {
@@ -308,6 +309,8 @@ export interface HomeFinding {
 export const api = {
   // auth
   me: () => get<Me>('/auth/me'),
+  setSelectedDomain: (domainId: number | null) =>
+    post<{ ok: boolean; selectedDomainId: number | null }>('/auth/selected-domain', { domainId }),
   login: (username: string, password: string, token?: string) =>
     post<{ user: { username: string } }>('/auth/login', { username, password, ...(token ? { token } : {}) }),
   logout: () => post<{ ok: true }>('/auth/logout'),
@@ -383,7 +386,7 @@ export const api = {
   screenshotUrl: (id: number, host: string) => `/api/domains/${id}/screenshot?host=${encodeURIComponent(host)}`,
 
   // extra active tools (katana/naabu/dalfox/sslscan/wpenum), gated like scans
-  runTool: (id: number, opts: { tool: string; target?: string; scheme?: string; confirm?: boolean }) =>
+  runTool: (id: number, opts: { tool: string; target?: string; scheme?: string; confirm?: boolean; path?: string }) =>
     post<{ jobId: number; tool: string; target: string }>(`/domains/${id}/tool`, opts),
 
   // active scans (gated server-side; passive domains require confirm:true)

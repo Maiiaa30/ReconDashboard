@@ -17,6 +17,9 @@ export const users = sqliteTable('users', {
   // TOTP secret is generated at seed time; 2FA stays disabled until enabled.
   totpSecret: text('totp_secret').notNull(),
   totpEnabled: integer('totp_enabled', { mode: 'boolean' }).notNull().default(false),
+  // Persisted per-operator UI state so the selected target follows the account
+  // across browsers/devices (not just this browser's localStorage).
+  selectedDomainId: integer('selected_domain_id'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
 })

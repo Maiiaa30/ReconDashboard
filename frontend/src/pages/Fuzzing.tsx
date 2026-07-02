@@ -160,6 +160,34 @@ export function Fuzzing() {
     }
   }
 
+  // Send a 401/403 hit to the 403-bypass tool, targeting its exact path.
+  async function sendToBypass(h: Finding) {
+    if (!selected) return
+    let host = selected.host
+    let hitPath = '/'
+    let sch: 'https' | 'http' = scheme
+    try {
+      const u = new URL(String(h.data?.url ?? ''))
+      host = u.hostname
+      hitPath = u.pathname + u.search
+      sch = u.protocol === 'http:' ? 'http' : 'https'
+    } catch {
+      /* keep defaults */
+    }
+    if (!active) {
+      const ok = confirm(
+        `⚠ ${selected.host} is passive_only.\n\nThe 403 bypass is a LOUD, active tool. Only run it against ${host}${hitPath} if you are authorized to actively test this target.\n\nRun anyway?`,
+      )
+      if (!ok) return
+    }
+    try {
+      const { jobId } = await api.runTool(selected.id, { tool: 'bypass403', target: host, path: hitPath, scheme: sch, confirm: !active })
+      setMsg({ ok: true, text: `Queued 403 bypass job #${jobId} on ${hitPath} — results appear on the Tools/Findings page.` })
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof ApiError ? err.message : 'failed to start 403 bypass' })
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -259,6 +287,7 @@ export function Fuzzing() {
                 <SortTh label="Length" k="length" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="w-24" />
                 <SortTh label="Words" k="words" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="w-24" />
                 <SortTh label="Found" k="found" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="w-28" />
+                <th className="w-24 px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -279,6 +308,18 @@ export function Fuzzing() {
                   <td className="px-3 py-2 text-zinc-400">{h.data?.length ?? '—'}</td>
                   <td className="px-3 py-2 text-zinc-400">{h.data?.words ?? '—'}</td>
                   <td className="px-3 py-2 text-zinc-500">{timeAgo(new Date(h.createdAt).getTime())}</td>
+                  <td className="px-3 py-2">
+                    {(Number(h.data?.status) === 403 || Number(h.data?.status) === 401) && (
+                      <button
+                        type="button"
+                        onClick={() => sendToBypass(h)}
+                        title="Send this forbidden path to the 403/401 bypass tool"
+                        className="rounded border border-amber-600/40 px-2 py-0.5 text-[11px] text-amber-300 transition hover:bg-amber-600/10"
+                      >
+                        Bypass 403 →
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, ApiError, type MetaStatus } from '../api'
+import { api, ApiError, type Finding, type MetaStatus } from '../api'
 import { useApp, useHosts, usePoll } from '../state'
-import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
+import { Badge, Button, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
+import { timeAgo } from '../lib/format'
 
 type Scheme = 'https' | 'http'
 
@@ -57,10 +58,32 @@ export function Scans() {
   const [ffufResult, setFfufResult] = useState<ScanResult>(emptyResult)
   const [ffufBusy, setFfufBusy] = useState(false)
 
+  const [results, setResults] = useState<Finding[]>([])
+
   const loadMeta = useCallback(() => {
     api.meta().then(setMeta).catch(() => {})
   }, [])
   usePoll(loadMeta, 60000, meta == null)
+
+  // Poll nmap + nuclei findings for the selected domain so results show right
+  // here instead of only on the Logs/Findings pages.
+  const selectedId = selected?.id ?? null
+  const loadResults = useCallback(() => {
+    if (selectedId == null) return
+    Promise.all([
+      api.findings({ domainId: selectedId, type: 'nmap', limit: 50 }),
+      api.findings({ domainId: selectedId, type: 'nuclei', limit: 100 }),
+    ])
+      .then(([a, b]) =>
+        setResults(
+          [...a.findings, ...b.findings].sort(
+            (x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime(),
+          ),
+        ),
+      )
+      .catch(() => {})
+  }, [selectedId])
+  usePoll(loadResults, 5000, selectedId != null)
 
   useEffect(() => {
     setTarget(selected?.host ?? '')
@@ -287,6 +310,76 @@ export function Scans() {
           <ResultLine result={ffufResult} />
         </Card>
       </div>
+
+      {/* Live results — nmap + nuclei findings for this domain */}
+      <div className="mt-8 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-zinc-200">
+          Scan results <span className="text-zinc-500">— {selected.host} ({results.length})</span>
+        </h2>
+        <span className="text-xs text-zinc-600">auto-refreshing · full history in Findings</span>
+      </div>
+      {results.length === 0 ? (
+        <Empty>No nmap/nuclei results yet for {selected.host}. Run a scan above — findings appear here live.</Empty>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {results.map((f) => (
+            <ScanResultCard key={f.id} f={f} />
+          ))}
+        </div>
+      )}
     </div>
+  )
+}
+
+function sevTone(sev: unknown): 'zinc' | 'green' | 'amber' | 'red' | 'blue' {
+  switch (String(sev ?? '').toLowerCase()) {
+    case 'critical':
+    case 'high':
+      return 'red'
+    case 'medium':
+      return 'amber'
+    case 'low':
+      return 'blue'
+    default:
+      return 'zinc'
+  }
+}
+
+// Renders an nmap or nuclei finding with type-appropriate detail (open ports as
+// chips; nuclei severity + matched URL).
+function ScanResultCard({ f }: { f: Finding }) {
+  const d = f.data ?? {}
+  const isNmap = f.type === 'nmap'
+  const ports: { port: number; protocol?: string; service?: string | null; product?: string | null; version?: string | null }[] =
+    Array.isArray(d.openPorts) ? d.openPorts : []
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-2">
+        <ScoreBadge score={f.score} />
+        <Badge tone="indigo">{f.type}</Badge>
+        {!isNmap && <Badge tone={sevTone(d.severity)}>{String(d.severity ?? 'info')}</Badge>}
+        <span className="text-sm font-medium text-zinc-100">
+          {isNmap ? `${d.target ?? ''} · ${ports.length} open port(s)` : String(d.name ?? d.templateId ?? 'nuclei match')}
+        </span>
+        <span className="font-mono text-xs text-zinc-500 break-all">
+          {isNmap ? '' : String(d.matched ?? d.target ?? '')}
+        </span>
+        <span className="ml-auto text-xs text-zinc-500">{timeAgo(new Date(f.createdAt).getTime())}</span>
+      </div>
+      {isNmap && ports.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {ports.map((p, i) => (
+            <span
+              key={i}
+              className="rounded bg-ink-800/70 px-1.5 py-0.5 font-mono text-[11px] text-zinc-300"
+              title={[p.product, p.version].filter(Boolean).join(' ') || undefined}
+            >
+              {p.port}
+              {p.service ? `/${p.service}` : ''}
+            </span>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }

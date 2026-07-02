@@ -267,18 +267,32 @@ function pathMutations(p: string): string[] {
   ]
 }
 
-export async function runBypass403(scheme: string, host: string): Promise<ToolFinding | null> {
+export async function runBypass403(
+  scheme: string,
+  host: string,
+  paths?: string[],
+): Promise<ToolFinding | null> {
   await assertPublicHost(host)
   const base = `${scheme}://${host}`
 
+  // Candidate paths: an explicit list (e.g. a 403 hit sent over from Fuzzing) or
+  // the built-in list of commonly-protected paths.
+  const candidates = paths && paths.length ? paths.map((p) => (p.startsWith('/') ? p : `/${p}`)) : BYPASS_PATHS
+
   // 1. Find protected paths (plain GET returns 401/403).
   const forbidden: string[] = []
-  for (const p of BYPASS_PATHS) {
+  for (const p of candidates) {
     const res = await guardedFetch(`${base}${p}`, { timeoutMs: BYPASS_TIMEOUT })
     if (res && (res.status === 401 || res.status === 403)) forbidden.push(p)
     if (forbidden.length >= MAX_FORBIDDEN) break
   }
-  if (!forbidden.length) return null
+  // When the operator hand-picked a path (from Fuzzing), try to bypass it even if
+  // the re-check didn't reproduce the 401/403 (transient WAF/rate-limit), so the
+  // button always does something useful.
+  if (!forbidden.length) {
+    if (paths && paths.length) forbidden.push(...candidates.slice(0, MAX_FORBIDDEN))
+    else return null
+  }
 
   // 2. For each, try the bypass battery; a 2xx means access was granted.
   const hits: string[] = []
@@ -306,5 +320,32 @@ export async function runBypass403(scheme: string, host: string): Promise<ToolFi
     title: `403/401 bypass — ${hits.length} on ${forbidden.length} protected path(s)`,
     detail: 'A restricted path returned 2xx after an access-control bypass trick',
     items: hits.slice(0, MAX_ITEMS),
+  }
+}
+
+// --- HTTP methods / verb-tampering audit (HTTP, no binary) -------------------
+// Probes write-methods against the target root. A server that ACCEPTS PUT/DELETE/
+// PATCH (doesn't reject with 400/403/404/405/501) may allow unintended writes or
+// deletes. (TRACE/CONNECT are forbidden by the fetch spec so can't be sent here;
+// the OWASP engine already covers TRACE.) Status-only, SSRF-guarded, always on.
+const WRITE_METHODS = ['PUT', 'DELETE', 'PATCH']
+export async function runHttpMethods(scheme: string, host: string): Promise<ToolFinding | null> {
+  await assertPublicHost(host)
+  const base = `${scheme}://${host}/`
+  const accepted: string[] = []
+  for (const m of WRITE_METHODS) {
+    const res = await guardedFetch(base, { method: m, timeoutMs: BYPASS_TIMEOUT })
+    if (res && ![400, 401, 403, 404, 405, 501].includes(res.status)) {
+      accepted.push(`${m} → ${res.status} (not rejected)`)
+    }
+  }
+  if (!accepted.length) return null
+  return {
+    tool: 'methods',
+    target: host,
+    severity: 'medium',
+    title: `${accepted.length} write method(s) not rejected`,
+    detail: 'Server did not reject PUT/DELETE/PATCH on / — check for unintended write/delete access',
+    items: accepted,
   }
 }

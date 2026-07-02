@@ -85,6 +85,13 @@
       "when": 1782894837726,
       "tag": "0011_black_slapstick",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1782956531865,
+      "tag": "0012_amused_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }

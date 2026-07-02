@@ -1,12 +1,12 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
-import { runBypass403, runDalfox, runKatana, runNaabu, runSqlmap, runSslscan, runWpEnum, type ToolFinding } from '../../sources/binTools'
+import { runBypass403, runDalfox, runHttpMethods, runKatana, runNaabu, runSqlmap, runSslscan, runWpEnum, type ToolFinding } from '../../sources/binTools'
 import { assertPublicHost } from '../../sources/guard'
 import { ToolNotFoundError } from '../../util/exec'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
 import type { JobContext } from '../worker'
 
-export const TOOL_IDS = ['katana', 'naabu', 'dalfox', 'sslscan', 'sqlmap', 'wpenum', 'bypass403'] as const
+export const TOOL_IDS = ['katana', 'naabu', 'dalfox', 'sslscan', 'sqlmap', 'wpenum', 'bypass403', 'methods'] as const
 export type ToolId = (typeof TOOL_IDS)[number]
 
 // One active tool against a target. Authorization (active_authorized OR confirm)
@@ -51,8 +51,19 @@ export async function toolScanHandler({ params, log, signal, progress }: JobCont
       case 'wpenum':
         finding = await runWpEnum(scheme, target)
         break
-      case 'bypass403':
-        finding = await runBypass403(scheme, target)
+      case 'bypass403': {
+        // Optional specific path(s) to bypass (e.g. a 403 hit sent from Fuzzing).
+        const raw = params.paths ?? params.path
+        const paths = Array.isArray(raw)
+          ? raw.map(String)
+          : typeof raw === 'string' && raw
+            ? [raw]
+            : undefined
+        finding = await runBypass403(scheme, target, paths)
+        break
+      }
+      case 'methods':
+        finding = await runHttpMethods(scheme, target)
         break
       default:
         throw new Error(`unknown tool: ${tool}`)

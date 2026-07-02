@@ -26,9 +26,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  // Persist the selection server-side (per account) so it follows the operator
+  // across browsers/devices, not just this browser. Fire-and-forget.
+  const select = useCallback((id: number | null) => {
+    setSelectedId(id)
+    api.setSelectedDomain(id).catch(() => {})
+  }, [])
+
   useEffect(() => {
-    refreshDomains().finally(() => setLoading(false))
-  }, [refreshDomains])
+    // Load domains + the account's saved selection together; prefer the saved
+    // one if it still exists, else fall back to the first domain.
+    Promise.all([api.domains(), api.me().catch(() => null)])
+      .then(([{ domains }, me]) => {
+        setDomains(domains)
+        const saved = me?.user.selectedDomainId ?? null
+        setSelectedId(saved && domains.some((d) => d.id === saved) ? saved : domains[0]?.id ?? null)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
 
   const value = useMemo<AppState>(
     () => ({
@@ -36,10 +52,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       loading,
       selectedId,
       selected: domains.find((d) => d.id === selectedId) ?? null,
-      select: setSelectedId,
+      select,
       refreshDomains,
     }),
-    [domains, loading, selectedId, refreshDomains],
+    [domains, loading, selectedId, select, refreshDomains],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

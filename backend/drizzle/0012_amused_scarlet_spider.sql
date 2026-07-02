@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `selected_domain_id` integer;

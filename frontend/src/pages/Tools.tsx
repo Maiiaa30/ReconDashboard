@@ -19,6 +19,7 @@ const TOOLS: ToolDef[] = [
   { id: 'sqlmap', label: 'sqlmap', desc: 'Active SQL-injection scanner (crawls + tests URLs/forms, --batch).', metaKey: 'sqlmap' },
   { id: 'wpenum', label: 'WordPress enum', desc: 'Version, users (REST), plugins, exposed endpoints. No binary.', metaKey: 'wpenum' },
   { id: 'bypass403', label: '403 bypass', desc: 'Retries protected (401/403) paths with header, path & method tricks. No binary.', metaKey: 'bypass403' },
+  { id: 'methods', label: 'HTTP methods', desc: 'Verb-tampering audit — flags write methods (PUT/DELETE/PATCH) the server accepts. No binary.', metaKey: 'methods' },
 ]
 
 function severityTone(sev: unknown): 'zinc' | 'green' | 'amber' | 'red' | 'blue' {

@@ -114,7 +114,11 @@ export function listFindings(
     .from(findings)
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(findings.score), desc(findings.createdAt))
-    .limit(Math.max(opts.limit ?? 500, 5000)) // fetch enough to dedup, then cap below
+    // Fetch a bounded multiple of the requested limit for dedup headroom (rows
+    // come highest-score-first and dedup keeps the first per key, so the top
+    // deduped results are preserved) instead of always pulling 5000 rows on
+    // every 4–5s poll — a real cost on domains with 1000+ findings.
+    .limit(Math.min(5000, Math.max((opts.limit ?? 500) * 3, 1000)))
     .all()
 
   // Read-time dedup (covers rows created before dedupeKey existed): keep the
