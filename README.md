@@ -92,8 +92,8 @@
 ## 🚀 Quick start
 
 ```bash
-git clone https://github.com/Maiiaa30/RedTeamDashboard.git
-cd RedTeamDashboard
+git clone https://github.com/Maiiaa30/ReconDashboard.git
+cd ReconDashboard
 cp .env.example .env        # then edit it — never commit .env
 docker compose up --build
 ```
