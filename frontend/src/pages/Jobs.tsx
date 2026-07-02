@@ -174,8 +174,8 @@ export function Jobs() {
       {shown.length === 0 ? (
         <Empty>No jobs{filter !== 'all' || typeFilter ? ' match these filters' : ' yet'}.</Empty>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-hair">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border border-hair">
+          <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-ink-900/60 text-left text-xs uppercase tracking-wide text-zinc-500">
               <tr>
                 <th className="px-3 py-2 w-12">#</th>

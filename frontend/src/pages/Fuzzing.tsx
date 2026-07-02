@@ -278,8 +278,8 @@ export function Fuzzing() {
       {hits.length === 0 ? (
         <Empty>No fuzzing hits yet for {selected.host}.</Empty>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-hair">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border border-hair">
+          <table className="w-full min-w-[680px] text-sm">
             <thead className="bg-ink-900/60 text-left text-xs">
               <tr>
                 <SortTh label="Status" k="status" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="w-20" />

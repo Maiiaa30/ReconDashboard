@@ -79,7 +79,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
   return (
     <div className="min-h-full bg-ink-950 text-zinc-100 flex flex-col md:flex-row">
-      <header className="md:hidden flex items-center justify-between border-b border-hair px-4 py-3">
+      <header className="md:hidden sticky top-0 z-20 flex items-center justify-between border-b border-hair bg-ink-950/95 px-4 py-3 backdrop-blur">
         <button onClick={() => setNavOpen((v) => !v)} className="flex items-center gap-2 text-sm text-zinc-300">
           <Menu size={18} /> Menu
         </button>
@@ -131,7 +131,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         </div>
       </aside>
 
-      <main className="flex-1 p-6">
+      <main className="min-w-0 flex-1 p-4 md:p-6">
         {DOMAIN_SCOPED.includes(active) && domains.length > 0 && (
           <div className="mb-4 flex items-center gap-2 text-sm">
             <span className="text-zinc-500">Target:</span>

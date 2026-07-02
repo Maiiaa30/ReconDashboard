@@ -328,8 +328,8 @@ function AttackPaths({ paths, host }: { paths: AttackPath[]; host: string }) {
       <h2 className="mb-2 text-sm font-semibold text-zinc-200">
         🧭 Attack paths <span className="text-zinc-500">— {host} ({paths.length} asset{paths.length > 1 ? 's' : ''})</span>
       </h2>
-      <div className="overflow-hidden rounded-xl border border-hair">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border border-hair">
+        <table className="w-full min-w-[680px] text-sm">
           <thead className="bg-ink-900/60 text-left text-xs uppercase tracking-wide text-zinc-500">
             <tr>
               <th className="px-3 py-2">Host(s)</th>
