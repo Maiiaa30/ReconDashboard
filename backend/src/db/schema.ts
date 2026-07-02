@@ -4,7 +4,7 @@
 // so Drizzle hands back JS Date objects. Booleans are integer 0/1.
 
 import { sql } from 'drizzle-orm'
-import { index, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
+import { index, integer, real, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
 
 const now = sql`(unixepoch() * 1000)`
 
@@ -176,6 +176,28 @@ export const findings = sqliteTable(
     index('findings_domain_idx').on(t.domainId),
     index('findings_score_idx').on(t.score, t.createdAt),
     index('findings_dedupe_idx').on(t.domainId, t.type, t.dedupeKey),
+  ],
+)
+
+// Per-asset CVE ledger powering the "new CVE on a known asset" watch. Every CVE
+// ever seen on an (domain, ip) is recorded once; a scan that turns up a CVE not
+// already here — on an asset that already had a baseline — is a genuine NEW
+// exposure, which fires a critical finding + alert. The first scan of an asset
+// just baselines (no alert on initial discovery).
+export const assetCves = sqliteTable(
+  'asset_cves',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id'),
+    ip: text('ip').notNull(),
+    cveId: text('cve_id').notNull(),
+    cvss: real('cvss'),
+    kev: integer('kev', { mode: 'boolean' }).notNull().default(false),
+    firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [
+    unique('asset_cve_uq').on(t.domainId, t.ip, t.cveId),
+    index('asset_cve_asset_idx').on(t.domainId, t.ip),
   ],
 )
 

@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
-import { AlertTriangle, Flag, Radar, Search, Sparkles, type LucideIcon } from 'lucide-react'
-import { api, type DomainOverview, type HomeFinding } from '../api'
+import { AlertTriangle, Bell, Flag, Radar, Search, Sparkles, type LucideIcon } from 'lucide-react'
+import { api, type DomainOverview, type HomeFinding, type RecentChange } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Card, Empty, PageHeader } from '../components/ui'
 import { riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
@@ -17,11 +17,13 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
   const { domains } = useApp()
   const [overview, setOverview] = useState<DomainOverview[]>([])
   const [top, setTop] = useState<HomeFinding[]>([])
+  const [changes, setChanges] = useState<RecentChange[]>([])
 
   const load = useCallback(() => {
     api.home().then((r) => {
       setOverview(r.overview)
       setTop(r.topFindings)
+      setChanges(r.recentChanges ?? [])
     }).catch(() => {})
   }, [])
   usePoll(load, 8000)
@@ -85,6 +87,37 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
           empty="No high-severity findings."
         />
       </div>
+
+      {/* What changed — new CVEs that appeared on already-tracked assets */}
+      {changes.length > 0 && (
+        <Card className="mb-5 border-red-900/50 bg-red-950/10">
+          <div className="mb-2 flex items-center gap-2">
+            <Bell size={16} className="text-red-400" />
+            <h2 className="text-sm font-semibold text-red-200">What changed — new CVEs on known assets</h2>
+            <span className="ml-auto text-xs text-zinc-500">{changes.length}</span>
+          </div>
+          <div className="space-y-1.5">
+            {changes.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => navigate('findings', c.domainId ?? undefined)}
+                className="flex w-full items-center gap-3 rounded-lg border border-red-900/30 bg-ink-900/50 px-3 py-2 text-left transition hover:border-red-800/60"
+              >
+                <span className="flex h-7 shrink-0 items-center rounded-lg bg-red-950 px-2 text-xs font-semibold text-red-300 ring-1 ring-red-800">
+                  {c.score ?? '—'}
+                </span>
+                <span className="font-mono text-sm text-zinc-100">{c.data.cveId ?? 'CVE'}</span>
+                {c.data.kev && <Badge tone="red">KEV</Badge>}
+                {c.data.cvss != null && <span className="text-xs text-zinc-400">CVSS {c.data.cvss}</span>}
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-400">
+                  on {c.data.host ?? c.data.ip ?? '?'}
+                </span>
+                <span className="shrink-0 text-xs text-zinc-500">{timeAgo(new Date(c.createdAt).getTime())}</span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Top open findings — the main action list */}
       <Card>

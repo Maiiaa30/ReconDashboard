@@ -39,6 +39,8 @@ export function summarizeFinding(type: string, data: any): string {
       return `${data.severity ?? 'info'}: ${data.name ?? data.templateId ?? '?'} @ ${data.target ?? ''}`
     case 'ffuf':
       return `${data.status ?? '?'} ${data.url ?? ''}`
+    case 'cve_new':
+      return `New CVE ${data.cveId ?? '?'}${data.kev ? ' [KEV]' : ''} on ${data.host ?? data.ip ?? '?'}${data.cvss != null ? ` · CVSS ${data.cvss}` : ''}`
     case 'origin': {
       const waf = data.provider ? `behind ${data.provider}` : 'no CDN/WAF'
       const found = (data.confirmedOrigins ?? []).length

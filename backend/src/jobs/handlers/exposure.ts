@@ -1,5 +1,6 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
+import { alertNewCves, recordAndDetectNewCves, type AssetCve } from '../../findings/cveWatch'
 import { asnLookup } from '../../sources/asn'
 import { enrichCves } from '../../sources/cvedb'
 import { resolveDns } from '../../sources/dns'
@@ -66,6 +67,17 @@ export async function exposureHandler({ params, log }: JobContext) {
       records.push(finding)
       const asnTags = asn?.asn ? [`asn:${asn.asn}`] : []
       await addScoredFinding({ domainId, type: 'exposure', data: finding, tags: ['exposure', ...asnTags] })
+
+      // "New CVE on a known asset" watch: rec.vulns is the authoritative CVE-id
+      // set for this IP; enrich each with cvss/kev from the cvedb records. Record
+      // + diff vs the asset's baseline, and alert on anything genuinely new.
+      const cveMap = new Map(cves.map((c) => [c.cve_id, c]))
+      const assetCveList: AssetCve[] = rec.vulns.map((id) => {
+        const c = cveMap.get(id)
+        return { id, cvss: c?.cvss_v3 ?? c?.cvss ?? null, kev: !!c?.kev }
+      })
+      const fresh = recordAndDetectNewCves(domainId, ip, assetCveList)
+      if (fresh.length) await alertNewCves(domainId, ip, [...hostSet], fresh)
     } catch (err) {
       log.warn({ ip, err }, 'internetdb lookup failed')
     }

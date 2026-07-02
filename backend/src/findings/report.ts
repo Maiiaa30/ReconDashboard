@@ -46,6 +46,8 @@ function summarize(type: string, data: any): string {
       return `${data.domain ?? ''} — ${data.provider ? `behind ${data.provider}` : 'no CDN'}${(data.confirmedOrigins ?? []).length ? `, origin ${data.confirmedOrigins[0]?.ip}` : ''}`
     case 'osint':
       return `OSINT for ${data.domain ?? ''}`
+    case 'cve_new':
+      return `New CVE ${data.cveId ?? ''}${data.kev ? ' [KEV]' : ''} on ${data.host ?? data.ip ?? ''}${data.cvss != null ? ` (CVSS ${data.cvss})` : ''}`
     default:
       // Never dump raw JSON into a client deliverable.
       return String(data.title ?? data.name ?? data.host ?? data.target ?? type)

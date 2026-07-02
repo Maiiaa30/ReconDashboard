@@ -305,6 +305,14 @@ export interface HomeFinding {
   tags: string[]
 }
 
+export interface RecentChange {
+  id: number
+  domainId: number | null
+  data: { ip?: string; host?: string; cveId?: string; cvss?: number | null; kev?: boolean }
+  score: number | null
+  createdAt: string
+}
+
 // --- API surface -------------------------------------------------------------
 
 export const api = {
@@ -323,8 +331,8 @@ export const api = {
   changeUsername: (password: string, newUsername: string) =>
     post<{ ok: true; username: string }>('/auth/username', { password, newUsername }),
 
-  // engagement home (cross-target overview + top open findings)
-  home: () => get<{ overview: DomainOverview[]; topFindings: HomeFinding[] }>('/home'),
+  // engagement home (cross-target overview + top open findings + recent changes)
+  home: () => get<{ overview: DomainOverview[]; topFindings: HomeFinding[]; recentChanges: RecentChange[] }>('/home'),
 
   // meta
   meta: () => get<MetaStatus>('/meta/status'),
