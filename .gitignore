@@ -19,5 +19,8 @@ backend/data/
 .vscode/
 .claude/
 
+# Cloudflare Workers local dev cache
+website/.wrangler/
+
 # Local agent handoff notes (never commit)
 AGENT_CONTEXT.md
