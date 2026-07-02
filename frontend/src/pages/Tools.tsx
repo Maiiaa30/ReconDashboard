@@ -20,6 +20,7 @@ const TOOLS: ToolDef[] = [
   { id: 'wpenum', label: 'WordPress enum', desc: 'Version, users (REST), plugins, exposed endpoints. No binary.', metaKey: 'wpenum' },
   { id: 'bypass403', label: '403 bypass', desc: 'Retries protected (401/403) paths with header, path & method tricks. No binary.', metaKey: 'bypass403' },
   { id: 'methods', label: 'HTTP methods', desc: 'Verb-tampering audit — flags write methods (PUT/DELETE/PATCH) the server accepts. No binary.', metaKey: 'methods' },
+  { id: 'datastores', label: 'Exposed datastores', desc: 'Probes no-auth Elasticsearch/CouchDB, Spring actuator & DB admin panels (phpMyAdmin/Adminer/…). Proof-only, no data pulled. No binary.', metaKey: 'datastores' },
 ]
 
 function severityTone(sev: unknown): 'zinc' | 'green' | 'amber' | 'red' | 'blue' {

@@ -1,12 +1,12 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
-import { runBypass403, runDalfox, runHttpMethods, runKatana, runNaabu, runSqlmap, runSslscan, runWpEnum, type ToolFinding } from '../../sources/binTools'
+import { runBypass403, runDalfox, runDatastores, runHttpMethods, runKatana, runNaabu, runSqlmap, runSslscan, runWpEnum, type ToolFinding } from '../../sources/binTools'
 import { assertPublicHost } from '../../sources/guard'
 import { ToolNotFoundError } from '../../util/exec'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
 import type { JobContext } from '../worker'
 
-export const TOOL_IDS = ['katana', 'naabu', 'dalfox', 'sslscan', 'sqlmap', 'wpenum', 'bypass403', 'methods'] as const
+export const TOOL_IDS = ['katana', 'naabu', 'dalfox', 'sslscan', 'sqlmap', 'wpenum', 'bypass403', 'methods', 'datastores'] as const
 export type ToolId = (typeof TOOL_IDS)[number]
 
 // One active tool against a target. Authorization (active_authorized OR confirm)
@@ -64,6 +64,9 @@ export async function toolScanHandler({ params, log, signal, progress }: JobCont
       }
       case 'methods':
         finding = await runHttpMethods(scheme, target)
+        break
+      case 'datastores':
+        finding = await runDatastores(scheme, target)
         break
       default:
         throw new Error(`unknown tool: ${tool}`)

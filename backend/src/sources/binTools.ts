@@ -349,3 +349,95 @@ export async function runHttpMethods(scheme: string, host: string): Promise<Tool
     items: accepted,
   }
 }
+
+// --- Exposed datastores & DB admin panels (HTTP, no binary) ------------------
+// Active exposure probe: HTTP-reachable datastores that answer metadata WITHOUT
+// auth (Elasticsearch, CouchDB), Spring-actuator env leaks, and DB admin panels
+// (phpMyAdmin/Adminer/pgAdmin/Fauxton/Mongo-Express). Confirmed by CONTENT
+// SIGNATURE, not status code (a SPA catch-all 200s everything). Records only
+// proof-of-exposure metadata — versions and index/db NAMES — never rows/docs.
+export async function runDatastores(scheme: string, host: string): Promise<ToolFinding | null> {
+  await assertPublicHost(host)
+  const hits: { label: string; severity: Severity; detail: string }[] = []
+  const get = (url: string) => guardedFetch(url, { timeoutMs: BYPASS_TIMEOUT })
+
+  // Elasticsearch (:9200) — no-auth cluster info + index names.
+  for (const sc of ['http', 'https']) {
+    const root = await get(`${sc}://${host}:9200/`)
+    if (root && root.status === 200 && /"cluster_name"|You Know, for Search|"lucene_version"/.test(root.body)) {
+      const ver = root.body.match(/"number"\s*:\s*"([^"]+)"/)?.[1]
+      const idx = await get(`${sc}://${host}:9200/_cat/indices?h=index`)
+      const names = idx && idx.status === 200 ? linesOf(idx.body).slice(0, 15) : []
+      hits.push({
+        label: 'Elasticsearch',
+        severity: 'critical',
+        detail: `No-auth Elasticsearch${ver ? ` ${ver}` : ''} on :9200${names.length ? ` — indices: ${names.join(', ')}` : ''}`,
+      })
+      break
+    }
+  }
+
+  // CouchDB (:5984) — welcome banner + db names.
+  for (const sc of ['http', 'https']) {
+    const root = await get(`${sc}://${host}:5984/`)
+    if (root && root.status === 200 && /"couchdb"\s*:\s*"Welcome"/.test(root.body)) {
+      const ver = root.body.match(/"version"\s*:\s*"([^"]+)"/)?.[1]
+      const dbs = await get(`${sc}://${host}:5984/_all_dbs`)
+      let names: string[] = []
+      try {
+        if (dbs?.status === 200) names = (JSON.parse(dbs.body) as string[]).slice(0, 15)
+      } catch {
+        /* not JSON */
+      }
+      hits.push({
+        label: 'CouchDB',
+        severity: 'critical',
+        detail: `No-auth CouchDB${ver ? ` ${ver}` : ''} on :5984${names.length ? ` — dbs: ${names.join(', ')}` : ''}`,
+      })
+      break
+    }
+  }
+
+  // Spring Boot actuator env leak (confirm by JSON shape).
+  for (const p of ['/actuator/env', '/actuator']) {
+    const r = await get(`${scheme}://${host}${p}`)
+    if (r && r.status === 200 && /"activeProfiles"|"propertySources"|"_links"\s*:/.test(r.body)) {
+      hits.push({ label: 'Spring actuator', severity: 'high', detail: `Exposed actuator at ${p} (config/env leak)` })
+      break
+    }
+  }
+
+  // DB admin panels — content-signature match on the web host.
+  const panels: { path: string; sig: RegExp; name: string }[] = [
+    { path: '/phpmyadmin/', sig: /phpMyAdmin/i, name: 'phpMyAdmin' },
+    { path: '/adminer.php', sig: /Adminer/i, name: 'Adminer' },
+    { path: '/adminer/', sig: /Adminer/i, name: 'Adminer' },
+    { path: '/pgadmin4/', sig: /pgAdmin/i, name: 'pgAdmin' },
+    { path: '/_utils/', sig: /Fauxton|CouchDB/i, name: 'CouchDB Fauxton' },
+    { path: '/mongo-express/', sig: /Mongo Express/i, name: 'Mongo Express' },
+  ]
+  const seenPanels = new Set<string>()
+  for (const pn of panels) {
+    if (seenPanels.has(pn.name)) continue
+    const r = await get(`${scheme}://${host}${pn.path}`)
+    if (r && r.status >= 200 && r.status < 400 && pn.sig.test(r.body)) {
+      seenPanels.add(pn.name)
+      hits.push({ label: pn.name, severity: 'medium', detail: `${pn.name} admin panel exposed at ${pn.path}` })
+    }
+  }
+
+  if (!hits.length) return null
+  const worst: Severity = hits.some((h) => h.severity === 'critical')
+    ? 'critical'
+    : hits.some((h) => h.severity === 'high')
+      ? 'high'
+      : 'medium'
+  return {
+    tool: 'datastores',
+    target: host,
+    severity: worst,
+    title: `${hits.length} exposed datastore/panel(s)`,
+    detail: 'Datastores/admin panels reachable — proof-of-exposure only, no data pulled',
+    items: hits.map((h) => `[${h.severity}] ${h.label}: ${h.detail}`),
+  }
+}

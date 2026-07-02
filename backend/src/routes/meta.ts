@@ -48,8 +48,8 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
         toolExists('sslscan'),
         toolExists('sqlmap'),
       ])
-      // wpenum + bypass403 + methods are HTTP routines (no binary) — always available.
-      toolCache = { subfinder, nmap, nuclei, ffuf, chromium, dig, katana, naabu, dalfox, sslscan, sqlmap, wpenum: true, bypass403: true, methods: true }
+      // wpenum + bypass403 + methods + datastores are HTTP routines (no binary) — always available.
+      toolCache = { subfinder, nmap, nuclei, ffuf, chromium, dig, katana, naabu, dalfox, sslscan, sqlmap, wpenum: true, bypass403: true, methods: true, datastores: true }
     }
     return {
       scorer: getScorer().name,

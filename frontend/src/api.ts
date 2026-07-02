@@ -242,6 +242,7 @@ export interface MetaStatus {
     wpenum?: boolean
     bypass403?: boolean
     methods?: boolean
+    datastores?: boolean
   }
   wordlists: Wordlist[]
 }
