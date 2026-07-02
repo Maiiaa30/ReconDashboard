@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useState } from 'react'
 import {
-  Network, Flag, Server, Cable, Bug, Clock, Plus, Search, Radar, Eye,
+  Network, Flag, Server, Cable, Bug, Clock, Plus, Search, Radar, Eye, Zap,
   type LucideIcon,
 } from 'lucide-react'
 import { api, ApiError, type DomainMode, type DomainOverview } from '../api'
@@ -369,6 +369,14 @@ function DomainCard({
 
       {/* Quick actions */}
       <div className="flex flex-wrap gap-1.5 border-t border-hair pt-3">
+        <Button
+          variant="loud"
+          title="One-click passive sweep: subdomain discovery (→ auto-chains exposure + screenshots) + OSINT"
+          onClick={() => onAction('recon', () => Promise.all([api.discover(d.id), api.osint(d.id)]))}
+          disabled={busyAction?.startsWith(`${d.id}:`)}
+        >
+          <Zap size={14} /> {isBusy('recon') ? 'Running…' : 'Run recon'}
+        </Button>
         <Button variant="ghost" onClick={() => onAction('discover', () => api.discover(d.id))} disabled={isBusy('discover')}>
           <Search size={14} /> {isBusy('discover') ? '…' : 'Discover'}
         </Button>
