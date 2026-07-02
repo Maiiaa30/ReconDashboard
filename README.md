@@ -1,195 +1,164 @@
-# Recon Dashboard
+<div align="center">
 
-A single-user, self-hosted red team recon dashboard. One operator, used to track
-assets and recon data for **authorized** engagements only. Dark, modern UI.
+# 🛰️ Recon Dashboard
 
-> Status: **Actively developed.** Auth, domains, subdomain monitoring, exposure,
-> OSINT (with tech fingerprint + Wayback/Common Crawl/urlscan/OTX), gated active
-> scans + extra tools, an HTTP-based OWASP engine, finding triage, engagement
-> reports, per-domain auto-monitoring, notes (with Discord push), Excalidraw
-> canvas, rules-based scoring, unit tests, and encrypted backup are implemented.
+### A single-operator, self-hosted red team attack-surface & recon platform
 
-## Modules
+*Passive-first reconnaissance, exposure monitoring, OSINT aggregation and gated active scanning — all from the browser, no terminal required.*
 
-| Module | What it does | Active? |
-|---|---|---|
-| **Domains** | Add/track targets; per-domain `passive_only` vs `active_authorized` mode; per-domain auto-monitoring (re-run recon every N h); KPI overview | — |
-| **Intel** | Rules-based triage view scoped to the selected domain | passive |
-| **Subdomains** | Passive discovery via crt.sh + certspotter + subfinder; HTTP-probe enrichment; diff + flag new; Discord alert; exports | passive |
-| **Screenshots** | Headless-Chromium gallery + lightbox | passive |
-| **Fuzzing** | `ffuf` content discovery with target + wordlist pickers; sortable result columns | ACTIVE |
-| **Exposure** | "Shodan of each domain" via Shodan InternetDB + cvedb (free, no key) | passive |
-| **OSINT** | DNS, WHOIS, cert-transparency, zone-transfer, InternetDB, **server/tech fingerprint** (OS/server/CDN/stack), and **archived-URL sources** (Wayback, Common Crawl, urlscan.io, OTX) | passive |
-| **WAF / Origin** | Origin-IP discovery behind Cloudflare/WAF | passive |
-| **WHOIS** | Ad-hoc registration lookup for any domain **or IP** (not domain-scoped) | passive |
-| **Check Host** | Ad-hoc reachability: ICMP ping + TCP connect + DNS + HTTP (not domain-scoped) | passive |
-| **Scans** | `nmap` / `nuclei` (with template-tag presets) / `ffuf` — **gated behind `active_authorized`, loud** | ACTIVE |
-| **Tools** | `katana` (crawl), `naabu` (ports), `dalfox` (XSS), `sslscan` (TLS), WordPress enum — gated | ACTIVE |
-| **OWASP** | Direct **HTTP active checks** (headers, exposed `.env`/`.git`, reflected XSS, open redirect, CORS, TRACE, listings) + a complementary nuclei pass. **Target-aware**: auto-tests the real params discovered for the target + per-domain custom payloads/paths and an auth header | ACTIVE |
-| **Findings** | Scored, deduped, with a "why this score" explanation + CVE detail; **triage lifecycle** (open/confirmed/false-positive/resolved/ignored) + notes; tag/status filters; CSV/JSON export; **per-domain Markdown report** | — |
-| **Notes** | Markdown notes, global or per-domain; one-click **push to Discord** | — |
-| **Canvas** | Excalidraw board, auto-saved to the DB | — |
-| **Logs** | Live activity log — KPI summary, per-job target, type filter, **cancel queued jobs** | — |
-| **Settings** | 2FA enroll, change username/password, system status, encrypted backup | — |
+<br>
 
-All recon work runs **server-side** as background jobs (a `jobs` table polled by
-an in-process worker — no Redis). Active scans/tools never run unless the target
-domain is `active_authorized` (or the operator explicitly confirms a one-off run
-on a passive domain), every subprocess is invoked with an explicit argument array
-(never a shell string), and outbound HTTP checks refuse targets that resolve to
-internal/private addresses (SSRF guard).
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg?style=for-the-badge)](./LICENSE)
+[![Status](https://img.shields.io/badge/status-actively%20developed-brightgreen?style=for-the-badge)](#)
+[![Authorized use only](https://img.shields.io/badge/use-authorized%20targets%20only-red?style=for-the-badge)](#-legal--ethical-use)
 
-## Stack
+<br>
 
-- **Frontend:** React + Vite + TypeScript + Tailwind CSS (single SPA)
-- **Backend:** Node.js + Fastify + TypeScript (REST API)
-- **DB:** SQLite via Drizzle ORM (`better-sqlite3` driver)
-- **Packaging:** Docker + Docker Compose
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)
+![Vite](https://img.shields.io/badge/Vite-646CFF?style=flat-square&logo=vite&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind-38B2AC?style=flat-square&logo=tailwind-css&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=node.js&logoColor=white)
+![Fastify](https://img.shields.io/badge/Fastify-000000?style=flat-square&logo=fastify&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-07405E?style=flat-square&logo=sqlite&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
 
-## Layout
+</div>
+
+---
+
+> [!WARNING]
+> ## ⚖️ Legal & Ethical Use
+> This is **offensive security tooling**. Run it **only** against systems you own or are **explicitly authorized in writing** to test. Unauthorized scanning, fuzzing or exploitation is illegal in most jurisdictions. Active/loud modules are gated behind an explicit per-domain `active_authorized` flag *by design* — that gate is a safeguard, not a suggestion. **You alone are responsible for how you use this software.** See the [disclaimer](#-disclaimer).
+
+---
+
+## ✨ Overview
+
+**Recon Dashboard** is a personal, single-user platform for tracking assets and reconnaissance data across authorized engagements. It leans **passive-first** — pulling everything it safely can without touching the target — and keeps the loud, active tooling behind explicit authorization gates. Everything runs **server-side as background jobs** and is driven entirely from a dark, modern web UI. No terminal, no copy-pasting tool output.
+
+- 🔎 **Passive-first recon** — certificate transparency, DNS, WHOIS, tech fingerprinting, archived-URL sources and "Shodan-of-each-domain" exposure data, all keyless where possible.
+- 🚨 **Continuous monitoring** — per-domain auto-recon on a schedule, subdomain diffing, and instant **Discord alerts** the moment a new subdomain appears.
+- 🎯 **Gated active scanning** — `nmap`, `nuclei`, `ffuf` and friends, locked behind `active_authorized` and never fired at an unauthorized target.
+- 🧠 **Finding triage** — deterministic rules-based scoring, a full open→resolved lifecycle, and exportable per-domain Markdown reports.
+- 🗒️ **Operator workspace** — Markdown notes (one-click push to Discord) and an embedded Excalidraw canvas, auto-saved.
+- 🔐 **Built to be private** — single hardened login with optional TOTP 2FA, meant to live behind Tailscale, with encrypted database backups you control.
+
+---
+
+## 🧩 Modules
+
+| Module | What it does | Mode |
+| --- | --- | :---: |
+| **Domains** | Track targets; per-domain `passive_only` / `active_authorized` mode; scheduled auto-monitoring; KPI overview | — |
+| **Subdomains** | Passive discovery (crt.sh · certspotter · subfinder), HTTP-probe enrichment, diff & flag new, Discord alerts, exports | 🟢 passive |
+| **Exposure** | "Shodan of each domain" via Shodan InternetDB + cvedb — open ports, CVEs, CPEs (free, no key) | 🟢 passive |
+| **OSINT** | DNS · WHOIS · cert transparency · zone-transfer · server/tech fingerprint · archived URLs (Wayback, Common Crawl, urlscan, OTX) | 🟢 passive |
+| **WAF / Origin** | Origin-IP discovery behind Cloudflare / WAF | 🟢 passive |
+| **Screenshots** | Headless-Chromium gallery with lightbox | 🟢 passive |
+| **Scans** | `nmap` · `nuclei` (template-tag presets) · `ffuf` — **gated, loud** | 🔴 active |
+| **Tools** | `katana` · `naabu` · `dalfox` · `sslscan` · WordPress enum — **gated** | 🔴 active |
+| **OWASP** | In-process HTTP checks (headers, exposed `.env`/`.git`, reflected XSS, open redirect, CORS, TRACE, listings) + nuclei pass, target-aware | 🔴 active |
+| **Fuzzing** | `ffuf` content discovery with target + wordlist pickers | 🔴 active |
+| **Findings** | Scored & deduped with "why this score" + CVE detail, triage lifecycle, CSV/JSON export, per-domain Markdown report | — |
+| **Notes / Canvas** | Markdown notes (push to Discord) · Excalidraw board auto-saved to the DB | — |
+| **Logs / Settings** | Live activity log with job control · 2FA enrollment · system status · encrypted backup | — |
+
+---
+
+## 🏗️ Architecture
 
 ```
-.
-├── backend/          Fastify API + Drizzle/SQLite
-├── frontend/         Vite React SPA
-├── docker-compose.yml
-├── .env.example
-└── README.md
+┌────────────────────────┐        ┌──────────────────────────────┐
+│  React + Vite SPA       │  REST  │  Fastify + TypeScript API     │
+│  (Tailwind, dark UI)    │ ─────► │  ├─ auth (argon2 + TOTP)      │
+└────────────────────────┘        │  ├─ jobs table + worker loop  │
+                                   │  └─ recon CLI tools (execFile)│
+                                   └──────────────┬───────────────┘
+                                                  │
+                                          ┌───────▼────────┐
+                                          │  SQLite (Drizzle)│
+                                          └──────────────────┘
 ```
 
-## Configuration
+- **Frontend** — React + Vite + TypeScript + Tailwind (single SPA, PWA-friendly)
+- **Backend** — Node.js + Fastify + TypeScript (REST API)
+- **Database** — SQLite via Drizzle ORM (`better-sqlite3`)
+- **Jobs** — a `jobs` table polled by an in-process worker — **no Redis**
+- **Packaging** — Docker + Docker Compose
 
-Copy the example env file and edit it. **Never commit `.env`.**
+---
+
+## 🚀 Quick start
 
 ```bash
-cp .env.example .env
-```
-
-Phase 1 also uses:
-
-- `SESSION_SECRET` — session cookie signing secret, **min 32 chars**. Generate one:
-  `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
-- `ADMIN_USERNAME` / `ADMIN_PASSWORD` — the single operator account, seeded on
-  first run. Set a real password before any real use (it warns if left as
-  `change-me`). The server refuses to start if `SESSION_SECRET`, `ADMIN_USERNAME`,
-  or `ADMIN_PASSWORD` are missing.
-
-Optional:
-
-- `DISCORD_WEBHOOK_URL` — enables new-subdomain alerts and the per-note
-  "Send to Discord" button (silent no-op if unset).
-- `AI_PROVIDER` — scorer selection; defaults to the deterministic `rules`
-  scorer (an Ollama provider is a disabled placeholder).
-
-## First run & login
-
-On first boot the backend applies migrations and creates the operator account
-from `ADMIN_USERNAME` / `ADMIN_PASSWORD`. It also generates a TOTP secret and logs
-an `otpauth://` URL once — **2FA starts disabled**, so you log in with just
-username + password. You can enable 2FA later from **Settings → Two-factor
-authentication** in the UI (no re-deploy needed).
-
-Open the frontend, log in with your `.env` credentials, and you land on the
-dashboard shell (module nav placeholders; functional modules arrive in later
-phases). Any `/api/*` route except `/api/health` and `/api/auth/login` returns
-**401** without a valid session.
-
-> The operator is seeded only when there are **no** users yet. To re-seed with
-> different credentials locally, stop the backend, delete `backend/data/app.db*`,
-> and boot again. In Docker, the DB lives in the `app-data` volume — reset it with
-> `docker compose down -v`.
-
-> **Upgrading a running Docker stack from Phase 0:** rebuild the images so the new
-> backend (with auth) is used — `docker compose up --build`. Migrations run
-> automatically on boot.
-
-## Run option A — Docker Compose (target setup)
-
-Requires Docker Desktop / Docker Engine with the Compose plugin.
-
-```bash
+git clone https://github.com/Maiiaa30/RedTeamDashboard.git
+cd RedTeamDashboard
+cp .env.example .env        # then edit it — never commit .env
 docker compose up --build
 ```
 
-- Frontend: http://localhost:5173
-- Backend health: http://localhost:3001/api/health
+- **Frontend** → <http://localhost:5173>
+- **Backend health** → <http://localhost:3001/api/health>
 
-The SQLite database lives in the named `app-data` volume, so it survives
-`docker compose down` and rebuilds. (It is wiped only by `docker compose down -v`.)
+Set a real `ADMIN_PASSWORD` and a 32+ char `SESSION_SECRET` before any real use — the server refuses to boot without them. On first run it seeds the operator account, applies migrations, and logs a one-time `otpauth://` URL so you can enable 2FA later from **Settings**. The SQLite DB lives in the `app-data` volume and survives rebuilds.
 
-## Run option B — Local (no Docker)
+> Prefer no Docker? Run `npm install && npm run dev` in both `backend/` and `frontend/` — passive recon and the in-process OWASP/WordPress checks still work even if the CLI tools aren't installed; anything binary-backed degrades gracefully and reports itself as unavailable under **Settings → System status**.
 
-Useful if Docker isn't installed yet. Run the two apps in separate terminals.
+---
 
-**Backend:**
+## 🔒 Security ground rules
 
-```bash
-cd backend
-npm install
-npm run dev
+These are enforced in code, not just documented:
+
+- 🖥️ Security tooling is **server-side only** — every action is triggered from the UI; no raw shell input is ever executed.
+- 🧵 No shell command strings are built from user input — subprocesses use `execFile` / `spawn` with **explicit argument arrays**.
+- ✅ Every domain/host input is validated against a **strict allowlist regex** before use.
+- 🚧 Active/loud modules require per-domain `active_authorized` (a passive domain needs an explicit per-run confirmation), and every active target must belong to the authorized domain.
+- 🛡️ Outbound HTTP checks refuse targets resolving to internal/private/loopback IPs (**SSRF defense**), with the security-critical validation covered by unit tests (`cd backend && npm test`).
+- 🔑 No secrets in code — everything sensitive comes from `.env`.
+
+---
+
+## 🌐 Deployment
+
+Locally you run `docker compose up`. In production this is designed to sit on a private VM (Oracle Always Free / Hetzner / OVH) **behind Tailscale** — never exposed to the public internet. There is no public port mapping beyond what Tailscale reaches, and no public TLS/ACME by design. Keep an **encrypted backup** (Settings → Encrypted backup) off-box so a host suspension is never a data loss.
+
+---
+
+## 📄 License
+
+This project is licensed under **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)** — see [`LICENSE`](./LICENSE).
+
+**In plain terms** 🧷:
+
+- ✅ You may use, study, modify and share it freely, with **attribution**.
+- 🚫 **NonCommercial** — no commercial use of this project or derivatives.
+- 🔁 **ShareAlike** — any distributed derivative must be released under this **same license**.
+- ⚠️ It comes with **no warranty** of any kind.
+
+```
+Recon Dashboard — a self-hosted red team recon platform
+Copyright (C) 2026  Maiiaa30
+
+Licensed under CC BY-NC-SA 4.0 (Attribution-NonCommercial-ShareAlike 4.0
+International). You are free to use, modify and share this work — with
+attribution, non-commercially, and under the same license — see LICENSE
+or https://creativecommons.org/licenses/by-nc-sa/4.0/
 ```
 
-**Frontend:**
+---
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+## ⚠️ Disclaimer
 
-Open http://localhost:5173 — the page should show **Backend health: ok** with a
-green dot. The Vite dev server proxies `/api/*` to the backend on port 3001.
+This software is provided for **authorized security testing and educational purposes only**. The author accepts **no liability** for any misuse or damage caused by this program. Running reconnaissance, scanning, fuzzing or exploitation tooling against systems without explicit, written authorization from the owner is **illegal** and unethical. By using this software you agree that you are solely responsible for your actions and that you will comply with all applicable laws.
 
-The local SQLite file is created at `backend/data/app.db` (gitignored).
+---
 
-## Encrypted backup & restore
+<div align="center">
 
-From **Settings → Encrypted backup**, download an AES-256-GCM encrypted snapshot
-of the database (scrypt-derived key from your passphrase). To restore it back to a
-plain SQLite file:
+Built with ☕ and a healthy respect for scope.
 
-```bash
-cd backend
-node scripts/restore-backup.mjs path/to/recon-backup-XXXX.rdb restored.db
-# (prompts for the passphrase, or set BACKUP_PASSPHRASE)
-```
+**[⬆ back to top](#️-recon-dashboard)**
 
-Then put `restored.db` where `DATABASE_PATH` points (or into the Docker `app-data`
-volume). Keep the passphrase safe — without it the backup cannot be decrypted.
-
-## Recon CLI tools
-
-The backend Docker image installs `nmap`, `whois`, `subfinder`, `nuclei`, `ffuf`,
-`dig`, `iputils-ping`, `sslscan`, `chromium`, and the extra release binaries
-`katana`, `naabu`, and `dalfox` (best-effort — a moved release URL never fails
-the build). If a tool is missing (e.g. running the backend locally without
-Docker), the app degrades gracefully: passive discovery still works, the OWASP
-HTTP checks and WordPress enum need no binary, and anything binary-backed reports
-the tool as unavailable instead of crashing. **Settings → System status** (and
-`GET /api/meta/status`) shows which tools are detected.
-
-The OWASP HTTP engine and the WordPress enumeration are implemented in-process
-(no external binary), so the OWASP tab is useful even without nuclei installed.
-
-## Deployment note
-
-Locally you run `docker compose up`. Later this runs on an Oracle Always Free /
-Hetzner VM **behind Tailscale**. The app is never exposed to the public internet;
-there is no public port mapping in production beyond what Tailscale reaches, and
-no public TLS/ACME is configured here by design.
-
-## Security ground rules (apply from day one)
-
-- Security tooling is **server-side only**; every action is triggered from the UI.
-- No raw shell input is ever executed.
-- No shell command strings are built from user input — subprocesses use
-  `execFile`/`spawn` with explicit argument arrays.
-- All domain/host inputs are validated against a strict allowlist regex before use.
-- No secrets in code — everything sensitive comes from `.env`.
-- Active/loud scans and tools are gated behind per-domain `active_authorized`
-  (a passive domain requires an explicit per-run confirmation), and every active
-  target must belong to the authorized domain.
-- Outbound HTTP checks (OWASP engine, tools, fingerprint, check-host) refuse
-  targets that resolve to internal/private/loopback IPs (SSRF defense), and the
-  security-critical validation is covered by unit tests (`cd backend && npm test`).
-- Only use this against assets you are explicitly authorized to test.
+</div>
