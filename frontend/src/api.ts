@@ -400,11 +400,12 @@ export const api = {
   cancelJob: (id: number) => post<{ job: Job }>(`/jobs/${id}/cancel`),
 
   // findings
-  findings: (q: { domainId?: number; type?: string; limit?: number } = {}) => {
+  findings: (q: { domainId?: number; type?: string; limit?: number; since?: number } = {}) => {
     const params = new URLSearchParams()
     if (q.domainId != null) params.set('domainId', String(q.domainId))
     if (q.type) params.set('type', q.type)
     if (q.limit) params.set('limit', String(q.limit))
+    if (q.since) params.set('since', String(q.since))
     const qs = params.toString()
     return get<{ findings: Finding[] }>(`/findings${qs ? `?${qs}` : ''}`)
   },

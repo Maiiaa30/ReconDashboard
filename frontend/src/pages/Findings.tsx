@@ -29,6 +29,23 @@ const STATUS_FILTER_LABEL: Record<StatusFilter, string> = { active: 'Active', al
 
 const TYPE_OPTIONS = ['', 'new_subdomain', 'exposure', 'osint', 'origin', 'nmap', 'nuclei', 'ffuf'] as const
 
+// "New since" presets — filters to findings first discovered within the window
+// (createdAt is the frozen first-seen timestamp, so re-scans of unchanged
+// findings never re-enter the list).
+const SINCE_PRESETS = ['', '24h', '7d', '30d'] as const
+type SincePreset = (typeof SINCE_PRESETS)[number]
+const SINCE_LABEL: Record<SincePreset, string> = {
+  '': 'Any time',
+  '24h': 'Last 24h',
+  '7d': 'Last 7 days',
+  '30d': 'Last 30 days',
+}
+const SINCE_MS: Record<Exclude<SincePreset, ''>, number> = {
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+}
+
 const TYPE_LABEL: Record<string, string> = {
   new_subdomain: 'subdomain',
   exposure: 'exposure',
@@ -65,6 +82,7 @@ export function Findings() {
   const { domains, selected } = useApp()
   const [domainId, setDomainId] = useState<number | ''>(selected?.id ?? '')
   const [type, setType] = useState('')
+  const [sincePreset, setSincePreset] = useState<SincePreset>('')
   const [tagFilter, setTagFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [findings, setFindings] = useState<Finding[]>([])
@@ -103,11 +121,12 @@ export function Findings() {
     id == null ? 'global' : domains.find((d) => d.id === id)?.host ?? `#${id}`
 
   const load = useCallback(() => {
+    const since = sincePreset ? Date.now() - SINCE_MS[sincePreset] : undefined
     api
-      .findings({ domainId: domainId === '' ? undefined : domainId, type: type || undefined, limit: 500 })
+      .findings({ domainId: domainId === '' ? undefined : domainId, type: type || undefined, since, limit: 500 })
       .then((r) => setFindings(r.findings))
       .catch(() => {})
-  }, [domainId, type])
+  }, [domainId, type, sincePreset])
 
   useEffect(() => {
     void load()
@@ -130,7 +149,7 @@ export function Findings() {
   useEffect(() => {
     setSelectedIds(new Set())
     lastIdxRef.current = null
-  }, [domainId, type, statusFilter, tagFilter])
+  }, [domainId, type, statusFilter, tagFilter, sincePreset])
 
   const toggleSelect = useCallback((id: number, idx: number, range: boolean) => {
     setSelectedIds((prev) => {
@@ -284,6 +303,16 @@ export function Findings() {
           </select>
         </label>
         <label className="text-sm">
+          <span className="text-zinc-400">New since</span>
+          <select value={sincePreset} onChange={(e) => setSincePreset(e.target.value as SincePreset)} className={selectCls}>
+            {SINCE_PRESETS.map((s) => (
+              <option key={s || 'any'} value={s}>
+                {SINCE_LABEL[s]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-sm">
           <span className="text-zinc-400">Filter by tag</span>
           <input
             value={tagFilter}
@@ -293,13 +322,14 @@ export function Findings() {
           />
         </label>
         <span className="pb-1.5 text-xs text-zinc-600">{filtered.length} shown</span>
-        {(tagFilter || type || domainId !== '' || statusFilter !== 'active') && (
+        {(tagFilter || type || domainId !== '' || statusFilter !== 'active' || sincePreset !== '') && (
           <button
             onClick={() => {
               setTagFilter('')
               setType('')
               setDomainId('')
               setStatusFilter('active')
+              setSincePreset('')
             }}
             className="pb-1.5 text-xs text-zinc-500 hover:text-zinc-300"
           >

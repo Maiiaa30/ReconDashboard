@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import { db } from '../db/index'
 import { findings } from '../db/schema'
 import { safeJsonParse } from '../util/json'
@@ -98,10 +98,16 @@ export function addFinding(f: NewFinding): number {
   return Number(res.lastInsertRowid)
 }
 
-export function listFindings(opts: { domainId?: number; type?: FindingType; limit?: number } = {}) {
+export function listFindings(
+  opts: { domainId?: number; type?: FindingType; limit?: number; since?: Date } = {},
+) {
   const conds = []
   if (opts.domainId != null) conds.push(eq(findings.domainId, opts.domainId))
   if (opts.type) conds.push(eq(findings.type, opts.type))
+  // "New since X": createdAt is the frozen first-seen timestamp, so this only
+  // matches findings actually discovered after the anchor — not ones merely
+  // re-touched (lastSeenAt) by a later re-scan.
+  if (opts.since) conds.push(gt(findings.createdAt, opts.since))
 
   const rows = db
     .select()
