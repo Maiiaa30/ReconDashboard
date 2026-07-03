@@ -41,13 +41,18 @@ export function summarizeFinding(type: string, data: any): string {
       return `${data.status ?? '?'} ${data.url ?? ''}`
     case 'cve_new':
       return `New CVE ${data.cveId ?? '?'}${data.kev ? ' [KEV]' : ''} on ${data.host ?? data.ip ?? '?'}${data.cvss != null ? ` · CVSS ${data.cvss}` : ''}`
+    case 'tool':
+      return `${data.tool ?? 'tool'}: ${data.title ?? data.detail ?? ''}${data.target ? ` @ ${data.target}` : ''}`
+    case 'owasp':
+      return `${data.category ? data.category + ' — ' : ''}${data.name ?? data.title ?? '?'}${data.url ? ` @ ${data.url}` : ''}`
     case 'origin': {
       const waf = data.provider ? `behind ${data.provider}` : 'no CDN/WAF'
       const found = (data.confirmedOrigins ?? []).length
       return `${data.domain ?? ''} — ${waf}${found ? `, origin: ${data.confirmedOrigins[0]?.ip}` : ''}`
     }
     default:
-      return JSON.stringify(data).slice(0, 120)
+      // Never dump raw JSON into the UI — fall back to the most human field.
+      return String(data.title ?? data.name ?? data.host ?? data.target ?? data.ip ?? data.url ?? type)
   }
 }
 
