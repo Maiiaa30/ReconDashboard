@@ -49,6 +49,17 @@
       .sk-hero-panel { height: 240px; }
       .sk-title-bar { height: 32px; }
     }
+    /* Mobile: shrink the GitHub CTA so the long repo URL doesn't oversize it */
+    @media (max-width: 760px) {
+      a[href*="github.com"] {
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        padding: 10px 15px !important;
+        font-size: 12px !important;
+        gap: 7px !important;
+        overflow-wrap: anywhere !important;
+      }
+    }
   </style>
   <noscript>
     <style>#__bundler_loading { display: none; }</style>
