@@ -367,46 +367,52 @@ function DomainCard({
         </div>
       )}
 
-      {/* Quick actions */}
-      <div className="flex flex-wrap gap-1.5 border-t border-hair pt-3">
-        <Button
-          variant="loud"
-          title="One-click passive sweep: subdomain discovery (→ auto-chains exposure + screenshots) + OSINT"
-          onClick={() => onAction('recon', () => Promise.all([api.discover(d.id), api.osint(d.id)]))}
-          disabled={busyAction?.startsWith(`${d.id}:`)}
-        >
-          <Zap size={14} /> {isBusy('recon') ? 'Running…' : 'Run recon'}
-        </Button>
-        <Button variant="ghost" onClick={() => onAction('discover', () => api.discover(d.id))} disabled={isBusy('discover')}>
-          <Search size={14} /> {isBusy('discover') ? '…' : 'Discover'}
-        </Button>
-        <Button variant="ghost" onClick={() => onAction('exposure', () => api.exposure(d.id))} disabled={isBusy('exposure')}>
-          <Radar size={14} /> {isBusy('exposure') ? '…' : 'Exposure'}
-        </Button>
-        <Button variant="ghost" onClick={() => onAction('osint', () => api.osint(d.id))} disabled={isBusy('osint')}>
-          <Eye size={14} /> {isBusy('osint') ? '…' : 'OSINT'}
-        </Button>
-        <select
-          value={d.monitorIntervalHours || 0}
-          onChange={(e) => setMonitor(Number(e.target.value))}
-          title="Auto re-run passive recon on a schedule"
-          className="rounded-lg border border-hair bg-ink-950 px-2 py-1 text-xs text-zinc-300 outline-none hover:border-hair-strong focus:border-accent-500"
-        >
-          <option value={0}>Monitor: off</option>
-          <option value={6}>every 6h</option>
-          <option value={12}>every 12h</option>
-          <option value={24}>every 24h</option>
-        </select>
-        <div className="ml-auto flex gap-1.5">
-          <Button variant="ghost" onClick={() => (editing ? setEditing(false) : openEdit())}>
-            {editing ? 'Close' : 'Edit'}
+      {/* Actions — recon on top, card management below */}
+      <div className="mt-3 space-y-2 border-t border-hair pt-3">
+        {/* Recon actions */}
+        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+          <Button
+            variant="loud"
+            title="One-click passive sweep: subdomain discovery (→ auto-chains exposure + screenshots) + OSINT"
+            onClick={() => onAction('recon', () => Promise.all([api.discover(d.id), api.osint(d.id)]))}
+            disabled={busyAction?.startsWith(`${d.id}:`)}
+          >
+            <Zap size={14} /> {isBusy('recon') ? 'Running…' : 'Run recon'}
           </Button>
-          <Button variant={selected ? 'default' : 'ghost'} onClick={onSelect}>
-            {selected ? '✓ Target' : 'Select'}
+          <Button variant="ghost" onClick={() => onAction('discover', () => api.discover(d.id))} disabled={isBusy('discover')}>
+            <Search size={14} /> {isBusy('discover') ? '…' : 'Discover'}
           </Button>
-          <Button variant="danger" onClick={remove}>
-            Delete
+          <Button variant="ghost" onClick={() => onAction('exposure', () => api.exposure(d.id))} disabled={isBusy('exposure')}>
+            <Radar size={14} /> {isBusy('exposure') ? '…' : 'Exposure'}
           </Button>
+          <Button variant="ghost" onClick={() => onAction('osint', () => api.osint(d.id))} disabled={isBusy('osint')}>
+            <Eye size={14} /> {isBusy('osint') ? '…' : 'OSINT'}
+          </Button>
+        </div>
+        {/* Card management */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <select
+            value={d.monitorIntervalHours || 0}
+            onChange={(e) => setMonitor(Number(e.target.value))}
+            title="Auto re-run passive recon on a schedule"
+            className="rounded-lg border border-hair bg-ink-950 px-2 py-1 text-xs text-zinc-300 outline-none hover:border-hair-strong focus:border-accent-500"
+          >
+            <option value={0}>Monitor: off</option>
+            <option value={6}>every 6h</option>
+            <option value={12}>every 12h</option>
+            <option value={24}>every 24h</option>
+          </select>
+          <div className="ml-auto flex gap-1.5">
+            <Button variant="ghost" onClick={() => (editing ? setEditing(false) : openEdit())}>
+              {editing ? 'Close' : 'Edit'}
+            </Button>
+            <Button variant={selected ? 'default' : 'ghost'} onClick={onSelect}>
+              {selected ? '✓ Target' : 'Select'}
+            </Button>
+            <Button variant="danger" onClick={remove}>
+              Delete
+            </Button>
+          </div>
         </div>
       </div>
     </Card>

@@ -62,6 +62,7 @@ export function Jobs() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [typeFilter, setTypeFilter] = useState('')
+  const [domainFilter, setDomainFilter] = useState<number | 'all'>('all')
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [cancelling, setCancelling] = useState<number | null>(null)
 
@@ -109,9 +110,16 @@ export function Jobs() {
     done: jobs.filter((j) => j.status === 'done').length,
     error: jobs.filter((j) => j.status === 'error').length,
   }
+  const jobDomainId = (j: Job): number | null => {
+    const p = (j.params ?? {}) as Record<string, unknown>
+    return typeof p.domainId === 'number' ? p.domainId : null
+  }
   const types = [...new Set(jobs.map((j) => j.type))].sort()
   const shown = jobs.filter(
-    (j) => (filter === 'all' || j.status === filter) && (!typeFilter || j.type === typeFilter),
+    (j) =>
+      (filter === 'all' || j.status === filter) &&
+      (!typeFilter || j.type === typeFilter) &&
+      (domainFilter === 'all' || jobDomainId(j) === domainFilter),
   )
 
   // Queue position: the worker claims queued jobs oldest-id first.
@@ -158,9 +166,21 @@ export function Jobs() {
           </button>
         ))}
         <select
+          value={domainFilter}
+          onChange={(e) => setDomainFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+          className="ml-auto rounded-lg border border-hair bg-ink-950 px-2.5 py-1 text-xs text-zinc-300 outline-none focus:border-accent-500"
+        >
+          <option value="all">All domains</option>
+          {domains.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.host}
+            </option>
+          ))}
+        </select>
+        <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="ml-auto rounded-lg border border-hair bg-ink-950 px-2.5 py-1 text-xs text-zinc-300 outline-none focus:border-accent-500"
+          className="rounded-lg border border-hair bg-ink-950 px-2.5 py-1 text-xs text-zinc-300 outline-none focus:border-accent-500"
         >
           <option value="">All types</option>
           {types.map((t) => (
@@ -172,7 +192,7 @@ export function Jobs() {
       </div>
 
       {shown.length === 0 ? (
-        <Empty>No jobs{filter !== 'all' || typeFilter ? ' match these filters' : ' yet'}.</Empty>
+        <Empty>No jobs{filter !== 'all' || typeFilter || domainFilter !== 'all' ? ' match these filters' : ' yet'}.</Empty>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-hair">
           <table className="w-full min-w-[720px] text-sm">
