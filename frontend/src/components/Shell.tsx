@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   Home as HomeIcon, Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
   Activity, ScanSearch, ShieldCheck, Flag, StickyNote, PenTool, ScrollText,
-  Settings as SettingsIcon, LogOut, Menu, Radar as RadarLogo, Wrench, History, ListChecks, type LucideIcon,
+  Settings as SettingsIcon, LogOut, Menu, Radar as RadarLogo, Wrench, History, ListChecks, Bot, type LucideIcon,
 } from 'lucide-react'
 import type { Me } from '../api'
 import { api } from '../api'
@@ -21,6 +21,7 @@ import { CheckHost } from '../pages/CheckHost'
 import { Scans } from '../pages/Scans'
 import { Tools } from '../pages/Tools'
 import { Owasp } from '../pages/Owasp'
+import { LlmSecurity } from '../pages/LlmSecurity'
 import { Notes } from '../pages/Notes'
 import { Canvas } from '../pages/Canvas'
 import { Findings } from '../pages/Findings'
@@ -45,6 +46,7 @@ const MODULES: { key: string; label: string; icon: LucideIcon }[] = [
   { key: 'scans', label: 'Scans', icon: ScanSearch },
   { key: 'tools', label: 'Tools', icon: Wrench },
   { key: 'owasp', label: 'OWASP', icon: ShieldCheck },
+  { key: 'llm', label: 'LLM Security', icon: Bot },
   { key: 'findings', label: 'Findings', icon: Flag },
   { key: 'notes', label: 'Notes', icon: StickyNote },
   { key: 'canvas', label: 'Canvas', icon: PenTool },
@@ -166,6 +168,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         {active === 'scans' && <Scans />}
         {active === 'tools' && <Tools />}
         {active === 'owasp' && <Owasp />}
+        {active === 'llm' && <LlmSecurity />}
         {active === 'findings' && <Findings />}
         {active === 'notes' && <Notes />}
         {active === 'canvas' && <Canvas />}
