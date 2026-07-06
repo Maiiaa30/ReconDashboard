@@ -13,6 +13,7 @@ import { acknowledgeNew, listSubdomains } from '../subdomains/store'
 import { domainOverviews } from '../domains/overview'
 import { correlateDomain } from '../domains/correlate'
 import { buildMethodology } from '../skills/methodology'
+import { setStepOverride } from '../skills/overrides'
 import { adviseIntel } from '../domains/advisor'
 import { llmEnabled } from '../util/llm'
 import { safeJsonParse } from '../util/json'
@@ -150,6 +151,21 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
     if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
     return buildMethodology(id)
   })
+
+  // Manual override of a methodology step (mark done / skip / clear).
+  app.patch<{ Params: { id: string }; Body: { skillId?: string; stepKey?: string; state?: string } }>(
+    '/api/domains/:id/methodology/step',
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+      const { skillId, stepKey, state } = request.body ?? {}
+      if (!skillId || !stepKey || (state !== 'done' && state !== 'skipped' && state !== 'clear')) {
+        return reply.code(400).send({ error: 'skillId, stepKey and state (done|skipped|clear) required' })
+      }
+      setStepOverride(id, skillId, stepKey, state)
+      return buildMethodology(id)
+    },
+  )
 
   // AI intel advisor: the LLM reads the correlated recon + findings and returns a
   // prioritized, structured testing plan (priorities / injection candidates /

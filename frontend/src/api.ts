@@ -221,13 +221,19 @@ export interface IntelAdvice {
   deeperDigs: { item: string; why: string }[]
 }
 
-export type StepStatus = 'found' | 'done' | 'running' | 'todo'
+export type StepStatus = 'found' | 'done' | 'running' | 'todo' | 'skipped'
+export interface StepAction {
+  kind: 'discover' | 'exposure' | 'osint' | 'screenshots' | 'origin' | 'owasp' | 'nmap' | 'nuclei' | 'ffuf' | 'tool'
+  tool?: string
+  tags?: string
+}
 export interface MethodologyStep {
   key: string
   label: string
   why: string
-  run: string
+  action: StepAction
   status: StepStatus
+  manual: boolean
 }
 export interface MethodologySkill {
   id: string
@@ -391,6 +397,8 @@ export const api = {
 
   // recon methodology / coverage
   methodology: (id: number) => get<Methodology>(`/domains/${id}/methodology`),
+  setMethodologyStep: (id: number, skillId: string, stepKey: string, state: 'done' | 'skipped' | 'clear') =>
+    patch<Methodology>(`/domains/${id}/methodology/step`, { skillId, stepKey, state }),
 
   // AI-drafted report narrative (optional; only when llm.enabled)
   generateNarrative: (id: number) => post<{ narrative: string; model: string; note: string }>(`/domains/${id}/report/narrative`),

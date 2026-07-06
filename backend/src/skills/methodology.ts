@@ -1,20 +1,22 @@
 import { listFindings } from '../findings/store'
 import { listJobs } from '../jobs/queue'
 import { safeJsonParse } from '../util/json'
-import { SKILLS, type StepDetect } from './registry'
+import { SKILLS, type StepAction, type StepDetect } from './registry'
+import { getStepOverrides } from './overrides'
 
 // Computes methodology coverage for a domain from data we already store: which
 // skills apply (tech fingerprint / open ports) and, per step, whether the
-// matching job has run and/or produced a finding. No new schema — pure read.
+// matching job has run and/or produced a finding — plus any manual overrides.
 
-export type StepStatus = 'found' | 'done' | 'running' | 'todo'
+export type StepStatus = 'found' | 'done' | 'running' | 'todo' | 'skipped'
 
 export interface MethodologyStep {
   key: string
   label: string
   why: string
-  run: string
+  action: StepAction
   status: StepStatus
+  manual: boolean // status came from a manual override
 }
 export interface MethodologySkill {
   id: string
@@ -22,7 +24,7 @@ export interface MethodologySkill {
   description: string
   applicable: boolean
   reason: string
-  coverage: number // 0-100 over applicable steps
+  coverage: number // 0-100 over applicable (non-skipped) steps
   steps: MethodologyStep[]
 }
 export interface Methodology {
@@ -36,6 +38,7 @@ export function buildMethodology(domainId: number): Methodology {
   const jobs = listJobs(1000)
     .map((j) => ({ ...j, p: safeJsonParse<{ tool?: string; domainId?: number }>(j.params, {}) }))
     .filter((j) => j.domainId === domainId || j.p?.domainId === domainId)
+  const overrides = getStepOverrides(domainId)
 
   // Target signals.
   const tech = new Set<string>()
@@ -48,8 +51,7 @@ export function buildMethodology(domainId: number): Methodology {
     if (f.type === 'tool' && d.tool === 'naabu' && Array.isArray(d.items)) for (const p of d.items) ports.add(Number(p))
   }
 
-  const detectStatus = (detect: StepDetect): StepStatus => {
-    // Finding-level match is the strongest signal (ran AND surfaced something).
+  const autoStatus = (detect: StepDetect): StepStatus => {
     const found = findings.some((f) => {
       const d = (f.data ?? {}) as any
       if (detect.findingType && f.type === detect.findingType) return true
@@ -58,7 +60,6 @@ export function buildMethodology(domainId: number): Methodology {
       return false
     })
     if (found) return 'found'
-
     const jobMatches = (statuses: string[]) =>
       jobs.some(
         (j) =>
@@ -79,15 +80,24 @@ export function buildMethodology(domainId: number): Methodology {
       ? 'baseline'
       : [...matchedTech.map((t) => `tech:${t}`), ...matchedPorts.map((p) => `port ${p}`)].join(', ') || 'not matched'
 
-    const steps: MethodologyStep[] = s.steps.map((st) => ({
-      key: st.key,
-      label: st.label,
-      why: st.why,
-      run: st.run,
-      status: detectStatus(st.detect),
-    }))
-    const covered = steps.filter((st) => st.status === 'found' || st.status === 'done').length
-    const coverage = steps.length ? Math.round((covered / steps.length) * 100) : 0
+    const steps: MethodologyStep[] = s.steps.map((st) => {
+      const auto = autoStatus(st.detect)
+      const override = overrides.get(`${s.id}:${st.key}`)
+      let status: StepStatus = auto
+      let manual = false
+      if (override === 'skipped') {
+        status = 'skipped'
+        manual = true
+      } else if (override === 'done' && auto !== 'found') {
+        status = 'done'
+        manual = true
+      }
+      return { key: st.key, label: st.label, why: st.why, action: st.action, status, manual }
+    })
+
+    const counted = steps.filter((st) => st.status !== 'skipped')
+    const covered = counted.filter((st) => st.status === 'found' || st.status === 'done').length
+    const coverage = counted.length ? Math.round((covered / counted.length) * 100) : 100
 
     return { id: s.id, name: s.name, description: s.description, applicable, reason, coverage, steps }
   })

@@ -5,6 +5,7 @@ import { listSubdomains } from '../subdomains/store'
 import { hostBelongsToDomain } from '../util/validate'
 import { getDomain } from './store'
 import { correlateDomain } from './correlate'
+import { buildMethodology } from '../skills/methodology'
 
 type Finding = ReturnType<typeof listFindings>[number]
 
@@ -142,6 +143,18 @@ export function buildIntelFacts(domainId: number): string {
     for (const f of others) lines.push(`- [${f.score ?? '—'}] ${f.type}: ${desc(f)}`)
   }
 
+  // Methodology coverage — so the advisor prioritises the UNCOVERED steps of the
+  // skills that apply to this target instead of re-suggesting done work.
+  const applicable = buildMethodology(domainId).skills.filter((s) => s.applicable)
+  if (applicable.length) {
+    lines.push('', 'Methodology coverage (applicable skills — prioritise what is still TODO):')
+    for (const s of applicable) {
+      const done = s.steps.filter((st) => st.status === 'found' || st.status === 'done').map((st) => st.label)
+      const todo = s.steps.filter((st) => st.status === 'todo' || st.status === 'running').map((st) => st.label)
+      lines.push(`- ${s.name} (${s.coverage}%): done [${done.join(', ') || 'none'}]; TODO [${todo.join(', ') || 'none'}]`)
+    }
+  }
+
   return lines.join('\n')
 }
 
@@ -150,7 +163,9 @@ const SYSTEM =
   'test. From the collected recon facts, produce a prioritized, actionable testing plan. Ground EVERYTHING ' +
   'strictly in the facts provided — do NOT invent hosts, IPs, CVEs, parameters, or findings that are not ' +
   'present. Be specific and technical: name the concrete host/param to test and the tool or technique, not ' +
-  'generic advice. Respond with ONLY a JSON object (no prose, no markdown fences) of this exact shape:\n' +
+  'generic advice. If a "Methodology coverage" section is present, PRIORITISE the steps still marked TODO for ' +
+  'the skills that apply — do not re-suggest work already done. Respond with ONLY a JSON object (no prose, no ' +
+  'markdown fences) of this exact shape:\n' +
   '{\n' +
   '  "summary": "1-2 sentence read of the attack surface",\n' +
   '  "priorities": [ { "target": "host or IP", "risk": "high|medium|low", "why": "grounded reason", "tests": ["specific test/tool", ...], "action": { "kind": "nmap|naabu|nuclei|ffuf|dalfox|sslscan|katana|owasp", "target": "hostname" } } ],\n' +

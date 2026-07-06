@@ -201,6 +201,22 @@ export const assetCves = sqliteTable(
   ],
 )
 
+// Manual overrides for methodology steps: an operator can mark a step 'done'
+// (covered even if no job/finding proves it) or 'skipped' (excluded from the
+// skill's coverage denominator). Absence of a row = purely auto-derived status.
+export const skillStepState = sqliteTable(
+  'skill_step_state',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id').notNull(),
+    skillId: text('skill_id').notNull(),
+    stepKey: text('step_key').notNull(),
+    state: text('state').notNull(), // 'done' | 'skipped'
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [unique('skill_step_uq').on(t.domainId, t.skillId, t.stepKey)],
+)
+
 export const notes = sqliteTable('notes', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   // null => global note
