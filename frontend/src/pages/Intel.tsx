@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, type AdviceAction, type AttackPath, type Finding, type IntelAdvice } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
 import { riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
+import { AttackGraph } from '../components/AttackGraph'
 
 // Rules-based triage ("big filter"): pulls every finding, ranks by the scorer,
 // and surfaces what to look at first. No AI — pure heuristics for now.
@@ -10,6 +11,7 @@ export function Intel() {
   const { domains, selected } = useApp()
   const [findings, setFindings] = useState<Finding[]>([])
   const [paths, setPaths] = useState<AttackPath[]>([])
+  const [pathView, setPathView] = useState<'graph' | 'table'>('graph')
   const [llmOn, setLlmOn] = useState(false)
   const [advice, setAdvice] = useState<{ data: IntelAdvice | null; note: string } | null>(null)
   const [adviceBusy, setAdviceBusy] = useState(false)
@@ -43,13 +45,27 @@ export function Intel() {
   }, [selected])
   usePoll(load, 8000, true)
 
-  // Attack-path correlation is per-domain (needs a selected target).
+  // Attack-path correlation is per-domain (needs a selected target). Runs on
+  // every findings poll so it stays fresh, but we only push a new array when
+  // the content actually changed — otherwise the graph would reheat its layout
+  // every 8s and never settle.
+  const pathSigRef = useRef('')
   useEffect(() => {
     if (!selected) {
       setPaths([])
+      pathSigRef.current = ''
       return
     }
-    api.correlate(selected.id).then((r) => setPaths(r.paths)).catch(() => setPaths([]))
+    api
+      .correlate(selected.id)
+      .then((r) => {
+        const sig = JSON.stringify(r.paths)
+        if (sig !== pathSigRef.current) {
+          pathSigRef.current = sig
+          setPaths(r.paths)
+        }
+      })
+      .catch(() => setPaths([]))
   }, [selected, findings])
 
   const hostOf = useCallback(
@@ -111,7 +127,9 @@ export function Intel() {
         <SignalTile label="Admin/interesting" value={signals.adminish} tone="blue" />
       </div>
 
-      {selected && paths.length > 0 && <AttackPaths paths={paths} host={selected.host} />}
+      {selected && paths.length > 0 && (
+        <AttackPathsSection paths={paths} host={selected.host} view={pathView} onViewChange={setPathView} />
+      )}
 
       {findings.length === 0 ? (
         <Empty>No findings yet. Run discovery / exposure / OSINT on a domain to populate intel.</Empty>
@@ -321,13 +339,48 @@ function ItemList({ items }: { items: { item: string; why: string }[] }) {
   )
 }
 
-// IP-centric join: host(s) -> IP (ASN) -> ports -> CVEs, worst first.
-function AttackPaths({ paths, host }: { paths: AttackPath[]; host: string }) {
+// IP-centric join: host(s) -> IP (ASN) -> ports -> CVEs, worst first. Graph
+// view is the default (spatial relationships read faster); table stays for
+// scanning/exporting exact values.
+function AttackPathsSection({
+  paths,
+  host,
+  view,
+  onViewChange,
+}: {
+  paths: AttackPath[]
+  host: string
+  view: 'graph' | 'table'
+  onViewChange: (v: 'graph' | 'table') => void
+}) {
   return (
     <div className="mb-6">
-      <h2 className="mb-2 text-sm font-semibold text-zinc-200">
-        🧭 Attack paths <span className="text-zinc-500">— {host} ({paths.length} asset{paths.length > 1 ? 's' : ''})</span>
-      </h2>
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-zinc-200">
+          🧭 Attack paths <span className="text-zinc-500">— {host} ({paths.length} asset{paths.length > 1 ? 's' : ''})</span>
+        </h2>
+        <div className="flex gap-1 rounded-lg border border-hair bg-ink-900/60 p-0.5 text-xs">
+          {(['graph', 'table'] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => onViewChange(v)}
+              className={`rounded px-2 py-1 capitalize transition ${
+                view === v ? 'bg-accent-600/80 text-white' : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
+      </div>
+      {view === 'graph' ? <AttackGraph paths={paths} host={host} /> : <AttackPathsTable paths={paths} />}
+    </div>
+  )
+}
+
+function AttackPathsTable({ paths }: { paths: AttackPath[] }) {
+  return (
+    <div>
       <div className="overflow-x-auto rounded-xl border border-hair">
         <table className="w-full min-w-[680px] text-sm">
           <thead className="bg-ink-900/60 text-left text-xs uppercase tracking-wide text-zinc-500">
