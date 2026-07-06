@@ -2,13 +2,14 @@ import { useState } from 'react'
 import {
   Home as HomeIcon, Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
   Activity, ScanSearch, ShieldCheck, Flag, StickyNote, PenTool, ScrollText,
-  Settings as SettingsIcon, LogOut, Menu, Radar as RadarLogo, Wrench, History, type LucideIcon,
+  Settings as SettingsIcon, LogOut, Menu, Radar as RadarLogo, Wrench, History, ListChecks, type LucideIcon,
 } from 'lucide-react'
 import type { Me } from '../api'
 import { api } from '../api'
 import { useApp } from '../state'
 import { Domains } from '../pages/Domains'
 import { Intel } from '../pages/Intel'
+import { Methodology } from '../pages/Methodology'
 import { Subdomains } from '../pages/Subdomains'
 import { Screenshots } from '../pages/Screenshots'
 import { Fuzzing } from '../pages/Fuzzing'
@@ -32,6 +33,7 @@ const MODULES: { key: string; label: string; icon: LucideIcon }[] = [
   { key: 'home', label: 'Home', icon: HomeIcon },
   { key: 'domains', label: 'Domains', icon: Globe },
   { key: 'intel', label: 'Intel', icon: Brain },
+  { key: 'methodology', label: 'Methodology', icon: ListChecks },
   { key: 'subdomains', label: 'Subdomains', icon: Network },
   { key: 'screenshots', label: 'Screenshots', icon: Camera },
   { key: 'fuzzing', label: 'Fuzzing', icon: Crosshair },
@@ -54,7 +56,7 @@ const MODULES: { key: string; label: string; icon: LucideIcon }[] = [
 type ModuleKey = (typeof MODULES)[number]['key']
 
 // Modules that operate on a selected domain show the domain picker.
-const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'subdomains', 'screenshots', 'fuzzing', 'exposure', 'osint', 'origin', 'scans', 'tools', 'owasp', 'notes']
+const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'methodology', 'subdomains', 'screenshots', 'fuzzing', 'exposure', 'osint', 'origin', 'scans', 'tools', 'owasp', 'notes']
 
 export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { domains, selectedId, select } = useApp()
@@ -152,6 +154,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         {active === 'home' && <Home navigate={navigate} />}
         {active === 'domains' && <Domains />}
         {active === 'intel' && <Intel />}
+        {active === 'methodology' && <Methodology />}
         {active === 'subdomains' && <Subdomains />}
         {active === 'screenshots' && <Screenshots />}
         {active === 'fuzzing' && <Fuzzing />}

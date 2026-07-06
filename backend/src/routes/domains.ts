@@ -12,6 +12,7 @@ import { enqueueJob } from '../jobs/queue'
 import { acknowledgeNew, listSubdomains } from '../subdomains/store'
 import { domainOverviews } from '../domains/overview'
 import { correlateDomain } from '../domains/correlate'
+import { buildMethodology } from '../skills/methodology'
 import { adviseIntel } from '../domains/advisor'
 import { llmEnabled } from '../util/llm'
 import { safeJsonParse } from '../util/json'
@@ -140,6 +141,14 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
     const id = Number(request.params.id)
     if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
     return { paths: correlateDomain(id) }
+  })
+
+  // Recon methodology / coverage: which packaged skills apply to this target and
+  // how far through each methodology we are (derived from stored jobs+findings).
+  app.get<{ Params: { id: string } }>('/api/domains/:id/methodology', async (request, reply) => {
+    const id = Number(request.params.id)
+    if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+    return buildMethodology(id)
   })
 
   // AI intel advisor: the LLM reads the correlated recon + findings and returns a

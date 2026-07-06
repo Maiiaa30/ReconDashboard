@@ -221,6 +221,29 @@ export interface IntelAdvice {
   deeperDigs: { item: string; why: string }[]
 }
 
+export type StepStatus = 'found' | 'done' | 'running' | 'todo'
+export interface MethodologyStep {
+  key: string
+  label: string
+  why: string
+  run: string
+  status: StepStatus
+}
+export interface MethodologySkill {
+  id: string
+  name: string
+  description: string
+  applicable: boolean
+  reason: string
+  coverage: number
+  steps: MethodologyStep[]
+}
+export interface Methodology {
+  tech: string[]
+  ports: number[]
+  skills: MethodologySkill[]
+}
+
 export interface MetaStatus {
   scorer: string
   aiProvider: string
@@ -365,6 +388,9 @@ export const api = {
 
   // attack-path correlation
   correlate: (id: number) => get<{ paths: AttackPath[] }>(`/domains/${id}/correlate`),
+
+  // recon methodology / coverage
+  methodology: (id: number) => get<Methodology>(`/domains/${id}/methodology`),
 
   // AI-drafted report narrative (optional; only when llm.enabled)
   generateNarrative: (id: number) => post<{ narrative: string; model: string; note: string }>(`/domains/${id}/report/narrative`),
