@@ -5,7 +5,8 @@ import {
 } from 'lucide-react'
 import { api, type DomainOverview, type HomeFinding, type RecentChange } from '../api'
 import { useApp, usePoll } from '../state'
-import { Badge, Card, Empty } from '../components/ui'
+import { Badge, Button, Card, Empty, SkeletonList } from '../components/ui'
+import { useToast } from '../components/Toast'
 import { riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
 
 const RISK_SCORE: Record<RiskLevel, string> = {
@@ -18,6 +19,8 @@ const RISK_SCORE: Record<RiskLevel, string> = {
 // Cross-target landing page: a prioritized action list, not a SOC dashboard.
 export function Home({ navigate }: { navigate: (page: string, domainId?: number) => void }) {
   const { domains } = useApp()
+  const toast = useToast()
+  const [loaded, setLoaded] = useState(false)
   const [overview, setOverview] = useState<DomainOverview[]>([])
   const [top, setTop] = useState<HomeFinding[]>([])
   const [changes, setChanges] = useState<RecentChange[]>([])
@@ -27,8 +30,8 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
       setOverview(r.overview)
       setTop(r.topFindings)
       setChanges(r.recentChanges ?? [])
-    }).catch(() => {})
-  }, [])
+    }).catch(() => toast.error('Failed to load overview.')).finally(() => setLoaded(true))
+  }, [toast])
   usePoll(load, 8000)
 
   const hostOf = (id: number | null) => (id == null ? 'global' : domains.find((d) => d.id === id)?.host ?? `#${id}`)
@@ -48,11 +51,27 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
   )
   const lastActivity = overview.reduce((m, d) => Math.max(m, d.lastActivity ?? 0), 0) || null
 
+  if (!loaded) {
+    return (
+      <div>
+        <Hero count={0} lastActivity={null} navigate={navigate} />
+        <SkeletonList rows={5} />
+      </div>
+    )
+  }
+
   if (overview.length === 0) {
     return (
       <div>
         <Hero count={0} lastActivity={null} navigate={navigate} />
-        <Empty>No targets yet — add a domain on the Domains page to begin recon.</Empty>
+        <Empty>
+          <div className="flex flex-col items-start gap-3">
+            <span>No targets yet — add a domain to begin recon.</span>
+            <Button variant="primary" onClick={() => navigate('domains')}>
+              <Globe size={15} /> Add your first target
+            </Button>
+          </div>
+        </Empty>
       </div>
     )
   }
@@ -212,18 +231,12 @@ function Hero({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => navigate('domains')}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm shadow-accent-500/20 transition hover:bg-accent-400"
-          >
+          <Button variant="primary" onClick={() => navigate('domains')}>
             <Globe size={15} /> Manage targets
-          </button>
-          <button
-            onClick={() => navigate('findings')}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-hair px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-ink-800 hover:border-hair-strong"
-          >
+          </Button>
+          <Button variant="ghost" onClick={() => navigate('findings')}>
             <Flag size={15} /> All findings <ArrowRight size={13} className="text-zinc-500" />
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -9,14 +9,17 @@ export function Button({
 }) {
   const base =
     'inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100'
+  // Indigo brand action — the single primary CTA style. `loud` and `primary`
+  // are kept as aliases so existing call sites keep working, but they resolve to
+  // one definition to prevent the two drifting apart.
+  const brand = 'bg-accent-500 text-white shadow-sm shadow-accent-500/20 hover:bg-accent-400'
   const variants: Record<string, string> = {
-    // Neutral elevated button — secondary primary actions.
+    // Neutral elevated button — secondary actions.
     default: 'bg-ink-800 text-zinc-100 border border-hair hover:bg-ink-700 hover:border-hair-strong',
     ghost: 'border border-hair text-zinc-300 hover:bg-ink-800 hover:border-hair-strong',
     danger: 'border border-red-900/70 text-red-300 hover:bg-red-950/50 hover:border-red-800',
-    // Indigo brand action — the loud/primary CTA used across pages.
-    loud: 'bg-accent-500 text-white shadow-sm shadow-accent-500/20 hover:bg-accent-400',
-    primary: 'bg-accent-500 text-white shadow-sm shadow-accent-500/20 hover:bg-accent-400',
+    loud: brand,
+    primary: brand,
   }
   return <button className={`${base} ${variants[variant]} ${className}`} {...props} />
 }
@@ -75,6 +78,23 @@ export function Empty({ children }: { children: ReactNode }) {
 
 export function Spinner() {
   return <span className="inline-block h-3 w-3 animate-pulse rounded-full bg-accent-500" />
+}
+
+// Placeholder block for loading states — replaces "blank until data pops in"
+// on the polling lists so the layout doesn't jump.
+export function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`animate-pulse rounded-lg bg-ink-800 ${className}`} />
+}
+
+// A vertical stack of skeleton rows sized like a typical list item.
+export function SkeletonList({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: rows }).map((_, i) => (
+        <Skeleton key={i} className="h-14 w-full" />
+      ))}
+    </div>
+  )
 }
 
 // Download links for an export endpoint. Plain anchors so the browser handles

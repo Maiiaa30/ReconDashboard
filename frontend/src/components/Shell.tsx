@@ -195,7 +195,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         <nav className="flex-1 overflow-y-auto px-2 pb-2">
           {NAV_SECTIONS.map((section) => (
             <div key={section.title}>
-              <div className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+              <div className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
                 {section.title}
               </div>
               {section.items.map((m) => {
@@ -232,10 +232,35 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 p-4 md:p-6">
+      <main className="min-w-0 flex-1">
+        {/* Desktop top bar — anchors the layout: current page on the left, the
+            single global target switcher on the right (no more loose floating row). */}
+        <div className="sticky top-0 z-10 hidden items-center gap-3 border-b border-hair bg-ink-950/90 px-6 py-3 backdrop-blur md:flex">
+          <h1 className="text-sm font-semibold tracking-tight text-zinc-100">{activeLabel}</h1>
+          {DOMAIN_SCOPED.includes(active) && domains.length > 0 && (
+            <div className="ml-auto flex items-center gap-2 text-sm">
+              <span className="text-zinc-400">Target</span>
+              <select
+                value={selectedId ?? ''}
+                onChange={(e) => select(Number(e.target.value))}
+                className="rounded-lg border border-hair bg-ink-850 px-3 py-1.5 text-sm outline-none transition hover:border-hair-strong focus:border-accent-500"
+              >
+                {domains.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.host} ({d.mode === 'active_authorized' ? 'active' : 'passive'})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 md:p-6">
+        {/* Mobile target switcher — the top bar is desktop-only, so keep an inline
+            picker on small screens. */}
         {DOMAIN_SCOPED.includes(active) && domains.length > 0 && (
-          <div className="mb-4 flex items-center gap-2 text-sm">
-            <span className="text-zinc-500">Target:</span>
+          <div className="mb-4 flex items-center gap-2 text-sm md:hidden">
+            <span className="text-zinc-400">Target</span>
             <select
               value={selectedId ?? ''}
               onChange={(e) => select(Number(e.target.value))}
@@ -274,6 +299,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         {active === 'jobs' && <Jobs />}
         {active === 'audit' && <Audit />}
         {active === 'settings' && <Settings totpEnabled={me.user.totpEnabled} />}
+        </div>
       </main>
 
       <CommandPalette

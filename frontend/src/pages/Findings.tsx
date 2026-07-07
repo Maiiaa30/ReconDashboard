@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Camera, Sparkles, AlertTriangle } from 'lucide-react'
 import { api, type Finding, type FindingStatus, type ReportSnapshot } from '../api'
 import { useApp } from '../state'
-import { Badge, Button, Empty, ExportLinks, PageHeader } from '../components/ui'
+import { Badge, Button, Empty, ExportLinks, PageHeader, SkeletonList } from '../components/ui'
+import { useToast } from '../components/Toast'
 import { riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
 
 const STATUSES: FindingStatus[] = ['open', 'confirmed', 'false_positive', 'resolved', 'ignored']
@@ -80,6 +82,8 @@ function tagTone(tag: string): 'zinc' | 'blue' | 'amber' | 'red' | 'green' {
 
 export function Findings() {
   const { domains, selected } = useApp()
+  const toast = useToast()
+  const [loaded, setLoaded] = useState(false)
   const [domainId, setDomainId] = useState<number | ''>(selected?.id ?? '')
   const [type, setType] = useState('')
   const [sincePreset, setSincePreset] = useState<SincePreset>('')
@@ -106,7 +110,9 @@ export function Findings() {
       const r = await api.generateNarrative(domainId)
       setNarrative({ text: r.narrative, note: r.note })
     } catch (e) {
-      setNarrative({ text: '', note: e instanceof Error ? e.message : 'failed to generate' })
+      const note = e instanceof Error ? e.message : 'failed to generate'
+      setNarrative({ text: '', note })
+      toast.error(`AI summary failed: ${note}`)
     } finally {
       setNarrBusy(false)
     }
@@ -125,8 +131,9 @@ export function Findings() {
     api
       .findings({ domainId: domainId === '' ? undefined : domainId, type: type || undefined, since, limit: 500 })
       .then((r) => setFindings(r.findings))
-      .catch(() => {})
-  }, [domainId, type, sincePreset])
+      .catch(() => toast.error('Failed to load findings.'))
+      .finally(() => setLoaded(true))
+  }, [domainId, type, sincePreset, toast])
 
   useEffect(() => {
     void load()
@@ -139,10 +146,11 @@ export function Findings() {
       try {
         await api.updateFinding(id, patchBody)
       } catch {
+        toast.error('Update failed — reverting.')
         load()
       }
     },
-    [load],
+    [load, toast],
   )
 
   // Clear selection when the filter set changes (ids may no longer be shown).
@@ -182,11 +190,13 @@ export function Findings() {
       setSelectedIds(new Set())
       try {
         await api.bulkUpdateFindings(ids, { status })
+        toast.success(`${ids.length} finding${ids.length > 1 ? 's' : ''} → ${STATUS_LABEL[status]}`)
       } catch {
+        toast.error('Bulk update failed — reverting.')
         load()
       }
     },
-    [load],
+    [load, toast],
   )
 
   // Keyboard triage: o/c/f/r/i set status on the selection, a = select all, esc = clear.
@@ -253,10 +263,10 @@ export function Findings() {
                   <button
                     onClick={draftNarrative}
                     disabled={narrBusy}
-                    className="rounded-lg border border-accent-500/40 px-2.5 py-1 text-xs text-accent-fg transition hover:bg-accent-500/10 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-accent-500/40 px-2.5 py-1 text-xs text-accent-fg transition hover:bg-accent-500/10 disabled:opacity-50"
                     title="Draft an executive summary with the configured local/cloud AI (sends target + finding summaries)"
                   >
-                    {narrBusy ? 'Drafting…' : '✨ Draft AI summary'}
+                    <Sparkles size={13} /> {narrBusy ? 'Drafting…' : 'Draft AI summary'}
                   </button>
                 )}
               </>
@@ -341,7 +351,9 @@ export function Findings() {
       {narrative && (
         <div className="mb-4 rounded-xl border border-accent-500/30 bg-ink-900/60 p-4">
           <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wide text-accent-fg">AI-drafted executive summary</span>
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-accent-fg">
+              <Sparkles size={13} /> AI-drafted executive summary
+            </span>
             <button onClick={() => setNarrative(null)} className="text-xs text-zinc-500 hover:text-zinc-300">
               dismiss
             </button>
@@ -351,7 +363,11 @@ export function Findings() {
           ) : (
             <p className="text-sm text-red-400">{narrative.note}</p>
           )}
-          {narrative.text && <p className="mt-2 text-[11px] text-amber-400/80">⚠ {narrative.note}</p>}
+          {narrative.text && (
+            <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-amber-400/80">
+              <AlertTriangle size={12} /> {narrative.note}
+            </p>
+          )}
         </div>
       )}
 
@@ -380,7 +396,9 @@ export function Findings() {
         </div>
       )}
 
-      {filtered.length === 0 ? (
+      {!loaded ? (
+        <SkeletonList rows={6} />
+      ) : filtered.length === 0 ? (
         <Empty>No findings match these filters.</Empty>
       ) : (
         <div className="space-y-2">
@@ -681,6 +699,7 @@ function FindingDetail({ f, onUpdate }: { f: Finding; onUpdate: (id: number, pat
 // Immutable report snapshots: freeze the current report as a dated, downloadable
 // deliverable that never changes when findings are re-scanned.
 function SnapshotsPanel({ domainId }: { domainId: number }) {
+  const toast = useToast()
   const [snaps, setSnaps] = useState<ReportSnapshot[]>([])
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -700,14 +719,22 @@ function SnapshotsPanel({ domainId }: { domainId: number }) {
       await api.createSnapshot(domainId, label.trim() || undefined)
       setLabel('')
       setOpen(true)
+      toast.success('Report snapshot frozen.')
       load()
+    } catch {
+      toast.error('Failed to create snapshot.')
     } finally {
       setBusy(false)
     }
   }
 
   async function remove(id: number) {
-    await api.deleteSnapshot(id).catch(() => {})
+    try {
+      await api.deleteSnapshot(id)
+      toast.success('Snapshot deleted.')
+    } catch {
+      toast.error('Failed to delete snapshot.')
+    }
     load()
   }
 
@@ -717,7 +744,7 @@ function SnapshotsPanel({ domainId }: { domainId: number }) {
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 text-left text-sm font-medium text-zinc-200"
       >
-        📸 Report snapshots
+        <Camera size={15} className="text-zinc-400" /> Report snapshots
         <Badge tone={snaps.length ? 'indigo' : 'zinc'}>{snaps.length}</Badge>
         <span className="text-xs font-normal text-zinc-500">— frozen, dated deliverables</span>
         <span className="ml-auto text-xs text-zinc-500">{open ? '▾' : '▸'}</span>

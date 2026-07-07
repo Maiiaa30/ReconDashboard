@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, ApiError, type Me } from './api'
 import { Login } from './components/Login'
 import { Shell } from './components/Shell'
+import { ToastProvider } from './components/Toast'
 import { AppProvider } from './state'
 
 type AuthState =
@@ -32,19 +33,21 @@ export default function App() {
 
   if (auth.status === 'loading') {
     return (
-      <div className="min-h-full flex items-center justify-center bg-ink-950 text-zinc-500 text-sm">
+      <div className="min-h-full flex items-center justify-center bg-ink-950 text-zinc-400 text-sm">
         Loading…
       </div>
     )
   }
 
-  if (auth.status === 'anon') {
-    return <Login onSuccess={refresh} />
-  }
-
   return (
-    <AppProvider>
-      <Shell me={auth.me} onLogout={() => setAuth({ status: 'anon' })} />
-    </AppProvider>
+    <ToastProvider>
+      {auth.status === 'anon' ? (
+        <Login onSuccess={refresh} />
+      ) : (
+        <AppProvider>
+          <Shell me={auth.me} onLogout={() => setAuth({ status: 'anon' })} />
+        </AppProvider>
+      )}
+    </ToastProvider>
   )
 }

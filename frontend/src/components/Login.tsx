@@ -1,7 +1,10 @@
 import { FormEvent, useState } from 'react'
+import { Radar } from 'lucide-react'
 import { api, ApiError } from '../api'
+import { useToast } from './Toast'
 
 export function Login({ onSuccess }: { onSuccess: () => void }) {
+  const toast = useToast()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [token, setToken] = useState('')
@@ -17,11 +20,12 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
       await api.login(username, password, showToken ? token : undefined)
       onSuccess()
     } catch (err) {
-      if (err instanceof ApiError && err.status === 429) {
-        setError('Too many attempts. Wait a minute and try again.')
-      } else {
-        setError('Invalid credentials.')
-      }
+      const msg =
+        err instanceof ApiError && err.status === 429
+          ? 'Too many attempts. Wait a minute and try again.'
+          : 'Invalid credentials.'
+      setError(msg)
+      toast.error(msg)
     } finally {
       setBusy(false)
     }
@@ -31,10 +35,17 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
     <div className="min-h-full flex items-center justify-center p-6 bg-ink-950 text-zinc-100">
       <form
         onSubmit={submit}
-        className="w-full max-w-sm rounded-2xl border border-hair bg-ink-900/60 p-8 shadow-xl"
+        className="w-full max-w-sm rounded-2xl border border-hair bg-ink-900/60 p-8 shadow-pop"
       >
-        <h1 className="text-xl font-semibold tracking-tight">Recon Dashboard</h1>
-        <p className="mt-1 text-sm text-zinc-400">Operator login</p>
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-500 shadow-sm shadow-accent-500/30">
+            <Radar size={22} className="text-white" />
+          </span>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight">Recon Dashboard</h1>
+            <p className="text-sm text-zinc-400">Operator login</p>
+          </div>
+        </div>
 
         <label className="mt-6 block text-sm">
           <span className="text-zinc-400">Username</span>
@@ -85,7 +96,7 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
         <button
           type="submit"
           disabled={busy || !username || !password}
-          className="mt-6 w-full rounded-lg bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-40"
+          className="mt-6 w-full rounded-lg bg-accent-500 px-3 py-2 text-sm font-medium text-white shadow-sm shadow-accent-500/20 transition hover:bg-accent-400 disabled:opacity-40 disabled:hover:bg-accent-500"
         >
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
