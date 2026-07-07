@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import { db } from '../db/index'
 import { jobs } from '../db/schema'
 
@@ -107,13 +107,23 @@ export function listJobs(limit = 100) {
   return db.select().from(jobs).orderBy(desc(jobs.id)).limit(limit).all()
 }
 
-// Claim the oldest queued job by flipping it to running. Single in-process
-// worker, but written defensively so only one claim wins.
-export function claimNextQueued() {
+// A lane restricts claiming to loud/active job types or everything else, so the
+// worker can run a passive job and a loud scan concurrently without loud scans
+// running in parallel against a target. Omit for the old "any job" behaviour.
+export type JobLane = 'passive' | 'loud'
+
+const LOUD_TYPE_ARR = [...LOUD_TYPES]
+
+// Claim the oldest queued job (optionally within a lane) by flipping it to
+// running. Written defensively (guarded UPDATE) so only one claim wins even with
+// two lane loops polling at once.
+export function claimNextQueued(lane?: JobLane) {
+  const laneCond =
+    lane === 'loud' ? inArray(jobs.type, LOUD_TYPE_ARR) : lane === 'passive' ? notInArray(jobs.type, LOUD_TYPE_ARR) : undefined
   const next = db
     .select()
     .from(jobs)
-    .where(eq(jobs.status, 'queued'))
+    .where(laneCond ? and(eq(jobs.status, 'queued'), laneCond) : eq(jobs.status, 'queued'))
     .orderBy(jobs.id)
     .limit(1)
     .all()[0]
