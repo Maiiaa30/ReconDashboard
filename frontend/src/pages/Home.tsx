@@ -1,8 +1,11 @@
 import { useCallback, useState } from 'react'
-import { AlertTriangle, Bell, Flag, Radar, Search, Sparkles, type LucideIcon } from 'lucide-react'
+import {
+  AlertTriangle, Bell, Flag, Radar, Search, Sparkles, Globe, ShieldAlert, Bug, ArrowRight,
+  type LucideIcon,
+} from 'lucide-react'
 import { api, type DomainOverview, type HomeFinding, type RecentChange } from '../api'
 import { useApp, usePoll } from '../state'
-import { Badge, Card, Empty, PageHeader } from '../components/ui'
+import { Badge, Card, Empty } from '../components/ui'
 import { riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
 
 const RISK_SCORE: Record<RiskLevel, string> = {
@@ -43,22 +46,29 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
     }),
     { findings: 0, cves: 0, newSubs: 0 },
   )
+  const lastActivity = overview.reduce((m, d) => Math.max(m, d.lastActivity ?? 0), 0) || null
 
   if (overview.length === 0) {
     return (
       <div>
-        <PageHeader title="Home" subtitle="Your engagement at a glance" />
-        <Empty>No targets yet. Add a domain to begin.</Empty>
+        <Hero count={0} lastActivity={null} navigate={navigate} />
+        <Empty>No targets yet — add a domain on the Domains page to begin recon.</Empty>
       </div>
     )
   }
 
   return (
     <div>
-      <PageHeader
-        title="Home"
-        subtitle={`${overview.length} target${overview.length > 1 ? 's' : ''} · ${totals.findings} findings · ${totals.cves} CVEs · ${totals.newSubs} new subdomains`}
-      />
+      <Hero count={overview.length} lastActivity={lastActivity} navigate={navigate} />
+
+      {/* Headline stats — the dashboard "vitals" */}
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <StatTile icon={Globe} label="Targets" value={overview.length} tone="indigo" onClick={() => navigate('domains')} />
+        <StatTile icon={Flag} label="Findings" value={totals.findings} tone="zinc" onClick={() => navigate('findings')} />
+        <StatTile icon={Bug} label="CVEs" value={totals.cves} tone="red" onClick={() => navigate('exposure')} />
+        <StatTile icon={ShieldAlert} label="High-risk" value={highRisk.length} tone="amber" onClick={() => navigate('findings')} />
+        <StatTile icon={Sparkles} label="New subs" value={totals.newSubs} tone="blue" onClick={() => navigate('subdomains')} />
+      </div>
 
       {/* Attention row */}
       <div className="mb-5 grid gap-3 md:grid-cols-3">
@@ -175,6 +185,84 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
         </div>
       </div>
     </div>
+  )
+}
+
+// A proper landing banner so Home reads as the dashboard, not a findings dump.
+function Hero({
+  count,
+  lastActivity,
+  navigate,
+}: {
+  count: number
+  lastActivity: number | null
+  navigate: (page: string, domainId?: number) => void
+}) {
+  return (
+    <div className="mb-6 overflow-hidden rounded-2xl border border-hair bg-gradient-to-br from-ink-850 via-ink-900 to-ink-950 p-5 sm:p-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-accent-fg/80">
+            <Radar size={14} /> Recon Dashboard
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">Engagement overview</h1>
+          <p className="mt-1 text-sm text-zinc-400">
+            {count === 0 ? 'No targets under recon yet.' : `${count} target${count > 1 ? 's' : ''} under recon`}
+            {lastActivity ? ` · last activity ${timeAgo(lastActivity)}` : ''}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => navigate('domains')}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm shadow-accent-500/20 transition hover:bg-accent-400"
+          >
+            <Globe size={15} /> Manage targets
+          </button>
+          <button
+            onClick={() => navigate('findings')}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-hair px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-ink-800 hover:border-hair-strong"
+          >
+            <Flag size={15} /> All findings <ArrowRight size={13} className="text-zinc-500" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const STAT_TONE: Record<string, { ring: string; text: string; icon: string }> = {
+  indigo: { ring: 'ring-accent-500/20', text: 'text-accent-fg', icon: 'text-accent-400' },
+  zinc: { ring: 'ring-zinc-700/40', text: 'text-zinc-200', icon: 'text-zinc-400' },
+  red: { ring: 'ring-red-800/40', text: 'text-red-300', icon: 'text-red-400' },
+  amber: { ring: 'ring-amber-800/40', text: 'text-amber-300', icon: 'text-amber-400' },
+  blue: { ring: 'ring-blue-800/40', text: 'text-blue-300', icon: 'text-blue-400' },
+}
+
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  tone,
+  onClick,
+}: {
+  icon: LucideIcon
+  label: string
+  value: number
+  tone: keyof typeof STAT_TONE
+  onClick?: () => void
+}) {
+  const t = STAT_TONE[tone]
+  return (
+    <button
+      onClick={onClick}
+      className={`group rounded-xl border border-hair bg-ink-850 p-3 text-left shadow-card ring-1 ${t.ring} transition hover:border-hair-strong hover:bg-ink-800`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">{label}</span>
+        <Icon size={15} className={t.icon} />
+      </div>
+      <div className={`mt-1 text-2xl font-semibold tabular-nums ${value > 0 ? t.text : 'text-zinc-500'}`}>{value}</div>
+    </button>
   )
 }
 

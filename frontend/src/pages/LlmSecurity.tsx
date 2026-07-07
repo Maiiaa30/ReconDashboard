@@ -9,11 +9,29 @@ import {
   type LlmModel,
   type OwaspLlmItem,
   type Payload,
+  type PayloadCategory,
 } from '../data/llmSecurity'
 
 type Tab = 'owasp' | 'payloads' | 'methodology'
 
 const MODELS: LlmModel[] = ['generic', 'gemini', 'llama', 'gpt', 'claude', 'grok', 'mistral']
+
+type BadgeTone = 'zinc' | 'green' | 'amber' | 'red' | 'blue' | 'indigo' | 'purple'
+
+// Per-category color so the payload library reads at a glance instead of being
+// a wall of identical purple chips.
+const CATEGORY_STYLE: Record<PayloadCategory, { tone: BadgeTone; border: string }> = {
+  'Prompt Injection': { tone: 'red', border: 'border-l-red-500/70' },
+  'Indirect Injection': { tone: 'amber', border: 'border-l-amber-500/70' },
+  'System Prompt Leak': { tone: 'blue', border: 'border-l-blue-500/70' },
+  'Jailbreak Framing': { tone: 'purple', border: 'border-l-purple-500/70' },
+  'Encoding / Obfuscation': { tone: 'indigo', border: 'border-l-accent-500/70' },
+  'Output Handling': { tone: 'red', border: 'border-l-red-500/70' },
+  'Data Exfiltration': { tone: 'amber', border: 'border-l-amber-500/70' },
+  'Tool / Agent Abuse': { tone: 'purple', border: 'border-l-purple-500/70' },
+}
+
+const SEV_BORDER = { high: 'border-l-red-500/70', medium: 'border-l-amber-500/70', low: 'border-l-blue-500/60' } as const
 
 // Reference module: OWASP Top 10 for LLMs, a searchable payload library, and
 // per-model testing methodology — for AUTHORIZED assessment of LLM apps only.
@@ -143,11 +161,11 @@ export function LlmSecurity() {
   )
 }
 
-const SEV_TONE = { high: 'red', medium: 'amber', low: 'zinc' } as const
+const SEV_TONE = { high: 'red', medium: 'amber', low: 'blue' } as const
 
 function OwaspCard({ item }: { item: OwaspLlmItem }) {
   return (
-    <Card>
+    <Card className={`border-l-4 ${SEV_BORDER[item.severity]}`}>
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone="indigo">{item.id}</Badge>
         <h3 className="text-sm font-semibold text-zinc-100">{item.title}</h3>
@@ -181,10 +199,11 @@ function OwaspCard({ item }: { item: OwaspLlmItem }) {
 }
 
 function PayloadCard({ p }: { p: Payload }) {
+  const style = CATEGORY_STYLE[p.category]
   return (
-    <Card className="flex flex-col">
+    <Card className={`flex flex-col border-l-4 ${style.border}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone="purple">{p.category}</Badge>
+        <Badge tone={style.tone}>{p.category}</Badge>
         <h3 className="text-sm font-semibold text-zinc-100">{p.title}</h3>
       </div>
       <div className="mt-2">

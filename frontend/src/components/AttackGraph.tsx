@@ -244,20 +244,28 @@ export function AttackGraph({ paths, host }: { paths: AttackPath[]; host: string
                 ctx.stroke()
               }
 
-              // Labels, drawn sparingly to avoid the earlier soup:
+              // Labels:
               //  • target always (the anchor),
-              //  • selected node + its neighbours (so a picked path is readable),
-              //  • hovered node,
-              //  • IP nodes once you've zoomed in enough to read them.
+              //  • selected node + its neighbours, and the hovered node,
+              //  • IP + host nodes once you've zoomed in enough to read them —
+              //    hosts (the grey leaf nodes) now get names too, drawn smaller
+              //    and dimmer so a dense cluster stays legible.
+              const isHost = node.kind === 'host'
               const nearSelection = selectedId != null && focused
               const showLabel =
-                node.kind === 'domain' || isSelected || isHover || nearSelection || (node.kind === 'ip' && globalScale >= 1.9)
+                node.kind === 'domain' ||
+                isSelected ||
+                isHover ||
+                nearSelection ||
+                (node.kind === 'ip' && globalScale >= 1.1) ||
+                (isHost && globalScale >= 1.1)
               if (!showLabel) {
                 ctx.globalAlpha = 1
                 return
               }
 
-              const fontSize = 12 / globalScale // constant on-screen size
+              // Constant on-screen size; hosts a touch smaller than IPs.
+              const fontSize = (isHost && !isHover && !isSelected ? 10 : 12) / globalScale
               ctx.font = `${node.kind === 'domain' || isSelected ? 600 : 400} ${fontSize}px ui-sans-serif, system-ui`
               ctx.textAlign = 'center'
               ctx.textBaseline = 'top'
@@ -266,7 +274,7 @@ export function AttackGraph({ paths, host }: { paths: AttackPath[]; host: string
               const tw = ctx.measureText(label).width
               const ty = node.y + r + pad
               // Pill behind the text so it stays legible over links/nodes.
-              ctx.fillStyle = 'rgba(13,15,21,0.82)'
+              ctx.fillStyle = isHost && !isHover && !isSelected ? 'rgba(13,15,21,0.66)' : 'rgba(13,15,21,0.82)'
               ctx.beginPath()
               const bx = node.x - tw / 2 - pad
               const bw = tw + pad * 2
@@ -274,7 +282,13 @@ export function AttackGraph({ paths, host }: { paths: AttackPath[]; host: string
               const br = 2 / globalScale
               roundRect(ctx, bx, ty - pad / 2, bw, bh, br)
               ctx.fill()
-              ctx.fillStyle = isSelected ? '#e0e2ff' : isHover ? '#f4f4f5' : 'rgba(212,212,216,0.92)'
+              ctx.fillStyle = isSelected
+                ? '#e0e2ff'
+                : isHover
+                  ? '#f4f4f5'
+                  : isHost
+                    ? 'rgba(161,161,170,0.92)' // zinc-400, matches the grey nodes
+                    : 'rgba(212,212,216,0.92)'
               ctx.fillText(label, node.x, ty)
               ctx.globalAlpha = 1
             }}
