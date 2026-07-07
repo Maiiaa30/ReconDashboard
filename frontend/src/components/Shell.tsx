@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Home as HomeIcon, Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
   Activity, ScanSearch, ShieldCheck, Flag, StickyNote, PenTool, ScrollText,
-  Settings as SettingsIcon, LogOut, Menu, X, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, type LucideIcon,
+  Settings as SettingsIcon, LogOut, Menu, X, Search, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, type LucideIcon,
 } from 'lucide-react'
+import { CommandPalette } from './CommandPalette'
 import type { Me } from '../api'
 import { api } from '../api'
 import { useApp } from '../state'
@@ -93,6 +94,9 @@ const NAV_SECTIONS: { title: string; items: { key: string; label: string; icon: 
 
 const MODULES = NAV_SECTIONS.flatMap((s) => s.items)
 
+// Flat index (with section) for the command palette's fuzzy search.
+const MODULE_INDEX = NAV_SECTIONS.flatMap((s) => s.items.map((it) => ({ key: it.key, label: it.label, section: s.title })))
+
 type ModuleKey = (typeof MODULES)[number]['key']
 
 // Modules that operate on a selected domain show the domain picker.
@@ -102,7 +106,20 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { domains, selectedId, select } = useApp()
   const [active, setActive] = useState<ModuleKey>('home')
   const [navOpen, setNavOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const activeLabel = MODULES.find((m) => m.key === active)?.label ?? 'Recon Dashboard'
+
+  // Global ⌘/Ctrl-K toggles the command palette.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Deep-link from cross-target views (Home): switch page and optionally target.
   const navigate = (page: string, domainId?: number) => {
@@ -164,6 +181,17 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <X size={18} />
           </button>
         </div>
+        <button
+          onClick={() => {
+            setPaletteOpen(true)
+            setNavOpen(false)
+          }}
+          className="mx-2 mb-1 flex items-center gap-2 rounded-lg border border-hair bg-ink-850 px-3 py-2 text-sm text-zinc-500 transition hover:border-hair-strong hover:text-zinc-300"
+        >
+          <Search size={15} />
+          <span className="flex-1 text-left">Search…</span>
+          <kbd className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px]">⌘K</kbd>
+        </button>
         <nav className="flex-1 overflow-y-auto px-2 pb-2">
           {NAV_SECTIONS.map((section) => (
             <div key={section.title}>
@@ -247,6 +275,14 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         {active === 'audit' && <Audit />}
         {active === 'settings' && <Settings totpEnabled={me.user.totpEnabled} />}
       </main>
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        modules={MODULE_INDEX}
+        domains={domains}
+        navigate={navigate}
+      />
     </div>
   )
 }
