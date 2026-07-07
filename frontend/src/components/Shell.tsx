@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   Home as HomeIcon, Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
   Activity, ScanSearch, ShieldCheck, Flag, StickyNote, PenTool, ScrollText,
-  Settings as SettingsIcon, LogOut, Menu, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, type LucideIcon,
+  Settings as SettingsIcon, LogOut, Menu, X, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, type LucideIcon,
 } from 'lucide-react'
 import type { Me } from '../api'
 import { api } from '../api'
@@ -32,32 +32,66 @@ import { Audit } from '../pages/Audit'
 import { Home } from '../pages/Home'
 import { Settings } from '../pages/Settings'
 
-const MODULES: { key: string; label: string; icon: LucideIcon }[] = [
-  { key: 'home', label: 'Home', icon: HomeIcon },
-  { key: 'domains', label: 'Domains', icon: Globe },
-  { key: 'intel', label: 'Intel', icon: Brain },
-  { key: 'methodology', label: 'Methodology', icon: ListChecks },
-  { key: 'subdomains', label: 'Subdomains', icon: Network },
-  { key: 'screenshots', label: 'Screenshots', icon: Camera },
-  { key: 'fuzzing', label: 'Fuzzing', icon: Crosshair },
-  { key: 'exposure', label: 'Exposure', icon: Radar },
-  { key: 'osint', label: 'OSINT', icon: Eye },
-  { key: 'social', label: 'Social Forensics', icon: Fingerprint },
-  { key: 'leaks', label: 'Data Leaks', icon: DatabaseZap },
-  { key: 'origin', label: 'WAF / Origin', icon: ShieldAlert },
-  { key: 'whois', label: 'WHOIS', icon: FileText },
-  { key: 'checkhost', label: 'Check Host', icon: Activity },
-  { key: 'scans', label: 'Scans', icon: ScanSearch },
-  { key: 'tools', label: 'Tools', icon: Wrench },
-  { key: 'owasp', label: 'OWASP', icon: ShieldCheck },
-  { key: 'llm', label: 'LLM Security', icon: Bot },
-  { key: 'findings', label: 'Findings', icon: Flag },
-  { key: 'notes', label: 'Notes', icon: StickyNote },
-  { key: 'canvas', label: 'Canvas', icon: PenTool },
-  { key: 'jobs', label: 'Logs', icon: ScrollText },
-  { key: 'audit', label: 'Audit', icon: History },
-  { key: 'settings', label: 'Settings', icon: SettingsIcon },
+// Nav grouped into labeled sections so a 20+ item list stays scannable instead
+// of being one long undifferentiated column.
+const NAV_SECTIONS: { title: string; items: { key: string; label: string; icon: LucideIcon }[] }[] = [
+  {
+    title: 'Overview',
+    items: [
+      { key: 'home', label: 'Home', icon: HomeIcon },
+      { key: 'domains', label: 'Domains', icon: Globe },
+      { key: 'intel', label: 'Intel', icon: Brain },
+      { key: 'methodology', label: 'Methodology', icon: ListChecks },
+    ],
+  },
+  {
+    title: 'Recon',
+    items: [
+      { key: 'subdomains', label: 'Subdomains', icon: Network },
+      { key: 'screenshots', label: 'Screenshots', icon: Camera },
+      { key: 'exposure', label: 'Exposure', icon: Radar },
+      { key: 'osint', label: 'OSINT', icon: Eye },
+    ],
+  },
+  {
+    title: 'OSINT & Leaks',
+    items: [
+      { key: 'social', label: 'Social Forensics', icon: Fingerprint },
+      { key: 'leaks', label: 'Data Leaks', icon: DatabaseZap },
+      { key: 'whois', label: 'WHOIS', icon: FileText },
+      { key: 'checkhost', label: 'Check Host', icon: Activity },
+    ],
+  },
+  {
+    title: 'Offensive',
+    items: [
+      { key: 'scans', label: 'Scans', icon: ScanSearch },
+      { key: 'fuzzing', label: 'Fuzzing', icon: Crosshair },
+      { key: 'tools', label: 'Tools', icon: Wrench },
+      { key: 'owasp', label: 'OWASP', icon: ShieldCheck },
+      { key: 'origin', label: 'WAF / Origin', icon: ShieldAlert },
+      { key: 'llm', label: 'LLM Security', icon: Bot },
+    ],
+  },
+  {
+    title: 'Workspace',
+    items: [
+      { key: 'findings', label: 'Findings', icon: Flag },
+      { key: 'notes', label: 'Notes', icon: StickyNote },
+      { key: 'canvas', label: 'Canvas', icon: PenTool },
+    ],
+  },
+  {
+    title: 'System',
+    items: [
+      { key: 'jobs', label: 'Logs', icon: ScrollText },
+      { key: 'audit', label: 'Audit', icon: History },
+      { key: 'settings', label: 'Settings', icon: SettingsIcon },
+    ],
+  },
 ]
+
+const MODULES = NAV_SECTIONS.flatMap((s) => s.items)
 
 type ModuleKey = (typeof MODULES)[number]['key']
 
@@ -68,6 +102,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { domains, selectedId, select } = useApp()
   const [active, setActive] = useState<ModuleKey>('home')
   const [navOpen, setNavOpen] = useState(false)
+  const activeLabel = MODULES.find((m) => m.key === active)?.label ?? 'Recon Dashboard'
 
   // Deep-link from cross-target views (Home): switch page and optionally target.
   const navigate = (page: string, domainId?: number) => {
@@ -86,50 +121,80 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   }
 
   return (
-    <div className="min-h-full bg-ink-950 text-zinc-100 flex flex-col md:flex-row">
-      <header className="md:hidden sticky top-0 z-20 flex items-center justify-between border-b border-hair bg-ink-950/95 px-4 py-3 backdrop-blur">
-        <button onClick={() => setNavOpen((v) => !v)} className="flex items-center gap-2 text-sm text-zinc-300">
-          <Menu size={18} /> Menu
+    <div className="min-h-full bg-ink-950 text-zinc-100 md:flex">
+      {/* Mobile top bar — shows the current page and toggles the drawer. */}
+      <header className="md:hidden sticky top-0 z-20 flex items-center gap-3 border-b border-hair bg-ink-950/95 px-4 py-3 backdrop-blur">
+        <button
+          onClick={() => setNavOpen((v) => !v)}
+          aria-label={navOpen ? 'Close menu' : 'Open menu'}
+          className="text-zinc-300 transition hover:text-zinc-100"
+        >
+          {navOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
-        <span className="text-sm font-semibold">Recon Dashboard</span>
+        <span className="flex h-6 w-6 items-center justify-center rounded bg-accent-500 shadow-sm shadow-accent-500/30">
+          <RadarLogo size={14} className="text-white" />
+        </span>
+        <span className="truncate text-sm font-semibold">{activeLabel}</span>
       </header>
 
+      {/* Dim backdrop behind the mobile drawer (tap to close). */}
+      {navOpen && (
+        <div className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm md:hidden" onClick={() => setNavOpen(false)} />
+      )}
+
+      {/* Sidebar: a static column on desktop, a slide-in drawer on mobile. */}
       <aside
-        className={`${navOpen ? 'block' : 'hidden'} md:flex md:flex-col w-full md:w-56 shrink-0 border-b md:border-b-0 md:border-r border-hair bg-ink-900 md:h-screen md:sticky md:top-0`}
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-hair bg-ink-900 transition-transform duration-200 ease-out md:sticky md:top-0 md:z-auto md:h-screen md:w-56 md:translate-x-0 ${
+          navOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
       >
-        <div className="hidden md:flex items-center gap-2.5 px-4 py-4">
+        <div className="flex items-center gap-2.5 px-4 py-4">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-500 shadow-sm shadow-accent-500/30">
             <RadarLogo size={18} className="text-white" />
           </span>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold tracking-tight">Recon Dashboard</div>
             <div className="truncate text-xs text-zinc-500">{me.user.username}</div>
           </div>
+          <button
+            onClick={() => setNavOpen(false)}
+            aria-label="Close menu"
+            className="text-zinc-500 transition hover:text-zinc-200 md:hidden"
+          >
+            <X size={18} />
+          </button>
         </div>
-        <nav className="flex-1 overflow-y-auto p-2">
-          {MODULES.map((m) => {
-            const Icon = m.icon
-            const isActive = active === m.key
-            return (
-              <button
-                key={m.key}
-                onClick={() => {
-                  setActive(m.key)
-                  setNavOpen(false)
-                }}
-                className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition ${
-                  isActive
-                    ? 'bg-accent-500/15 font-medium text-accent-fg'
-                    : 'text-zinc-400 hover:bg-ink-800 hover:text-zinc-200'
-                }`}
-              >
-                <Icon size={17} className={isActive ? 'text-accent-400' : 'text-zinc-500'} />
-                {m.label}
-              </button>
-            )
-          })}
+        <nav className="flex-1 overflow-y-auto px-2 pb-2">
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.title}>
+              <div className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+                {section.title}
+              </div>
+              {section.items.map((m) => {
+                const Icon = m.icon
+                const isActive = active === m.key
+                return (
+                  <button
+                    key={m.key}
+                    onClick={() => {
+                      setActive(m.key)
+                      setNavOpen(false)
+                    }}
+                    className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition ${
+                      isActive
+                        ? 'bg-accent-500/15 font-medium text-accent-fg'
+                        : 'text-zinc-400 hover:bg-ink-800 hover:text-zinc-200'
+                    }`}
+                  >
+                    <Icon size={17} className={isActive ? 'text-accent-400' : 'text-zinc-500'} />
+                    {m.label}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
         </nav>
-        <div className="p-2 border-t border-hair">
+        <div className="border-t border-hair p-2">
           <button
             onClick={logout}
             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-zinc-400 hover:bg-ink-800 hover:text-zinc-200"
