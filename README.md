@@ -9,6 +9,7 @@
 <br>
 
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg?style=for-the-badge)](./LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/Maiiaa30/ReconDashboard/ci.yml?style=for-the-badge&label=CI)](https://github.com/Maiiaa30/ReconDashboard/actions/workflows/ci.yml)
 [![Status](https://img.shields.io/badge/status-actively%20developed-brightgreen?style=for-the-badge)](#)
 [![Authorized use only](https://img.shields.io/badge/use-authorized%20targets%20only-red?style=for-the-badge)](#-legal--ethical-use)
 
@@ -37,32 +38,42 @@
 
 **Recon Dashboard** is a personal, single-user platform for tracking assets and reconnaissance data across authorized engagements. It leans **passive-first** — pulling everything it safely can without touching the target — and keeps the loud, active tooling behind explicit authorization gates. Everything runs **server-side as background jobs** and is driven entirely from a dark, modern web UI. No terminal, no copy-pasting tool output.
 
-- 🔎 **Passive-first recon** — certificate transparency, DNS, WHOIS, tech fingerprinting, archived-URL sources and "Shodan-of-each-domain" exposure data, all keyless where possible.
-- 🚨 **Continuous monitoring** — per-domain auto-recon on a schedule, subdomain diffing, and instant **Discord alerts** the moment a new subdomain appears.
-- 🎯 **Gated active scanning** — `nmap`, `nuclei`, `ffuf` and friends, locked behind `active_authorized` and never fired at an unauthorized target.
-- 🧠 **Finding triage** — deterministic rules-based scoring, a full open→resolved lifecycle, and exportable per-domain Markdown reports.
-- 🗒️ **Operator workspace** — Markdown notes (one-click push to Discord) and an embedded Excalidraw canvas, auto-saved.
-- 🔐 **Built to be private** — single hardened login with optional TOTP 2FA, meant to live behind Tailscale, with encrypted database backups you control.
+- 🔎 **Passive-first recon** — certificate transparency, DNS, WHOIS, tech fingerprinting, archived-URL sources, cloud-bucket enumeration and "Shodan-of-each-domain" exposure (ASN, TLS-cert SANs, CVEs), all keyless where possible.
+- 🚨 **Continuous monitoring** — per-domain auto-recon on a schedule, subdomain diffing, a new-CVE-on-known-asset watch, and instant **Discord alerts** the moment a new subdomain appears.
+- 🎯 **Gated active scanning** — `nmap`, `nuclei`, `ffuf`, `sqlmap` and friends, locked behind `active_authorized`, an engagement scope (allow/deny) and an authorization window — never fired at an unauthorized target.
+- 🧠 **Intelligence & triage** — deterministic rules-based scoring, **attack-path correlation** rendered as a network graph, an optional AI advisor, and **immutable engagement report snapshots**.
+- 🕵️ **People & LLM security** — passive people/account **OSINT** pivots, domain **breach-exposure** lookups, and an **OWASP-Top-10-for-LLMs** red-team testing reference.
+- ⌨️ **Operator-first UX** — grouped navigation, a **Ctrl-K command palette**, a mobile-friendly drawer, Markdown notes (push to Discord) and an auto-saved Excalidraw canvas.
+- 🔐 **Built to be private** — single hardened login with optional TOTP 2FA, meant to live behind Tailscale, encrypted database backups you control, and CI-tested security rails.
 
 ---
 
 ## 🧩 Modules
 
+The sidebar is grouped into **Overview · Recon · OSINT & Leaks · Offensive · Workspace · System**.
+
 | Module | What it does | Mode |
 | --- | --- | :---: |
-| **Domains** | Track targets; per-domain `passive_only` / `active_authorized` mode; scheduled auto-monitoring; KPI overview | — |
+| **Home** | Engagement dashboard — KPI vitals, attention buckets (never-scanned / new subs / high-risk), top open findings, recent-CVE changes | — |
+| **Domains** | Track targets; per-domain `passive_only` / `active_authorized` mode; engagement scope (allow/deny hosts + CIDRs) + authorization window; scheduled auto-monitoring | — |
+| **Intel** | Rules-based triage + **attack-path correlation** as a force-directed **network graph**; optional **AI advisor** (prioritized, gated testing plan) | — |
+| **Methodology** | Recon-skills coverage per target — which methodologies apply, per-step found / done / todo, one-click run, manual overrides | — |
 | **Subdomains** | Passive discovery (crt.sh · certspotter · subfinder), HTTP-probe enrichment, diff & flag new, Discord alerts, exports | 🟢 passive |
-| **Exposure** | "Shodan of each domain" via Shodan InternetDB + cvedb — open ports, CVEs, CPEs (free, no key) | 🟢 passive |
-| **OSINT** | DNS · WHOIS · cert transparency · zone-transfer · server/tech fingerprint · archived URLs (Wayback, Common Crawl, urlscan, OTX) | 🟢 passive |
-| **WAF / Origin** | Origin-IP discovery behind Cloudflare / WAF | 🟢 passive |
 | **Screenshots** | Headless-Chromium gallery with lightbox | 🟢 passive |
+| **Exposure** | "Shodan of each domain" via InternetDB + cvedb — ports, CVEs, CPEs — plus **ASN / reverse-IP** and **TLS-cert SAN** harvest | 🟢 passive |
+| **OSINT** | DNS · WHOIS · cert transparency · zone-transfer · tech fingerprint · archived URLs (Wayback / CommonCrawl / urlscan / OTX) · **cloud-bucket enum** | 🟢 passive |
+| **Social Forensics** | Passive people/account **OSINT** — pivot a username / email / name / phone into public-profile, search-dork and breach-lookup links, plus a people-OSINT methodology | 🟢 passive |
+| **Data Leaks** | Domain **breach exposure** — configurable provider (HIBP / DeHashed / LeakCheck) *plus* a free, keyless per-email breach check and a HIBP domain link | 🟢 passive |
+| **WHOIS / Check Host** | Ad-hoc lookups — WHOIS (domain + IP) and reachability (ping / TCP / DNS / HTTP), rate-limited | 🟢 passive |
+| **WAF / Origin** | Origin-IP discovery behind Cloudflare / WAF | 🟢 passive |
 | **Scans** | `nmap` · `nuclei` (template-tag presets) · `ffuf` — **gated, loud** | 🔴 active |
-| **Tools** | `katana` · `naabu` · `dalfox` · `sslscan` · WordPress enum — **gated** | 🔴 active |
-| **OWASP** | In-process HTTP checks (headers, exposed `.env`/`.git`, reflected XSS, open redirect, CORS, TRACE, listings) + nuclei pass, target-aware | 🔴 active |
+| **Tools** | `katana` · `naabu` · `dalfox` · `sslscan` · `sqlmap` · WordPress enum · 403/401 bypass · HTTP-method audit · exposed-datastore probes — **gated** | 🔴 active |
+| **OWASP** | In-process HTTP checks (headers, exposed `.env`/`.git`, reflected XSS, open redirect, CORS, TRACE, listings) + JS endpoint/secret extraction + nuclei pass, target-aware | 🔴 active |
 | **Fuzzing** | `ffuf` content discovery with target + wordlist pickers | 🔴 active |
-| **Findings** | Scored & deduped with "why this score" + CVE detail, triage lifecycle, CSV/JSON export, per-domain Markdown report | — |
+| **LLM Security** | Reference — **OWASP Top 10 for LLMs**, a searchable red-team **payload library**, and per-model testing methodology (Gemini / Llama / GPT / Claude / …) | 📖 reference |
+| **Findings** | Scored & deduped with "why this score" + CVE detail, triage lifecycle, bulk triage, CSV/JSON + Markdown/HTML reports, **immutable report snapshots** | — |
 | **Notes / Canvas** | Markdown notes (push to Discord) · Excalidraw board auto-saved to the DB | — |
-| **Logs / Settings** | Live activity log with job control · 2FA enrollment · system status · encrypted backup | — |
+| **Logs / Audit / Settings** | Live activity log with job control · append-only **audit ledger** · 2FA enrollment · system status · encrypted backup & restore | — |
 
 ---
 
@@ -83,8 +94,9 @@
 
 - **Frontend** — React + Vite + TypeScript + Tailwind (single SPA, PWA-friendly)
 - **Backend** — Node.js + Fastify + TypeScript (REST API)
-- **Database** — SQLite via Drizzle ORM (`better-sqlite3`)
-- **Jobs** — a `jobs` table polled by an in-process worker — **no Redis**
+- **Database** — SQLite via Drizzle ORM (`better-sqlite3`), versioned migrations applied on boot
+- **Jobs** — a `jobs` table polled by an in-process worker with **two concurrent lanes** (passive + loud), so a long loud scan never blocks passive monitoring while loud scans still run one-at-a-time per target — **no Redis**
+- **Quality** — **GitHub Actions CI** on every push: typecheck + unit tests (backend) and typecheck + build (frontend)
 - **Packaging** — Docker + Docker Compose
 
 ---
@@ -115,7 +127,8 @@ These are enforced in code, not just documented:
 - 🧵 No shell command strings are built from user input — subprocesses use `execFile` / `spawn` with **explicit argument arrays**.
 - ✅ Every domain/host input is validated against a **strict allowlist regex** before use.
 - 🚧 Active/loud modules require per-domain `active_authorized` (a passive domain needs an explicit per-run confirmation), and every active target must belong to the authorized domain.
-- 🛡️ Outbound HTTP checks refuse targets resolving to internal/private/loopback IPs (**SSRF defense**), with the security-critical validation covered by unit tests (`cd backend && npm test`).
+- 🛡️ Outbound HTTP checks refuse targets resolving to internal/private/loopback IPs (**SSRF defense**), and follow redirects with a re-resolve on every hop.
+- 🧪 The security rails — auth default-deny, active-scan gating, the SSRF guard and finding dedup — are covered by **unit tests run in CI on every push** (`cd backend && npm test`).
 - 🔑 No secrets in code — everything sensitive comes from `.env`.
 
 ---
