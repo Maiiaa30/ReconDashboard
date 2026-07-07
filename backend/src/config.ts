@@ -76,4 +76,16 @@ export const config = {
     const model = process.env.LLM_MODEL?.trim() || ''
     return { baseUrl, apiKey, model, enabled: Boolean(baseUrl && model) }
   })(),
+
+  // Optional breach-data provider for the domain leak check (Social/Data Leaks).
+  // Default OFF — set LEAK_PROVIDER (hibp | dehashed | leakcheck) + LEAK_API_KEY.
+  // Queries the provider's API by domain for exposed accounts. Active domains get
+  // an automatic daily check; passive domains are manual only.
+  leaks: ((): { provider: '' | 'hibp' | 'dehashed' | 'leakcheck'; apiKey: string; enabled: boolean } => {
+    const raw = process.env.LEAK_PROVIDER?.trim().toLowerCase() || ''
+    const provider = raw === 'hibp' || raw === 'dehashed' || raw === 'leakcheck' ? raw : ''
+    if (raw && !provider) console.warn(`LEAK_PROVIDER="${raw}" is not recognized (use hibp | dehashed | leakcheck); leak checks disabled.`)
+    const apiKey = process.env.LEAK_API_KEY?.trim() || ''
+    return { provider, apiKey, enabled: Boolean(provider && apiKey) }
+  })(),
 } as const

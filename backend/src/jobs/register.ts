@@ -7,6 +7,7 @@ import { owaspActiveHandler } from './handlers/owaspActive'
 import { toolScanHandler } from './handlers/toolScan'
 import { screenshotHandler } from './handlers/screenshot'
 import { originHandler } from './handlers/origin'
+import { leakCheckHandler } from './handlers/leakCheck'
 
 // Wire every job type to its handler. Called once at startup.
 export function registerJobHandlers(): void {
@@ -20,4 +21,5 @@ export function registerJobHandlers(): void {
   registerHandler('tool_scan', toolScanHandler)
   registerHandler('screenshot', screenshotHandler)
   registerHandler('origin_scan', originHandler)
+  registerHandler('leak_check', leakCheckHandler)
 }

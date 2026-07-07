@@ -13,6 +13,7 @@ export type JobType =
   | 'origin_scan'
   | 'owasp_active'
   | 'tool_scan'
+  | 'leak_check'
 
 // Loud/active job types we deliberately do NOT auto-resume after a crash: a scan
 // interrupted mid-run would silently re-fire against the target on the next boot,
@@ -75,6 +76,21 @@ export function lastFinishedJobAt(type: JobType, domainId: number): Date | null 
     .limit(1)
     .all()[0]
   return row?.finishedAt ?? null
+}
+
+// When the most recent job of this type for this domain was created, regardless
+// of status (null if none). Used to gate the daily leak check so an errored run
+// (e.g. bad API key) doesn't re-enqueue every 60s tick — the cadence is anchored
+// on last attempt, not last success.
+export function lastJobAt(type: JobType, domainId: number): Date | null {
+  const row = db
+    .select({ createdAt: jobs.createdAt })
+    .from(jobs)
+    .where(and(eq(jobs.type, type), eq(jobs.domainId, domainId)))
+    .orderBy(desc(jobs.id))
+    .limit(1)
+    .all()[0]
+  return row?.createdAt ?? null
 }
 
 // Loud/active job types (do-not-auto-resume set) — also used to decide which

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   Home as HomeIcon, Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
   Activity, ScanSearch, ShieldCheck, Flag, StickyNote, PenTool, ScrollText,
-  Settings as SettingsIcon, LogOut, Menu, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, type LucideIcon,
+  Settings as SettingsIcon, LogOut, Menu, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, type LucideIcon,
 } from 'lucide-react'
 import type { Me } from '../api'
 import { api } from '../api'
@@ -16,6 +16,7 @@ import { Fuzzing } from '../pages/Fuzzing'
 import { Exposure } from '../pages/Exposure'
 import { Osint } from '../pages/Osint'
 import { SocialForensics } from '../pages/SocialForensics'
+import { DataLeaks } from '../pages/DataLeaks'
 import { Origin } from '../pages/Origin'
 import { Whois } from '../pages/Whois'
 import { CheckHost } from '../pages/CheckHost'
@@ -42,6 +43,7 @@ const MODULES: { key: string; label: string; icon: LucideIcon }[] = [
   { key: 'exposure', label: 'Exposure', icon: Radar },
   { key: 'osint', label: 'OSINT', icon: Eye },
   { key: 'social', label: 'Social Forensics', icon: Fingerprint },
+  { key: 'leaks', label: 'Data Leaks', icon: DatabaseZap },
   { key: 'origin', label: 'WAF / Origin', icon: ShieldAlert },
   { key: 'whois', label: 'WHOIS', icon: FileText },
   { key: 'checkhost', label: 'Check Host', icon: Activity },
@@ -60,7 +62,7 @@ const MODULES: { key: string; label: string; icon: LucideIcon }[] = [
 type ModuleKey = (typeof MODULES)[number]['key']
 
 // Modules that operate on a selected domain show the domain picker.
-const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'methodology', 'subdomains', 'screenshots', 'fuzzing', 'exposure', 'osint', 'origin', 'scans', 'tools', 'owasp', 'notes']
+const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'methodology', 'subdomains', 'screenshots', 'fuzzing', 'exposure', 'osint', 'leaks', 'origin', 'scans', 'tools', 'owasp', 'notes']
 
 export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { domains, selectedId, select } = useApp()
@@ -165,6 +167,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         {active === 'exposure' && <Exposure />}
         {active === 'osint' && <Osint />}
         {active === 'social' && <SocialForensics />}
+        {active === 'leaks' && <DataLeaks />}
         {active === 'origin' && <Origin />}
         {active === 'whois' && <Whois />}
         {active === 'checkhost' && <CheckHost />}

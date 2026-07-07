@@ -60,6 +60,7 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
       },
       discordConfigured: Boolean(config.discordWebhookUrl),
       llm: { enabled: config.llm.enabled, model: config.llm.enabled ? config.llm.model : null },
+      leaks: { enabled: config.leaks.enabled, provider: config.leaks.enabled ? config.leaks.provider : null },
       tools: toolCache,
       wordlists: listWordlists(),
     }

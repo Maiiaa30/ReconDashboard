@@ -41,6 +41,14 @@ export function summarizeFinding(type: string, data: any): string {
       return `${data.status ?? '?'} ${data.url ?? ''}`
     case 'cve_new':
       return `New CVE ${data.cveId ?? '?'}${data.kev ? ' [KEV]' : ''} on ${data.host ?? data.ip ?? '?'}${data.cvss != null ? ` · CVSS ${data.cvss}` : ''}`
+    case 'leak': {
+      // Never surface the plaintext password in the shared finding list — just
+      // flag that one was exposed (the Data Leaks page shows it explicitly).
+      const who = data.email ?? data.username ?? '?'
+      const src = data.source ? ` @ ${data.source}` : ''
+      const pw = data.password || data.hashedPassword ? ' · password exposed' : ''
+      return `${who}${src}${pw}`
+    }
     case 'tool':
       return `${data.tool ?? 'tool'}: ${data.title ?? data.detail ?? ''}${data.target ? ` @ ${data.target}` : ''}`
     case 'owasp':

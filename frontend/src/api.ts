@@ -256,6 +256,7 @@ export interface MetaStatus {
   scheduler: { enabled: boolean; intervalMinutes: number }
   discordConfigured: boolean
   llm?: { enabled: boolean; model: string | null }
+  leaks?: { enabled: boolean; provider: string | null }
   tools: {
     subfinder: boolean
     nmap: boolean
@@ -274,6 +275,15 @@ export interface MetaStatus {
     datastores?: boolean
   }
   wordlists: Wordlist[]
+}
+
+export interface LeaksResponse {
+  enabled: boolean
+  provider: string | null
+  autoDaily: boolean
+  pending: boolean
+  lastCheckedAt: string | null
+  findings: Finding[]
 }
 
 export interface Me {
@@ -417,6 +427,10 @@ export const api = {
 
   // origin discovery (WAF/CDN bypass)
   findOrigin: (id: number) => post<{ jobId: number }>(`/domains/${id}/origin`),
+
+  // domain breach/leak exposure (needs a configured provider; passive lookup)
+  leaks: (id: number) => get<LeaksResponse>(`/domains/${id}/leaks`),
+  checkLeaks: (id: number) => post<{ jobId: number }>(`/domains/${id}/leaks/check`),
 
   // ad-hoc lookup tools (not scoped to a tracked domain)
   whois: (query: string) => post<{ result: WhoisResult }>('/tools/whois', { query }),

@@ -1,6 +1,9 @@
 import type { FastifyBaseLogger } from 'fastify'
-import { domainsDueForMonitoring, markMonitored } from '../domains/store'
-import { enqueueJob, hasPendingJob } from './queue'
+import { config } from '../config'
+import { domainsDueForMonitoring, listDomains, markMonitored } from '../domains/store'
+import { enqueueJob, hasPendingJob, lastJobAt } from './queue'
+
+const LEAK_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000 // active domains: once a day
 
 // Per-domain auto-monitoring. Each domain can opt into "re-run passive recon
 // every N hours" (Domains tab). A lightweight ticker checks once a minute which
@@ -34,6 +37,24 @@ export function startScheduler(log: FastifyBaseLogger): void {
         log.info({ domain: d.host, everyHours: d.monitorIntervalHours }, 'auto-monitor enqueued recon')
       } catch (err) {
         log.error({ err, domain: d.host }, 'auto-monitor enqueue failed for domain')
+      }
+    }
+
+    // Daily breach/leak check for ACTIVE domains only (passive domains are
+    // manual, per the operator's rule). Anchored on last attempt (any status)
+    // so an errored run — e.g. a bad API key — doesn't re-enqueue every tick.
+    if (config.leaks.enabled) {
+      for (const d of listDomains()) {
+        if (d.mode !== 'active_authorized') continue
+        if (hasPendingJob('leak_check', d.id)) continue
+        const last = lastJobAt('leak_check', d.id)
+        if (last && Date.now() - last.getTime() < LEAK_CHECK_INTERVAL_MS) continue
+        try {
+          enqueueJob('leak_check', { domainId: d.id })
+          log.info({ domain: d.host }, 'daily leak-check enqueued')
+        } catch (err) {
+          log.error({ err, domain: d.host }, 'leak-check enqueue failed for domain')
+        }
       }
     }
   }, TICK_MS)

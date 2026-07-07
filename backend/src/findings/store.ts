@@ -15,6 +15,7 @@ export type FindingType =
   | 'owasp'
   | 'tool'
   | 'cve_new'
+  | 'leak'
 
 // Triage lifecycle state.
 export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
@@ -52,6 +53,13 @@ export function findingKey(type: string, data: any): string | null {
       return data.url ? `url:${data.url}` : null
     case 'cve_new':
       return data.ip && data.cveId ? `cvenew:${data.ip}:${data.cveId}` : null
+    case 'leak': {
+      // One row per (identity, breach, credential): same account in the same
+      // breach dedups on re-check, but distinct passwords stay distinct.
+      const who = String(data.email ?? data.username ?? '').toLowerCase()
+      const cred = String(data.password ?? data.hashedPassword ?? '').slice(0, 12)
+      return who || cred ? `leak:${who}:${data.source ?? ''}:${cred}` : null
+    }
     default:
       return null
   }
