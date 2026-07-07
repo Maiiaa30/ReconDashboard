@@ -294,6 +294,22 @@ export interface FreeEmailResult {
   provider: string
 }
 
+export interface SnapshotMeta {
+  findings: number
+  high: number
+  medium: number
+  low: number
+  cves: number
+}
+
+export interface ReportSnapshot {
+  id: number
+  host: string
+  label: string | null
+  meta: SnapshotMeta | null
+  createdAt: string
+}
+
 export interface Me {
   user: { username: string; totpEnabled: boolean; selectedDomainId?: number | null }
 }
@@ -482,6 +498,13 @@ export const api = {
   },
   updateFinding: (id: number, patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ finding: Finding }>(`/findings/${id}`, patchBody),
+
+  // immutable report snapshots (frozen deliverables)
+  snapshots: (domainId: number) => get<{ snapshots: ReportSnapshot[] }>(`/domains/${domainId}/report/snapshots`),
+  createSnapshot: (domainId: number, label?: string) =>
+    post<{ snapshot: ReportSnapshot }>(`/domains/${domainId}/report/snapshot`, label ? { label } : {}),
+  deleteSnapshot: (id: number) => del<{ ok: true }>(`/report/snapshots/${id}`),
+  snapshotUrl: (id: number, format: 'html' | 'md') => `/api/report/snapshots/${id}?format=${format}`,
   bulkUpdateFindings: (ids: number[], patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ changed: number }>('/findings/bulk', { ids, ...patchBody }),
 

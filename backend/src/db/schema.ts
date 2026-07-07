@@ -217,6 +217,25 @@ export const skillStepState = sqliteTable(
   (t) => [unique('skill_step_uq').on(t.domainId, t.skillId, t.stepKey)],
 )
 
+// Immutable, frozen engagement reports. A snapshot captures the full Markdown +
+// HTML report AS OF a point in time, so later re-scans never mutate what a
+// delivered report says. Content is stored verbatim; only the row's existence is
+// mutable (delete). host is denormalised so the snapshot survives domain edits.
+export const reportSnapshots = sqliteTable(
+  'report_snapshots',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id').references(() => domains.id, { onDelete: 'cascade' }),
+    host: text('host').notNull(),
+    label: text('label'),
+    contentMd: text('content_md').notNull(),
+    contentHtml: text('content_html').notNull(),
+    meta: text('meta'), // JSON: { findings, high, medium, low, cves }
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [index('report_snapshot_domain_idx').on(t.domainId)],
+)
+
 export const notes = sqliteTable('notes', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   // null => global note

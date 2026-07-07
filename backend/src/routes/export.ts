@@ -3,6 +3,7 @@ import { getDomain } from '../domains/store'
 import { listSubdomains } from '../subdomains/store'
 import { listFindings, type FindingType } from '../findings/store'
 import { buildDomainReport, buildDomainReportHtml } from '../findings/report'
+import { createSnapshot, deleteSnapshot, getSnapshot, listSnapshots } from '../findings/snapshots'
 import { toCsv } from '../util/csv'
 import { config } from '../config'
 import { llmComplete, llmEnabled } from '../util/llm'
@@ -74,6 +75,48 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
       return reply.send(md)
     },
   )
+
+  // --- Immutable report snapshots ------------------------------------------
+  // Freeze the current report so a delivered deliverable never changes under a
+  // later re-scan.
+  app.post<{ Params: { id: string }; Body: { label?: string } }>(
+    '/api/domains/:id/report/snapshot',
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+      const snap = createSnapshot(id, request.body?.label)
+      if (!snap) return reply.code(404).send({ error: 'domain not found' })
+      return reply.code(201).send({ snapshot: snap })
+    },
+  )
+
+  app.get<{ Params: { id: string } }>('/api/domains/:id/report/snapshots', async (request, reply) => {
+    const id = Number(request.params.id)
+    if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+    return { snapshots: listSnapshots(id) }
+  })
+
+  // Download a frozen snapshot's content (?format=html|md). Not domain-scoped in
+  // the path — the snapshot carries its own host.
+  app.get<{ Params: { sid: string }; Querystring: { format?: string } }>(
+    '/api/report/snapshots/:sid',
+    async (request, reply) => {
+      const snap = getSnapshot(Number(request.params.sid))
+      if (!snap) return reply.code(404).send({ error: 'snapshot not found' })
+      const html = request.query.format === 'html'
+      const date = new Date(snap.createdAt).toISOString().slice(0, 10)
+      const filename = `${snap.host}-report-${date}.${html ? 'html' : 'md'}`
+      reply
+        .header('Content-Type', html ? 'text/html; charset=utf-8' : 'text/markdown; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+      return reply.send(html ? snap.contentHtml : snap.contentMd)
+    },
+  )
+
+  app.delete<{ Params: { sid: string } }>('/api/report/snapshots/:sid', async (request, reply) => {
+    if (!deleteSnapshot(Number(request.params.sid))) return reply.code(404).send({ error: 'snapshot not found' })
+    return { ok: true }
+  })
 
   // Optional AI-DRAFTED executive narrative (grounded strictly in the finding
   // data; scores stay deterministic). Off unless LLM_BASE_URL/LLM_MODEL are set.
