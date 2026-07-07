@@ -169,6 +169,54 @@ async function leakcheck(domain: string, signal?: AbortSignal): Promise<LeakSear
   return { provider: 'leakcheck', domain, entries, total: Number(json.found ?? entries.length), truncated: rows.length >= MAX_ENTRIES }
 }
 
+// ---- Free, keyless per-email metadata check --------------------------------
+// LeakCheck's PUBLIC endpoint: no API key, but per-email and metadata only
+// (which breaches + which field types were exposed — never the password). Free
+// tier is rate-limited hard, so this is a manual, one-email-at-a-time tool.
+
+export interface FreeBreachSource {
+  name: string
+  date: string | null
+}
+
+export interface FreeEmailResult {
+  email: string
+  found: number
+  fields: string[] // exposed data types, e.g. "password", "username"
+  sources: FreeBreachSource[]
+  provider: 'leakcheck-public'
+}
+
+export async function checkEmailLeaksFree(email: string, signal?: AbortSignal): Promise<FreeEmailResult> {
+  const { status, text } = await call(`https://leakcheck.io/api/public?check=${encodeURIComponent(email)}`, {
+    headers: { Accept: 'application/json' },
+    signal,
+  })
+  if (status === 429) throw new LeakProviderError('free lookup rate-limited — wait a moment and try again')
+  if (status !== 200 && status !== 404) throw new LeakProviderError(`free lookup returned HTTP ${status}`)
+
+  let json: any = {}
+  try {
+    json = JSON.parse(text || '{}')
+  } catch {
+    throw new LeakProviderError('free lookup returned a non-JSON response')
+  }
+  // "Not found" comes back as success:false — treat as a clean zero result, not
+  // an error. Any other error message is surfaced.
+  if (json.success === false) {
+    const e = String(json.error ?? '').toLowerCase()
+    if (e.includes('not found') || e.includes('no result')) {
+      return { email, found: 0, fields: [], sources: [], provider: 'leakcheck-public' }
+    }
+    throw new LeakProviderError(`free lookup error: ${json.error ?? 'unknown'}`)
+  }
+  const sources: FreeBreachSource[] = Array.isArray(json.sources)
+    ? json.sources.map((s: any) => ({ name: empty(s?.name) ?? 'unknown', date: empty(s?.date) }))
+    : []
+  const fields: string[] = Array.isArray(json.fields) ? json.fields.map(String) : []
+  return { email, found: Number(json.found ?? sources.length), fields, sources, provider: 'leakcheck-public' }
+}
+
 // Public entry point: query the configured provider for accounts on this domain.
 export async function searchDomainLeaks(domain: string, signal?: AbortSignal): Promise<LeakSearchResult> {
   if (!config.leaks.enabled) {

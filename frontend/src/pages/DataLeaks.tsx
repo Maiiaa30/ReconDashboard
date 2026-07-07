@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Copy, Check, Eye, EyeOff, ShieldAlert, RefreshCw, Search } from 'lucide-react'
-import { api, type Finding, type LeaksResponse } from '../api'
+import { Copy, Check, Eye, EyeOff, ShieldAlert, RefreshCw, Search, ExternalLink, Mail } from 'lucide-react'
+import { api, type Finding, type FreeEmailResult, type LeaksResponse } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
 import { timeAgo } from '../lib/format'
@@ -84,11 +84,14 @@ export function DataLeaks() {
       <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-900/50 bg-amber-950/20 p-3 text-xs text-amber-200/90">
         <ShieldAlert size={16} className="mt-0.5 shrink-0 text-amber-400" />
         <span>
-          Breach-exposure lookup for <strong>authorized</strong> engagements. The domain is sent to the configured
+          Breach-exposure lookup for <strong>authorized</strong> engagements. The domain / email is sent to the
           provider. Recovered credentials are for exposure assessment — never authenticate with them outside
           explicit authorization.
         </span>
       </div>
+
+      {/* Free tools — always available, no API key required */}
+      <FreeTools domainId={selected.id} domainHost={selected.host} onStored={load} />
 
       {/* Status strip */}
       <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
@@ -218,6 +221,114 @@ function LeakRow({ finding, reveal }: { finding: Finding; reveal: boolean }) {
       <td className="px-3 py-2 text-xs text-zinc-300">{d.source ?? '—'}</td>
       <td className="px-3 py-2 text-xs text-zinc-500">{d.breachDate ?? '—'}</td>
     </tr>
+  )
+}
+
+// Free, keyless lookups that work without any provider configured.
+function FreeTools({ domainId, domainHost, onStored }: { domainId: number; domainHost: string; onStored: () => void }) {
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [res, setRes] = useState<FreeEmailResult | null>(null)
+  const [err, setErr] = useState('')
+
+  async function check() {
+    const e = email.trim()
+    if (!e || busy) return
+    setBusy(true)
+    setErr('')
+    setRes(null)
+    try {
+      const r = await api.checkEmailLeak(domainId, e)
+      setRes(r.result)
+      onStored() // refresh the findings table (metadata rows are stored)
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : 'lookup failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card className="mb-5">
+      <div className="mb-1 flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-zinc-100">Free lookups</h3>
+        <Badge tone="green">no API key</Badge>
+      </div>
+      <p className="mb-3 text-xs text-zinc-500">
+        Metadata only — which breaches an address appears in (never the password). For full credentials, configure
+        a paid provider above.
+      </p>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {/* Free per-email breach check */}
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-zinc-400">Email breach check</label>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Mail size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600" />
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && check()}
+                placeholder={`someone@${domainHost}`}
+                className="w-full rounded-lg border border-hair bg-ink-850 py-1.5 pl-8 pr-2 text-sm outline-none transition placeholder:text-zinc-600 focus:border-accent-500"
+              />
+            </div>
+            <button
+              onClick={check}
+              disabled={busy || !email.trim()}
+              className="shrink-0 rounded-lg border border-hair px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-ink-800 hover:border-hair-strong disabled:opacity-40"
+            >
+              {busy ? 'Checking…' : 'Check'}
+            </button>
+          </div>
+          {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
+          {res && (
+            <div className="mt-2 text-xs">
+              {res.found === 0 ? (
+                <p className="text-green-400">No breaches found for {res.email}.</p>
+              ) : (
+                <>
+                  <p className="text-amber-300">
+                    {res.found} breach{res.found === 1 ? '' : 'es'} — stored in the table below.
+                  </p>
+                  {res.fields.length > 0 && (
+                    <p className="mt-1 text-zinc-500">
+                      Exposed fields: <span className="text-zinc-300">{res.fields.join(', ')}</span>
+                    </p>
+                  )}
+                  <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                    {res.sources.map((s, i) => (
+                      <li key={i} className="rounded bg-ink-800 px-1.5 py-0.5 text-[11px] text-zinc-300">
+                        {s.name}
+                        {s.date ? ` (${s.date})` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Free HIBP domain dashboard (manual) */}
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-zinc-400">Whole-domain (HIBP)</label>
+          <a
+            href="https://haveibeenpwned.com/DomainSearch"
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex items-center gap-2 rounded-lg border border-hair px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-ink-800 hover:border-hair-strong"
+          >
+            Open HIBP domain search <ExternalLink size={13} className="text-zinc-500" />
+          </a>
+          <p className="mt-2 text-[11px] leading-snug text-zinc-500">
+            Free list of every breached account on <span className="font-mono text-zinc-400">{domainHost}</span> once
+            you verify domain ownership on HIBP (one-time). No passwords, manual, not auto-run.
+          </p>
+        </div>
+      </div>
+    </Card>
   )
 }
 

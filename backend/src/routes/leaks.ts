@@ -1,8 +1,21 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { config } from '../config'
 import { getDomain } from '../domains/store'
-import { listFindings } from '../findings/store'
+import { addFinding, listFindings } from '../findings/store'
 import { enqueueJob, hasPendingJob, lastJobAt } from '../jobs/queue'
+import { checkEmailLeaksFree } from '../sources/leaks'
+
+// Loose email shape check — the free provider validates for real; this just
+// rejects obvious junk before we spend a request.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const emailSchema = {
+  body: {
+    type: 'object',
+    required: ['email'],
+    properties: { email: { type: 'string', minLength: 3, maxLength: 254 } },
+  },
+}
 
 // Domain breach/leak exposure. Passive (queries a configured third-party breach
 // API keyed on the domain — never touches the target), so it's allowed on any
@@ -37,4 +50,48 @@ export const leakRoutes: FastifyPluginAsync = async (app) => {
       findings,
     }
   })
+
+  // Free, keyless per-email breach-metadata check (no provider config needed).
+  // Synchronous + rate-limited like the ad-hoc tools. Stores one metadata
+  // finding per breach source (no password — the free tier never returns one).
+  app.post<{ Params: { id: string }; Body: { email: string } }>(
+    '/api/domains/:id/leaks/email',
+    { schema: emailSchema, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+      const email = request.body.email.trim().toLowerCase()
+      if (!EMAIL_RE.test(email)) return reply.code(400).send({ error: 'not a valid email address' })
+      try {
+        const result = await checkEmailLeaksFree(email)
+        for (const s of result.sources) {
+          addFinding({
+            domainId: id,
+            type: 'leak',
+            data: {
+              email,
+              username: null,
+              password: null,
+              hashedPassword: null,
+              name: null,
+              phone: null,
+              ip: null,
+              source: s.name,
+              breachDate: s.date,
+              fields: result.fields,
+              provider: result.provider,
+              domain: getDomain(id)!.host,
+            },
+            score: 45, // metadata exposure, no credential
+            tags: ['leak', 'provider:free', ...(s.name ? [`breach:${s.name}`] : [])],
+          })
+        }
+        return { result }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'free lookup failed'
+        const code = /rate-limited/.test(message) ? 429 : 502
+        return reply.code(code).send({ error: message })
+      }
+    },
+  )
 }

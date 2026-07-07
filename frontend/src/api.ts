@@ -286,6 +286,14 @@ export interface LeaksResponse {
   findings: Finding[]
 }
 
+export interface FreeEmailResult {
+  email: string
+  found: number
+  fields: string[]
+  sources: { name: string; date: string | null }[]
+  provider: string
+}
+
 export interface Me {
   user: { username: string; totpEnabled: boolean; selectedDomainId?: number | null }
 }
@@ -431,6 +439,9 @@ export const api = {
   // domain breach/leak exposure (needs a configured provider; passive lookup)
   leaks: (id: number) => get<LeaksResponse>(`/domains/${id}/leaks`),
   checkLeaks: (id: number) => post<{ jobId: number }>(`/domains/${id}/leaks/check`),
+  // free, keyless per-email breach-metadata check (no provider needed)
+  checkEmailLeak: (id: number, email: string) =>
+    post<{ result: FreeEmailResult }>(`/domains/${id}/leaks/email`, { email }),
 
   // ad-hoc lookup tools (not scoped to a tracked domain)
   whois: (query: string) => post<{ result: WhoisResult }>('/tools/whois', { query }),
