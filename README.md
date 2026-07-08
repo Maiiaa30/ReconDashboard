@@ -43,7 +43,7 @@
 - 🎯 **Gated active scanning** — `nmap`, `nuclei`, `ffuf`, `sqlmap` and friends, locked behind `active_authorized`, an engagement scope (allow/deny) and an authorization window — never fired at an unauthorized target.
 - 🧠 **Intelligence & triage** — deterministic rules-based scoring, **attack-path correlation** rendered as a network graph, an optional AI advisor, and **immutable engagement report snapshots**.
 - 🕵️ **People & LLM security** — passive people/account **OSINT** pivots, domain **breach-exposure** lookups, and an **OWASP-Top-10-for-LLMs** red-team testing reference.
-- ⌨️ **Operator-first UX** — grouped navigation, a **Ctrl-K command palette**, a mobile-friendly drawer, Markdown notes (push to Discord) and an auto-saved Excalidraw canvas.
+- ⌨️ **Operator-first UX** — grouped navigation, a **Ctrl-K command palette**, **toast + desktop notifications when a scan/tool finishes**, a mobile-friendly drawer, Markdown notes (push to Discord) and an auto-saved Excalidraw canvas.
 - 🔐 **Built to be private** — single hardened login with optional TOTP 2FA, meant to live behind Tailscale, encrypted database backups you control, and CI-tested security rails.
 
 ---
@@ -58,9 +58,10 @@ The sidebar is grouped into **Overview · Recon · OSINT & Leaks · Offensive ·
 | **Domains** | Track targets; per-domain `passive_only` / `active_authorized` mode; engagement scope (allow/deny hosts + CIDRs) + authorization window; scheduled auto-monitoring | — |
 | **Intel** | Rules-based triage + **attack-path correlation** as a force-directed **network graph**; optional **AI advisor** (prioritized, gated testing plan) | — |
 | **Methodology** | Recon-skills coverage per target — which methodologies apply, per-step found / done / todo, one-click run, manual overrides | — |
-| **Subdomains** | Passive discovery (crt.sh · certspotter · subfinder), HTTP-probe enrichment, diff & flag new, Discord alerts, exports | 🟢 passive |
+| **Subdomains** | Passive discovery (crt.sh · certspotter · subfinder), HTTP-probe enrichment, **sortable by status / host / IP / last-seen**, diff & flag new, Discord alerts, exports | 🟢 passive |
 | **Screenshots** | Headless-Chromium gallery with lightbox | 🟢 passive |
-| **Exposure** | "Shodan of each domain" via InternetDB + cvedb — ports, CVEs, CPEs — plus **ASN / reverse-IP** and **TLS-cert SAN** harvest | 🟢 passive |
+| **Exposure** | "Shodan of each domain" via InternetDB + cvedb — ports, CVEs, CPEs — plus **ASN / reverse-IP** and **TLS-cert SAN** harvest; interesting ports flagged | 🟢 passive |
+| **Ports** | Every open port across the target (from Exposure + nmap), de-duped and filterable, with **port intelligence** — cameras/DVR, ICS & building-automation, databases, remote-access and admin panels auto-flagged by risk | 🟢 passive |
 | **OSINT** | DNS · WHOIS · cert transparency · zone-transfer · tech fingerprint · archived URLs (Wayback / CommonCrawl / urlscan / OTX) · **cloud-bucket enum** | 🟢 passive |
 | **Social Forensics** | Passive people/account **OSINT** — pivot a username / email / name / phone into public-profile, search-dork and breach-lookup links, plus a people-OSINT methodology | 🟢 passive |
 | **Data Leaks** | Domain **breach exposure** — configurable provider (HIBP / DeHashed / LeakCheck) *plus* a free, keyless per-email breach check and a HIBP domain link | 🟢 passive |
