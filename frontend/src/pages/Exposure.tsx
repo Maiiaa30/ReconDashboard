@@ -3,6 +3,8 @@ import type { Finding, Job } from '../api'
 import { api } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
+import { PortBadge } from '../components/PortBadge'
+import { classifyPort, isNotablePort, CATEGORY_META } from '../lib/portIntel'
 
 interface Cve {
   cve_id: string
@@ -42,9 +44,26 @@ function ExposureCard({ finding }: { finding: Finding }) {
           <div className="mb-1 text-xs uppercase tracking-wide text-zinc-500">Open ports</div>
           <div className="flex flex-wrap gap-1">
             {data.ports.map((p) => (
-              <Badge key={p} tone="blue">{p}</Badge>
+              <PortBadge key={p} port={p} />
             ))}
           </div>
+          {(() => {
+            const notable = data.ports.filter(isNotablePort)
+            if (notable.length === 0) return null
+            return (
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-amber-900/40 bg-amber-950/15 px-2.5 py-1.5 text-xs">
+                <span className="font-medium text-amber-300">⚠ {notable.length} interesting</span>
+                {notable.map((p) => {
+                  const info = classifyPort(p)!
+                  return (
+                    <span key={p} className="text-zinc-300" title={info.note}>
+                      {CATEGORY_META[info.category].icon} <span className="font-mono">{p}</span> {info.label}
+                    </span>
+                  )
+                })}
+              </div>
+            )
+          })()}
         </div>
       )}
 
