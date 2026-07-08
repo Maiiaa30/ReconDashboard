@@ -1,9 +1,18 @@
-import { useCallback, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { api, type Subdomain } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Empty, ExportLinks, PageHeader } from '../components/ui'
 
 type Tone = 'green' | 'blue' | 'amber' | 'red' | 'zinc'
+
+type SortKey = 'status' | 'host' | 'ip' | 'lastSeen' | 'new'
+const SORTS: { key: SortKey; label: string }[] = [
+  { key: 'status', label: 'Status' },
+  { key: 'host', label: 'Host' },
+  { key: 'ip', label: 'IP' },
+  { key: 'lastSeen', label: 'Last seen' },
+  { key: 'new', label: 'New' },
+]
 
 function statusTone(status: number | null): Tone {
   if (status == null) return 'zinc'
@@ -29,6 +38,37 @@ export function Subdomains() {
   const [running, setRunning] = useState(false)
   const [lastJob, setLastJob] = useState<number | null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [sortKey, setSortKey] = useState<SortKey>('status')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  // Text-ish keys default to A→Z; numeric/recency keys default to biggest-first.
+  function toggleSort(k: SortKey) {
+    if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else {
+      setSortKey(k)
+      setSortDir(k === 'host' || k === 'ip' ? 'asc' : 'desc')
+    }
+  }
+
+  const sorted = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1
+    return [...subs].sort((a, b) => {
+      switch (sortKey) {
+        case 'status':
+          return ((a.httpStatus ?? -1) - (b.httpStatus ?? -1)) * dir
+        case 'host':
+          return a.host.localeCompare(b.host) * dir
+        case 'ip':
+          return (a.ipAddress ?? '').localeCompare(b.ipAddress ?? '', undefined, { numeric: true }) * dir
+        case 'lastSeen':
+          return (new Date(a.lastSeen).getTime() - new Date(b.lastSeen).getTime()) * dir
+        case 'new':
+          return ((a.isNew ? 1 : 0) - (b.isNew ? 1 : 0)) * dir
+        default:
+          return 0
+      }
+    })
+  }, [subs, sortKey, sortDir])
 
   const load = useCallback(() => {
     if (!selected) return
@@ -96,8 +136,28 @@ export function Subdomains() {
         <Empty>No subdomains discovered yet. Click “Run discovery now” (passive: crt.sh + subfinder).</Empty>
       ) : (
         <>
+          <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-zinc-500">Sort by</span>
+            {SORTS.map((s) => {
+              const active = sortKey === s.key
+              return (
+                <button
+                  key={s.key}
+                  onClick={() => toggleSort(s.key)}
+                  className={`rounded-lg border px-2 py-1 transition ${
+                    active
+                      ? 'border-accent-500 bg-accent-500/15 text-accent-fg'
+                      : 'border-hair text-zinc-400 hover:border-hair-strong hover:text-zinc-200'
+                  }`}
+                >
+                  {s.label}
+                  {active && <span className="ml-1">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                </button>
+              )
+            })}
+          </div>
           <div className="divide-y divide-zinc-800/60 overflow-hidden rounded-xl border border-hair bg-ink-850/60">
-            {subs.map((s) => {
+            {sorted.map((s) => {
               const expanded = expandedId === s.id
               return (
                 <div key={s.id}>
