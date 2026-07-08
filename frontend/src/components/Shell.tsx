@@ -5,6 +5,7 @@ import {
   Settings as SettingsIcon, LogOut, Menu, X, Search, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, Router, type LucideIcon,
 } from 'lucide-react'
 import { CommandPalette } from './CommandPalette'
+import { JobNotifier } from './JobNotifier'
 import type { Me } from '../api'
 import { api } from '../api'
 import { useApp } from '../state'
@@ -141,6 +142,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
   return (
     <div className="min-h-full bg-ink-950 text-zinc-100 md:flex">
+      <JobNotifier />
       {/* Mobile top bar — shows the current page and toggles the drawer. */}
       <header className="md:hidden sticky top-0 z-20 flex items-center gap-3 border-b border-hair bg-ink-950/95 px-4 py-3 backdrop-blur">
         <button
