@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Braces, Webhook, KeyRound, ShieldAlert, ChevronRight, Code, AlertTriangle } from 'lucide-react'
-import { api, type Finding } from '../api'
+import { Braces, Webhook, KeyRound, ShieldAlert, ChevronRight, Code, AlertTriangle, Route } from 'lucide-react'
+import { api, ApiError, type Finding } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
 import { useToast } from '../components/Toast'
+import { useConfirm } from '../components/Confirm'
 import { timeAgo } from '../lib/format'
 
 interface SpecData {
@@ -39,9 +40,12 @@ interface JsData {
 export function ApiSurface() {
   const { selected } = useApp()
   const toast = useToast()
+  const ask = useConfirm()
   const [findings, setFindings] = useState<Finding[]>([])
+  const [crawlFindings, setCrawlFindings] = useState<Finding[]>([])
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [crawlBusy, setCrawlBusy] = useState(false)
 
   usePoll(
     () => {
@@ -51,6 +55,11 @@ export function ApiSurface() {
         .then((r) => setFindings(r.findings))
         .catch(() => {})
         .finally(() => setLoaded(true))
+      // katana crawl results are stored as 'tool' findings.
+      api
+        .findings({ domainId: selected.id, type: 'tool', limit: 50 })
+        .then((r) => setCrawlFindings(r.findings.filter((f) => (f.data as any)?.tool === 'katana')))
+        .catch(() => {})
     },
     6000,
     !!selected,
@@ -76,7 +85,15 @@ export function ApiSurface() {
   )
   const introspectable = gqls.filter((g) => g.d.introspectionEnabled).length
   const jsSecrets = jsCards.reduce((n, j) => n + (Array.isArray(j.d.secrets) ? j.d.secrets.length : 0), 0)
-  const empty = specs.length === 0 && gqls.length === 0 && jsCards.length === 0
+  // Katana-crawled URLs (dedup across findings), narrowed to API-looking ones.
+  const crawlEndpoints = useMemo(() => {
+    const urls = new Set<string>()
+    for (const f of crawlFindings) {
+      for (const u of ((f.data as any)?.items ?? []) as unknown[]) if (typeof u === 'string') urls.add(u)
+    }
+    return [...urls].filter(isApiUrl)
+  }, [crawlFindings])
+  const empty = specs.length === 0 && gqls.length === 0 && jsCards.length === 0 && crawlEndpoints.length === 0
 
   async function discover() {
     if (!selected || busy) return
@@ -91,6 +108,31 @@ export function ApiSurface() {
     }
   }
 
+  // Deep crawl with katana — ACTIVE (headless-ish crawl + JS parsing), so it's
+  // gated like the loud scans: a passive domain needs an explicit confirm.
+  async function deepCrawl() {
+    if (!selected || crawlBusy) return
+    const activeMode = selected.mode === 'active_authorized'
+    if (!activeMode) {
+      const ok = await ask({
+        title: 'Run an active crawl?',
+        message: `${selected.host} is passive_only.\n\nkatana actively crawls the site (many requests + JS parsing) to find endpoints static analysis can't. Only run it if you are authorized to actively test this target.`,
+        confirmLabel: 'Crawl anyway',
+        tone: 'danger',
+      })
+      if (!ok) return
+    }
+    setCrawlBusy(true)
+    try {
+      const { jobId } = await api.runTool(selected.id, { tool: 'katana', confirm: !activeMode })
+      toast.success(`Deep crawl queued (job #${jobId}) — discovered endpoints appear here when it finishes.`)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Failed to queue crawl.')
+    } finally {
+      setCrawlBusy(false)
+    }
+  }
+
   if (!selected) return <Empty>Select a domain to map its API surface.</Empty>
 
   return (
@@ -99,9 +141,19 @@ export function ApiSurface() {
         title="API Surface"
         subtitle={`${selected.host} — specs, GraphQL, endpoints mined from JS & a JWT inspector`}
         actions={
-          <Button variant="loud" onClick={discover} disabled={busy}>
-            <Webhook size={15} /> {busy ? 'Queuing…' : 'Discover API surface'}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="loud" onClick={discover} disabled={busy}>
+              <Webhook size={15} /> {busy ? 'Queuing…' : 'Discover API surface'}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={deepCrawl}
+              disabled={crawlBusy}
+              title="Active: crawl the site with katana (follows links + parses JS) to find endpoints static analysis misses. Loud — gated like a scan."
+            >
+              <Route size={15} /> {crawlBusy ? 'Queuing…' : 'Deep crawl (katana)'}
+            </Button>
+          </div>
         }
       />
 
@@ -122,12 +174,17 @@ export function ApiSurface() {
             <ShieldAlert size={14} /> {introspectable} with introspection enabled
           </span>
         )}
+        {crawlEndpoints.length > 0 && (
+          <span className="text-zinc-400">
+            <span className="font-semibold text-zinc-200">{crawlEndpoints.length}</span> crawled (katana)
+          </span>
+        )}
         {jsSecrets > 0 && (
           <span className="inline-flex items-center gap-1.5 text-red-300">
             <ShieldAlert size={14} /> {jsSecrets} possible secret(s) in JS
           </span>
         )}
-        <span className="text-xs text-zinc-600">passive — probes the apex + likely API subdomains</span>
+        <span className="text-xs text-zinc-600">Discover = passive · Deep crawl = active (katana)</span>
       </div>
 
       {loaded && empty ? (
@@ -156,6 +213,7 @@ export function ApiSurface() {
           {jsCards.map(({ f, d }) => (
             <JsCard key={f.id} d={d} at={f.createdAt} score={f.score} />
           ))}
+          {crawlEndpoints.length > 0 && <CrawlCard urls={crawlEndpoints} />}
         </div>
       )}
 
@@ -320,6 +378,61 @@ function JsCard({ d, at, score }: { d: JsData; at: string; score: number | null 
         </div>
       )}
       <div className="mt-2 text-right text-[11px] text-zinc-600">{timeAgo(new Date(at).getTime())}</div>
+    </Card>
+  )
+}
+
+// A crawled URL is "API-looking" if it has a query string or an API-ish path.
+function isApiUrl(u: string): boolean {
+  try {
+    const url = new URL(u)
+    if (/\.(js|mjs|css|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|eot|mp4|webm|pdf|xml|txt)$/i.test(url.pathname)) return false
+    if (url.search) return true
+    return /(^|\/)(api|apis|rest|graphql|gql|v\d+|internal|services?|oauth|auth|token|admin|webhook|callback|wp-json)(\/|$)/i.test(
+      url.pathname,
+    )
+  } catch {
+    return false
+  }
+}
+
+function CrawlCard({ urls }: { urls: string[] }) {
+  const [open, setOpen] = useState(false)
+  const shown = open ? urls : urls.slice(0, 15)
+  const fmt = (u: string) => {
+    try {
+      const x = new URL(u)
+      return x.host + x.pathname + x.search
+    } catch {
+      return u
+    }
+  }
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-2">
+        <Route size={16} className="text-blue-400" />
+        <Badge tone="blue">katana crawl</Badge>
+        <span className="text-sm font-medium text-zinc-100">{urls.length} API-looking URL(s) discovered</span>
+      </div>
+      <div className="mt-1 text-xs text-zinc-500">
+        Active crawl (follows links + parses JS) — finds endpoints static analysis can&apos;t, e.g. dynamically-built ones.
+      </div>
+      <div className="mt-2.5 space-y-0.5">
+        {shown.map((u, i) => (
+          <div key={i} className="font-mono text-[11px] text-zinc-300 break-all">
+            {fmt(u)}
+          </div>
+        ))}
+      </div>
+      {urls.length > 15 && (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="mt-1.5 inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300"
+        >
+          <ChevronRight size={12} className={open ? 'rotate-90 transition' : 'transition'} />
+          {open ? 'show fewer' : `show all ${urls.length}`}
+        </button>
+      )}
     </Card>
   )
 }
