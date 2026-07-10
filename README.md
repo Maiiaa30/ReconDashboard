@@ -55,19 +55,19 @@ The sidebar is grouped into **Overview · Recon · OSINT & Leaks · Offensive ·
 | Module | What it does | Mode |
 | --- | --- | :---: |
 | **Home** | Engagement dashboard — KPI vitals, attention buckets (never-scanned / new subs / high-risk), top open findings, recent-CVE changes | — |
-| **Domains** | Track targets; per-domain `passive_only` / `active_authorized` mode; engagement scope (allow/deny hosts + CIDRs) + authorization window; scheduled auto-monitoring | — |
+| **Domains** | Track targets; per-domain `passive_only` / `active_authorized` mode; engagement scope (allow/deny hosts + CIDRs) + authorization window; scheduled auto-monitoring; **one-click Run recon** (discovery → exposure → screenshots + OSINT + origin discovery, plus nmap on active targets) | — |
 | **Intel** | Rules-based triage + **attack-path correlation** as a force-directed **network graph**; optional **AI advisor** (prioritized, gated testing plan) | — |
 | **Methodology** | Recon-skills coverage per target — which methodologies apply, per-step found / done / todo, one-click run, manual overrides | — |
 | **Subdomains** | Passive discovery (crt.sh · certspotter · subfinder), HTTP-probe enrichment, **sortable by status / host / IP / last-seen**, diff & flag new, Discord alerts, exports | 🟢 passive |
 | **Screenshots** | Headless-Chromium gallery with lightbox | 🟢 passive |
 | **Exposure** | "Shodan of each domain" via InternetDB + cvedb — ports, CVEs, CPEs — plus **ASN / reverse-IP** and **TLS-cert SAN** harvest; interesting ports flagged | 🟢 passive |
-| **Ports** | Every open port across the target (from Exposure + nmap), de-duped and filterable, with **port intelligence** — cameras/DVR, ICS & building-automation, databases, remote-access and admin panels auto-flagged by risk | 🟢 passive |
+| **Ports** | Every open port across the target (from Exposure + nmap), de-duped and filterable, showing **state** (open / filtered) and **nmap service/version**, with **port intelligence** — cameras/DVR, ICS & building-automation, databases, remote-access and admin panels auto-flagged by risk | 🟢 passive |
 | **OSINT** | DNS · WHOIS · cert transparency · zone-transfer · tech fingerprint · archived URLs (Wayback / CommonCrawl / urlscan / OTX) · **cloud-bucket enum** | 🟢 passive |
 | **Social Forensics** | Passive people/account **OSINT** — pivot a username / email / name / phone into public-profile, search-dork and breach-lookup links, plus a people-OSINT methodology | 🟢 passive |
 | **Data Leaks** | Domain **breach exposure** — configurable provider (HIBP / DeHashed / LeakCheck) *plus* a free, keyless per-email breach check and a HIBP domain link | 🟢 passive |
 | **WHOIS / Check Host** | Ad-hoc lookups — WHOIS (domain + IP) and reachability (ping / TCP / DNS / HTTP), rate-limited | 🟢 passive |
 | **WAF / Origin** | Origin-IP discovery behind Cloudflare / WAF | 🟢 passive |
-| **Scans** | `nmap` · `nuclei` (template-tag presets) · `ffuf` — **gated, loud** | 🔴 active |
+| **Scans** | `nmap` (quick top-1000 · **deep = all ports + `-sV` + NSE scripts + OS detection**, with service/version, port state and script output) · `nuclei` (template-tag presets) · `ffuf` — **gated, loud** | 🔴 active |
 | **Tools** | `katana` · `naabu` · `dalfox` · `sslscan` · `sqlmap` · WordPress enum · 403/401 bypass · HTTP-method audit · exposed-datastore probes — **gated** | 🔴 active |
 | **OWASP** | In-process HTTP checks (headers, exposed `.env`/`.git`, reflected XSS, open redirect, CORS, TRACE, listings) + JS endpoint/secret extraction + nuclei pass, target-aware | 🔴 active |
 | **Fuzzing** | `ffuf` content discovery with target + wordlist pickers | 🔴 active |

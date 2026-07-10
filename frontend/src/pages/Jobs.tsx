@@ -128,9 +128,13 @@ export function Jobs() {
     .filter((j) => j.status === 'queued')
     .sort((a, b) => a.id - b.id)
     .forEach((j, i) => queuePos.set(j.id, i + 1))
+  // A deep nmap scan sweeps all 65k ports and emits no progress heartbeat while
+  // it runs, so it legitimately sits idle for many minutes — never flag it.
+  const isDeepNmap = (j: Job) =>
+    j.type === 'nmap_scan' && !!j.params && typeof j.params === 'object' && (j.params as { deep?: unknown }).deep === true
   // A running job whose updatedAt hasn't moved in a while may be wedged.
   const isStale = (j: Job) =>
-    j.status === 'running' && !!j.updatedAt && Date.now() - new Date(j.updatedAt).getTime() > 180_000
+    !isDeepNmap(j) && j.status === 'running' && !!j.updatedAt && Date.now() - new Date(j.updatedAt).getTime() > 180_000
 
   return (
     <div>
