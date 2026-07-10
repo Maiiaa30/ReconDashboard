@@ -21,6 +21,9 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const confirmBtn = useRef<HTMLButtonElement>(null)
 
   const confirm = useCallback<ConfirmFn>((o) => {
+    // If a dialog is somehow already open, resolve its promise false rather than
+    // leaking a forever-pending await when we overwrite the resolver.
+    resolver.current?.(false)
     setDialog(o)
     return new Promise<boolean>((resolve) => {
       resolver.current = resolve

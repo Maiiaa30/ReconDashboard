@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { XMLParser } from 'fast-xml-parser'
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
+import { assertPublicHost } from '../../sources/guard'
 import { run, toolExists } from '../../util/exec'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
 import type { JobContext } from '../worker'
@@ -36,6 +37,10 @@ export async function nmapHandler({ params, log, signal, progress }: JobContext)
   if (!domain) throw new Error(`domain ${domainId} not found`)
   const target = String(params.target ?? domain.host)
   assertTargetInDomain(target, domain.host)
+  // SSRF: an in-scope subdomain whose DNS the target controls could resolve to an
+  // internal/Tailscale address. Refuse before the loud scanner touches it — the
+  // same guard the tool_scan handlers already apply.
+  await assertPublicHost(target)
 
   if (!(await toolExists('nmap'))) {
     return { available: false, note: 'nmap binary not installed' }
@@ -138,6 +143,12 @@ export async function nmapHandler({ params, log, signal, progress }: JobContext)
   const hostScripts = deep ? scriptsOf(hostNode?.hostscript) : []
 
   const finding = { target, deep, openPorts, allPorts, ...(deep ? { os, hostScripts } : {}) }
+  // If the job already timed out / was cancelled, don't write a finding for a run
+  // the ledger has recorded as failed — that late write is inconsistent state.
+  if (signal.aborted) {
+    log.warn({ target }, 'nmap aborted before persisting; discarding result')
+    return { available: true, aborted: true, ...finding }
+  }
   await addScoredFinding({ domainId, type: 'nmap', data: finding, tags: ['nmap', 'active', ...(deep ? ['deep'] : [])] })
   log.info({ target, deep, open: openPorts.length, kept: allPorts.length }, 'nmap scan complete')
   return { available: true, ...finding }
@@ -151,6 +162,10 @@ export async function nucleiHandler({ params, log, signal, progress }: JobContex
   if (!domain) throw new Error(`domain ${domainId} not found`)
   const target = String(params.target ?? domain.host)
   assertTargetInDomain(target, domain.host)
+  // SSRF: an in-scope subdomain whose DNS the target controls could resolve to an
+  // internal/Tailscale address. Refuse before the loud scanner touches it — the
+  // same guard the tool_scan handlers already apply.
+  await assertPublicHost(target)
 
   if (!(await toolExists('nuclei'))) {
     return { available: false, note: 'nuclei binary not installed' }
@@ -193,6 +208,10 @@ export async function nucleiHandler({ params, log, signal, progress }: JobContex
     }
   }
 
+  if (signal.aborted) {
+    log.warn({ target }, 'nuclei aborted before persisting; discarding results')
+    return { available: true, aborted: true, target, count: results.length }
+  }
   for (const r of results) {
     await addScoredFinding({
       domainId,
@@ -222,6 +241,10 @@ export async function ffufHandler({ params, log, signal, progress }: JobContext)
   if (!domain) throw new Error(`domain ${domainId} not found`)
   const target = String(params.target ?? domain.host)
   assertTargetInDomain(target, domain.host)
+  // SSRF: an in-scope subdomain whose DNS the target controls could resolve to an
+  // internal/Tailscale address. Refuse before the loud scanner touches it — the
+  // same guard the tool_scan handlers already apply.
+  await assertPublicHost(target)
 
   if (!(await toolExists('ffuf'))) {
     return { available: false, note: 'ffuf binary not installed' }
@@ -263,6 +286,10 @@ export async function ffufHandler({ params, log, signal, progress }: JobContext)
     }
 
     const results = Array.isArray(parsed.results) ? parsed.results : []
+    if (signal.aborted) {
+      log.warn({ target }, 'ffuf aborted before persisting; discarding results')
+      return { available: true, aborted: true, target, hits: results.length }
+    }
     for (const r of results.slice(0, 500)) {
       await addScoredFinding({
         domainId,

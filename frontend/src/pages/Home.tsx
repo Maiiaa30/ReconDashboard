@@ -7,14 +7,10 @@ import { api, type DomainOverview, type HomeFinding, type RecentChange } from '.
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
-import { riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
+import { RISK_SCORE_CLASS, riskFromScore, summarizeFinding, timeAgo } from '../lib/format'
 
-const RISK_SCORE: Record<RiskLevel, string> = {
-  high: 'bg-red-950 text-red-300 ring-red-800',
-  medium: 'bg-amber-950 text-amber-300 ring-amber-800',
-  low: 'bg-blue-950 text-blue-300 ring-blue-800',
-  none: 'bg-zinc-800 text-zinc-400 ring-zinc-700',
-}
+// Score-badge colors live in lib/format (shared with Findings) to avoid drift.
+const RISK_SCORE = RISK_SCORE_CLASS
 
 // Cross-target landing page: a prioritized action list, not a SOC dashboard.
 export function Home({ navigate }: { navigate: (page: string, domainId?: number) => void }) {

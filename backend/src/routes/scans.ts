@@ -109,26 +109,37 @@ export const scanRoutes: FastifyPluginAsync = async (app) => {
         const capped = hosts.length > SWEEP_MAX_HOSTS
         const chosen = hosts.slice(0, SWEEP_MAX_HOSTS)
 
-        const jobs: { host: string; jobId: number }[] = []
+        // Resolve scope for every host FIRST (this is the async part — DNS). Only
+        // after all awaits do we enqueue, so the guard re-check + fan-out below is
+        // one synchronous block the event loop can't interleave.
+        const valid: string[] = []
         const skipped: { host: string; reason: string }[] = []
         for (const host of chosen) {
           try {
-            const target = await assertHostInScope(domain, host)
-            const jobId = enqueueJob('nmap_scan', { domainId: id, target, deep })
-            jobs.push({ host: target, jobId })
-            writeAudit({
-              actor: actorName(request.session.userId),
-              action: 'enqueue:nmap_scan',
-              domainId: id,
-              target,
-              mode: domain.mode,
-              jobId,
-              detail: { sweep: true, deep },
-            })
+            valid.push(await assertHostInScope(domain, host))
           } catch (err) {
             skipped.push({ host, reason: err instanceof ScanPolicyError ? err.code : 'error' })
           }
         }
+
+        // Re-check the guard immediately before enqueuing (no await in between) so
+        // two concurrent sweep POSTs can't both pass and each fan out 50 jobs.
+        if (hasPendingJob('nmap_scan', id)) {
+          return reply.code(409).send({ error: 'nmap scans are already queued for this domain', code: 'already_pending' })
+        }
+        const jobs = valid.map((target) => {
+          const jobId = enqueueJob('nmap_scan', { domainId: id, target, deep })
+          writeAudit({
+            actor: actorName(request.session.userId),
+            action: 'enqueue:nmap_scan',
+            domainId: id,
+            target,
+            mode: domain.mode,
+            jobId,
+            detail: { sweep: true, deep },
+          })
+          return { host: target, jobId }
+        })
         return reply.code(202).send({ queued: jobs.length, jobs, skipped, capped, considered: hosts.length })
       } catch (err) {
         if (err instanceof ScanPolicyError) {

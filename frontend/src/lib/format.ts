@@ -98,3 +98,12 @@ export function riskFromScore(score: number | null | undefined): RiskLevel {
   if (score >= 20) return 'low'
   return 'none'
 }
+
+// Tailwind classes for a score badge (bg / text / ring) by risk level. Shared by
+// Home + Findings so the two copies can't drift.
+export const RISK_SCORE_CLASS: Record<RiskLevel, string> = {
+  high: 'bg-red-950 text-red-300 ring-red-800',
+  medium: 'bg-amber-950 text-amber-300 ring-amber-800',
+  low: 'bg-blue-950 text-blue-300 ring-blue-800',
+  none: 'bg-zinc-800 text-zinc-400 ring-zinc-700',
+}

@@ -100,7 +100,13 @@ export function useHosts(domain: Domain | null): { host: string; live: boolean }
 // calls the LATEST callback (avoids stale-closure bugs when the callback closes
 // over changing state like a job id), without tearing down the interval on
 // every render.
-export function usePoll(fn: () => void, intervalMs: number, active = true) {
+//
+// NOTE: because the interval effect is keyed only on [active, intervalMs,
+// resetKey], changing the callback's *closed-over inputs* does NOT trigger an
+// immediate refetch. Pass those inputs as `resetKey` when you need the poll to
+// re-fire at once (e.g. the selected domain id) — otherwise the view shows stale
+// data until the next tick.
+export function usePoll(fn: () => void, intervalMs: number, active = true, resetKey?: unknown) {
   const fnRef = useRef(fn)
   useEffect(() => {
     fnRef.current = fn
@@ -110,5 +116,5 @@ export function usePoll(fn: () => void, intervalMs: number, active = true) {
     fnRef.current()
     const t = setInterval(() => fnRef.current(), intervalMs)
     return () => clearInterval(t)
-  }, [active, intervalMs])
+  }, [active, intervalMs, resetKey])
 }

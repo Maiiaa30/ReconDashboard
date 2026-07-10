@@ -16,11 +16,16 @@ export interface AssetCve {
   kev: boolean
 }
 
-// Record the current CVE set for an asset; return the CVEs that are new since it
-// was baselined (empty on the asset's first-ever scan).
-export function recordAndDetectNewCves(domainId: number, ip: string, cves: AssetCve[]): AssetCve[] {
-  if (!cves.length) return []
+// Sentinel row recording that an asset has been scanned at least once, even when
+// that scan found zero CVEs. Without it, a host that is CLEAN at first scan
+// leaves no rows, so its later first CVE looks like a brand-new baseline and
+// never alerts — exactly the transition this watch exists to catch.
+const BASELINE_MARKER = '__baseline__'
 
+// Record the current CVE set for an asset; return the CVEs that are new since it
+// was baselined (empty on the asset's first-ever scan). "Baselined" means
+// "scanned before", independent of whether the earlier scan had any CVEs.
+export function recordAndDetectNewCves(domainId: number, ip: string, cves: AssetCve[]): AssetCve[] {
   const known = new Set(
     db
       .select({ cveId: assetCves.cveId })
@@ -29,9 +34,19 @@ export function recordAndDetectNewCves(domainId: number, ip: string, cves: Asset
       .all()
       .map((r) => r.cveId),
   )
-  const isBaseline = known.size === 0
+  // Seen before iff any row exists (a CVE row OR the baseline marker).
+  const seenBefore = known.size > 0
 
   const now = new Date()
+  // Drop a baseline marker on the first scan so a future clean→CVE transition is
+  // detectable even if this scan (and the first) found nothing.
+  if (!known.has(BASELINE_MARKER)) {
+    db.insert(assetCves)
+      .values({ domainId, ip, cveId: BASELINE_MARKER, cvss: null, kev: false, firstSeenAt: now })
+      .onConflictDoNothing()
+      .run()
+  }
+
   const fresh: AssetCve[] = []
   for (const c of cves) {
     if (known.has(c.id)) continue
@@ -40,7 +55,7 @@ export function recordAndDetectNewCves(domainId: number, ip: string, cves: Asset
       .values({ domainId, ip, cveId: c.id, cvss: c.cvss, kev: c.kev, firstSeenAt: now })
       .onConflictDoNothing()
       .run()
-    if (!isBaseline) fresh.push(c)
+    if (seenBefore) fresh.push(c)
   }
   return fresh
 }

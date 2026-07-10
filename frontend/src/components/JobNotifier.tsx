@@ -71,6 +71,12 @@ export function JobNotifier() {
             primed.current = true
             return
           }
+          // Prune ids no longer in the list so the map can't grow unbounded over
+          // a long operator session (the jobs endpoint returns a bounded window).
+          const present = new Set(jobs.map((j) => j.id))
+          for (const id of seen.current.keys()) {
+            if (!present.has(id)) seen.current.delete(id)
+          }
           for (const j of jobs) {
             const prev = seen.current.get(j.id)
             seen.current.set(j.id, j.status)

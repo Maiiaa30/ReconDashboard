@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Finding } from '../api'
 import { api } from '../api'
 import { useApp, usePoll } from '../state'
@@ -76,6 +76,13 @@ export function Ports() {
   const [cat, setCat] = useState<PortCategory | 'all' | 'notable'>('all')
   const [query, setQuery] = useState('')
 
+  // Clear the previous target's ports the instant the domain changes, so we never
+  // render domain A's ports under domain B while the first refetch is in flight.
+  useEffect(() => {
+    setExposure([])
+    setNmap([])
+  }, [selected?.id])
+
   usePoll(
     () => {
       if (!selected) return
@@ -84,6 +91,7 @@ export function Ports() {
     },
     5000,
     !!selected,
+    selected?.id, // re-fire immediately when the target changes
   )
 
   const rows = useMemo(() => buildRows(exposure, nmap), [exposure, nmap])
@@ -106,6 +114,8 @@ export function Ports() {
   }, [rows, cat, q])
 
   const notableCount = rows.filter((r) => r.notable).length
+  const openCount = rows.filter((r) => r.state === 'open').length
+  const filteredCount = rows.filter((r) => r.state === 'filtered').length
 
   if (!selected) return <Empty>Select a domain to view its ports.</Empty>
 
@@ -119,7 +129,8 @@ export function Ports() {
       {/* Summary */}
       <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
         <span className="text-zinc-400">
-          <span className="font-semibold text-zinc-200">{rows.length}</span> open port{rows.length === 1 ? '' : 's'}
+          <span className="font-semibold text-zinc-200">{openCount}</span> open port{openCount === 1 ? '' : 's'}
+          {filteredCount > 0 && <span className="text-zinc-500"> · {filteredCount} filtered</span>}
         </span>
         {notableCount > 0 && (
           <span className="text-amber-300">

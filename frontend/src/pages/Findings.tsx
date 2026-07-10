@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Camera, Sparkles, AlertTriangle } from 'lucide-react'
 import { api, type Finding, type FindingStatus, type ReportSnapshot } from '../api'
 import { useApp } from '../state'
 import { Badge, Button, Empty, ExportLinks, PageHeader, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
-import { riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
+import { RISK_SCORE_CLASS, riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
 
 const STATUSES: FindingStatus[] = ['open', 'confirmed', 'false_positive', 'resolved', 'ignored']
 const STATUS_LABEL: Record<FindingStatus, string> = {
@@ -65,12 +65,8 @@ const RISK_BORDER: Record<RiskLevel, string> = {
   low: 'border-l-blue-500',
   none: 'border-l-zinc-700',
 }
-const RISK_SCORE: Record<RiskLevel, string> = {
-  high: 'bg-red-950 text-red-300 ring-red-800',
-  medium: 'bg-amber-950 text-amber-300 ring-amber-800',
-  low: 'bg-blue-950 text-blue-300 ring-blue-800',
-  none: 'bg-zinc-800 text-zinc-400 ring-zinc-700',
-}
+// Score-badge colors live in lib/format (shared with Home) to avoid drift.
+const RISK_SCORE = RISK_SCORE_CLASS
 
 function tagTone(tag: string): 'zinc' | 'blue' | 'amber' | 'red' | 'green' {
   if (/^(kev|cvss:critical|sev:critical|takeover|db-exposed|zone-transfer|origin-found)/.test(tag)) return 'red'
@@ -222,15 +218,19 @@ export function Findings() {
   }, [bulkApply, clearSelection, selectAllFiltered])
 
   const tagQuery = tagFilter.trim().toLowerCase()
-  const matchesStatus = (f: Finding) =>
-    statusFilter === 'all'
-      ? true
-      : statusFilter === 'active'
-        ? !TRIAGED_AWAY.includes(f.status)
-        : f.status === statusFilter
-  const filtered = findings.filter(
-    (f) => matchesStatus(f) && (tagQuery ? f.tags.some((t) => t.toLowerCase().includes(tagQuery)) : true),
-  )
+  // Memoized so the O(n) filter (with per-item tag scan, up to 500 findings)
+  // doesn't re-run on every keystroke / row expand / selection change.
+  const filtered = useMemo(() => {
+    const matchesStatus = (f: Finding) =>
+      statusFilter === 'all'
+        ? true
+        : statusFilter === 'active'
+          ? !TRIAGED_AWAY.includes(f.status)
+          : f.status === statusFilter
+    return findings.filter(
+      (f) => matchesStatus(f) && (tagQuery ? f.tags.some((t) => t.toLowerCase().includes(tagQuery)) : true),
+    )
+  }, [findings, statusFilter, tagQuery])
   filteredRef.current = filtered
 
   const selectCls =
@@ -729,11 +729,15 @@ function SnapshotsPanel({ domainId }: { domainId: number }) {
   }
 
   async function remove(id: number) {
+    if (busy) return
+    setBusy(true)
     try {
       await api.deleteSnapshot(id)
       toast.success('Snapshot deleted.')
     } catch {
       toast.error('Failed to delete snapshot.')
+    } finally {
+      setBusy(false)
     }
     load()
   }

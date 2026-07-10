@@ -43,7 +43,7 @@
 - 🎯 **Gated active scanning** — `nmap`, `nuclei`, `ffuf`, `sqlmap` and friends, locked behind `active_authorized`, an engagement scope (allow/deny) and an authorization window — never fired at an unauthorized target.
 - 🧠 **Intelligence & triage** — deterministic rules-based scoring, **attack-path correlation** rendered as a network graph, an optional AI advisor, and **immutable engagement report snapshots**.
 - 🕵️ **People & LLM security** — passive people/account **OSINT** pivots, domain **breach-exposure** lookups, and an **OWASP-Top-10-for-LLMs** red-team testing reference.
-- ⌨️ **Operator-first UX** — grouped navigation, a **Ctrl-K command palette**, **toast + desktop notifications when a scan/tool finishes**, a mobile-friendly drawer, Markdown notes (push to Discord) and an auto-saved Excalidraw canvas.
+- ⌨️ **Operator-first UX** — grouped navigation with a **collapsible sidebar**, a **Ctrl-K command palette**, **toast + desktop notifications when a scan/tool starts and finishes**, in-app **confirmation dialogs** (no native browser popups), skeleton loaders, a mobile-friendly drawer, Markdown notes (push to Discord) and an auto-saved Excalidraw canvas.
 - 🔐 **Built to be private** — single hardened login with optional TOTP 2FA, meant to live behind Tailscale, encrypted database backups you control, and CI-tested security rails.
 
 ---
