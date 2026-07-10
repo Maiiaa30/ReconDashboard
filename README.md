@@ -97,6 +97,7 @@ The sidebar is grouped into **Overview · Recon · OSINT & Leaks · Offensive ·
 - **Backend** — Node.js + Fastify + TypeScript (REST API)
 - **Database** — SQLite via Drizzle ORM (`better-sqlite3`), versioned migrations applied on boot
 - **Jobs** — a `jobs` table polled by an in-process worker with **two concurrent lanes** (passive + loud), so a long loud scan never blocks passive monitoring while loud scans still run one-at-a-time per target — **no Redis**
+- **Outbound APIs** — every third-party call (crt.sh, Shodan InternetDB/cvedb, breach providers, …) shares one client with a **per-provider concurrency governor**, transient-error **retry/backoff**, response-size caps, and **TTL caching**, so parallel scans stay resilient and a good API citizen
 - **Quality** — **GitHub Actions CI** on every push: typecheck + unit tests (backend) and typecheck + build (frontend)
 - **Packaging** — Docker + Docker Compose
 

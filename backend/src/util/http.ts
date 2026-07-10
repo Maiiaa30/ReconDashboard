@@ -41,6 +41,64 @@ async function readCapped(res: Response): Promise<string> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+// --- Per-provider concurrency governor ---------------------------------------
+// Cap concurrent in-flight requests to any single host so parallel scans (e.g.
+// the exposure fan-out) stay polite and don't get themselves rate-limited or
+// banned. Keyed by hostname — unrelated hosts still run fully in parallel. It's
+// a counting semaphore: a freed slot is handed directly to the next waiter, so
+// the active count can never exceed the limit.
+const PER_HOST_LIMIT = 4
+const hostActive = new Map<string, number>()
+const hostQueue = new Map<string, Array<() => void>>()
+
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+function acquireHost(host: string): Promise<void> {
+  const active = hostActive.get(host) ?? 0
+  if (active < PER_HOST_LIMIT) {
+    hostActive.set(host, active + 1)
+    return Promise.resolve()
+  }
+  return new Promise<void>((resolve) => {
+    const q = hostQueue.get(host) ?? []
+    q.push(resolve)
+    hostQueue.set(host, q)
+  })
+}
+
+function releaseHost(host: string): void {
+  const q = hostQueue.get(host)
+  if (q && q.length) {
+    // Transfer the slot straight to the next waiter (active count unchanged).
+    q.shift()!()
+    if (q.length === 0) hostQueue.delete(host)
+    return
+  }
+  const next = Math.max(0, (hostActive.get(host) ?? 1) - 1)
+  if (next === 0) hostActive.delete(host)
+  else hostActive.set(host, next)
+}
+
+/** Run `fn` while holding a per-host concurrency slot. */
+export async function withHostLimit<T>(url: string, fn: () => Promise<T>): Promise<T> {
+  const host = hostnameOf(url)
+  await acquireHost(host)
+  try {
+    return await fn()
+  } finally {
+    releaseHost(host)
+  }
+}
+
+// Statuses worth retrying: 429 plus transient upstream errors.
+const RETRYABLE = new Set([429, 502, 503, 504])
+
 // Parse a Retry-After header (delta-seconds or HTTP-date) into ms, capped so a
 // hostile/broken header can't blow the job's time budget.
 function retryAfterMs(header: string | null, attempt: number): number {
@@ -56,35 +114,38 @@ function retryAfterMs(header: string | null, attempt: number): number {
 }
 
 export async function getText(url: string, opts: GetOptions = {}): Promise<string> {
-  const MAX_RETRIES = 2 // for 429s only — keyless public APIs rate-limit hard
-  for (let attempt = 0; ; attempt++) {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS)
-    try {
-      const res = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': USER_AGENT,
-          ...(opts.accept ? { Accept: opts.accept } : {}),
-        },
-        redirect: 'follow',
-      })
-      if (res.status === 429 && attempt < MAX_RETRIES) {
-        const wait = retryAfterMs(res.headers.get('retry-after'), attempt)
-        await res.body?.cancel().catch(() => {})
+  // Retry on 429 + transient 5xx; keyless public APIs rate-limit / 5xx hard.
+  const MAX_RETRIES = 2
+  return withHostLimit(url, async () => {
+    for (let attempt = 0; ; attempt++) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+      try {
+        const res = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': USER_AGENT,
+            ...(opts.accept ? { Accept: opts.accept } : {}),
+          },
+          redirect: 'follow',
+        })
+        if (RETRYABLE.has(res.status) && attempt < MAX_RETRIES) {
+          const wait = retryAfterMs(res.headers.get('retry-after'), attempt)
+          await res.body?.cancel().catch(() => {})
+          clearTimeout(timer)
+          await sleep(wait)
+          continue
+        }
+        const text = await readCapped(res)
+        if (!res.ok) {
+          throw new HttpError(res.status, `HTTP ${res.status} for ${url}`)
+        }
+        return text
+      } finally {
         clearTimeout(timer)
-        await sleep(wait)
-        continue
       }
-      const text = await readCapped(res)
-      if (!res.ok) {
-        throw new HttpError(res.status, `HTTP ${res.status} for ${url}`)
-      }
-      return text
-    } finally {
-      clearTimeout(timer)
     }
-  }
+  })
 }
 
 export async function getJson<T>(url: string, opts: GetOptions = {}): Promise<T> {

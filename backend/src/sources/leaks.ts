@@ -1,4 +1,5 @@
 import { config } from '../config'
+import { withHostLimit } from '../util/http'
 
 // Breach-data lookup by domain. Provider-agnostic: dispatches to the configured
 // provider (HIBP / DeHashed / LeakCheck) and normalises every result into a
@@ -40,24 +41,28 @@ async function call(
   url: string,
   opts: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal },
 ): Promise<{ status: number; text: string }> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
-  // Abort if the caller's signal fires too.
-  const onAbort = () => controller.abort()
-  opts.signal?.addEventListener('abort', onAbort, { once: true })
-  try {
-    const res = await fetch(url, {
-      method: opts.method ?? 'GET',
-      headers: { 'User-Agent': UA, ...(opts.headers ?? {}) },
-      body: opts.body,
-      signal: controller.signal,
-    })
-    const text = await res.text()
-    return { status: res.status, text }
-  } finally {
-    clearTimeout(timer)
-    opts.signal?.removeEventListener('abort', onAbort)
-  }
+  // Share the per-provider concurrency governor so leak lookups stay polite to
+  // the (rate-limited) breach-data APIs alongside the rest of the app.
+  return withHostLimit(url, async () => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    // Abort if the caller's signal fires too.
+    const onAbort = () => controller.abort()
+    opts.signal?.addEventListener('abort', onAbort, { once: true })
+    try {
+      const res = await fetch(url, {
+        method: opts.method ?? 'GET',
+        headers: { 'User-Agent': UA, ...(opts.headers ?? {}) },
+        body: opts.body,
+        signal: controller.signal,
+      })
+      const text = await res.text()
+      return { status: res.status, text }
+    } finally {
+      clearTimeout(timer)
+      opts.signal?.removeEventListener('abort', onAbort)
+    }
+  })
 }
 
 function empty(v: unknown): string | null {
