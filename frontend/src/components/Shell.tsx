@@ -109,7 +109,7 @@ type ModuleKey = (typeof MODULES)[number]['key']
 const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'methodology', 'subdomains', 'screenshots', 'fuzzing', 'exposure', 'ports', 'api', 'osint', 'leaks', 'origin', 'scans', 'tools', 'owasp', 'notes']
 
 export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
-  const { domains, selectedId, select } = useApp()
+  const { domains, selectedId, selected, select } = useApp()
   const [active, setActive] = useState<ModuleKey>('home')
   const [navOpen, setNavOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -194,7 +194,19 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           </span>
           <div className={`min-w-0 flex-1 ${collapsed ? 'md:hidden' : ''}`}>
             <div className="truncate text-sm font-semibold tracking-tight">Recon Dashboard</div>
-            <div className="truncate text-xs text-zinc-500">{me.user.username}</div>
+            {selected ? (
+              <div
+                className="flex items-center gap-1 truncate text-xs text-zinc-400"
+                title={`Target: ${selected.host} · signed in as ${me.user.username}`}
+              >
+                <Globe size={11} className="shrink-0 text-accent-400" />
+                <span className="truncate font-mono">{selected.host}</span>
+              </div>
+            ) : (
+              <div className="truncate text-xs text-zinc-500" title={`Signed in as ${me.user.username}`}>
+                {me.user.username}
+              </div>
+            )}
           </div>
           <button
             onClick={() => setNavOpen(false)}
