@@ -49,12 +49,17 @@ export function ApiSurface() {
     selected?.id,
   )
 
+  // Classify by an actual identifying field (not just "not graphql") so a
+  // malformed / legacy finding can't fall through to SpecCard and crash it.
   const specs = useMemo(
-    () => findings.filter((f) => (f.data as any)?.kind !== 'graphql').map((f) => ({ f, d: f.data as unknown as SpecData })),
+    () => findings.filter((f) => !!(f.data as any)?.specUrl).map((f) => ({ f, d: f.data as unknown as SpecData })),
     [findings],
   )
   const gqls = useMemo(
-    () => findings.filter((f) => (f.data as any)?.kind === 'graphql').map((f) => ({ f, d: f.data as unknown as GqlData })),
+    () =>
+      findings
+        .filter((f) => (f.data as any)?.kind === 'graphql' || (!!(f.data as any)?.endpoint && !(f.data as any)?.specUrl))
+        .map((f) => ({ f, d: f.data as unknown as GqlData })),
     [findings],
   )
   const introspectable = gqls.filter((g) => g.d.introspectionEnabled).length
@@ -164,7 +169,11 @@ const METHOD_TONE: Record<string, string> = {
 
 function SpecCard({ d, at, score }: { d: SpecData; at: string; score: number | null }) {
   const [open, setOpen] = useState(false)
-  const shown = open ? d.endpoints : d.endpoints.slice(0, 8)
+  // Defend against any legacy/partial finding missing these arrays.
+  const endpoints = Array.isArray(d.endpoints) ? d.endpoints : []
+  const servers = Array.isArray(d.servers) ? d.servers : []
+  const authSchemes = Array.isArray(d.authSchemes) ? d.authSchemes : []
+  const shown = open ? endpoints : endpoints.slice(0, 8)
   return (
     <Card>
       <div className="flex flex-wrap items-center gap-2">
@@ -172,23 +181,23 @@ function SpecCard({ d, at, score }: { d: SpecData; at: string; score: number | n
         <Badge tone="indigo">{d.format ?? 'openapi'}</Badge>
         <span className="text-sm font-medium text-zinc-100">{d.title ?? 'API'}</span>
         {d.apiVersion && <span className="text-xs text-zinc-500">v{d.apiVersion}</span>}
-        {d.authSchemes.length === 0 && <Badge tone="amber">no auth scheme</Badge>}
+        {authSchemes.length === 0 && <Badge tone="amber">no auth scheme</Badge>}
         {score != null && <span className="ml-auto text-xs text-zinc-500">score {score}</span>}
       </div>
       <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400">
         <a href={d.specUrl} target="_blank" rel="noreferrer" className="font-mono text-sky-400 hover:underline break-all">
           {d.specUrl} ↗
         </a>
-        <span className="ml-auto">{d.operationCount} operations</span>
+        <span className="ml-auto">{d.operationCount ?? endpoints.length} operations</span>
       </div>
-      {d.authSchemes.length > 0 && (
-        <div className="mt-1 text-xs text-zinc-500">auth: {d.authSchemes.join(', ')}</div>
+      {authSchemes.length > 0 && (
+        <div className="mt-1 text-xs text-zinc-500">auth: {authSchemes.join(', ')}</div>
       )}
-      {d.servers.length > 0 && (
-        <div className="mt-1 text-xs text-zinc-500 break-all">servers: {d.servers.slice(0, 4).join(', ')}</div>
+      {servers.length > 0 && (
+        <div className="mt-1 text-xs text-zinc-500 break-all">servers: {servers.slice(0, 4).join(', ')}</div>
       )}
 
-      {d.endpoints.length > 0 && (
+      {endpoints.length > 0 && (
         <div className="mt-2.5">
           <div className="flex flex-wrap gap-1">
             {shown.map((e, i) => (
@@ -198,10 +207,10 @@ function SpecCard({ d, at, score }: { d: SpecData; at: string; score: number | n
               </span>
             ))}
           </div>
-          {d.endpoints.length > 8 && (
+          {endpoints.length > 8 && (
             <button onClick={() => setOpen((v) => !v)} className="mt-1.5 inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300">
               <ChevronRight size={12} className={open ? 'rotate-90 transition' : 'transition'} />
-              {open ? 'show fewer' : `show all ${d.endpoints.length}`}
+              {open ? 'show fewer' : `show all ${endpoints.length}`}
             </button>
           )}
         </div>
