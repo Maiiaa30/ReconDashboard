@@ -2,6 +2,28 @@ import type { FastifyPluginAsync } from 'fastify'
 import { createNote, deleteNote, getNote, listNotes, updateNote } from '../notes/store'
 import { sendNoteToDiscord } from '../notify/discord'
 
+const noteCreateSchema = {
+  body: {
+    type: 'object',
+    properties: {
+      domainId: { type: ['integer', 'null'] },
+      title: { type: 'string', maxLength: 500 },
+      body: { type: 'string', maxLength: 200_000 },
+    },
+    additionalProperties: false,
+  },
+}
+const noteUpdateSchema = {
+  body: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', maxLength: 500 },
+      body: { type: 'string', maxLength: 200_000 },
+    },
+    additionalProperties: false,
+  },
+}
+
 export const noteRoutes: FastifyPluginAsync = async (app) => {
   // domainId query param: numeric => domain notes; omitted/"global" => global notes.
   app.get<{ Querystring: { domainId?: string } }>('/api/notes', async (request) => {
@@ -12,6 +34,7 @@ export const noteRoutes: FastifyPluginAsync = async (app) => {
 
   app.post<{ Body: { domainId?: number | null; title?: string; body?: string } }>(
     '/api/notes',
+    { schema: noteCreateSchema },
     async (request) => {
       const { domainId = null, title, body } = request.body ?? {}
       return { note: createNote({ domainId: domainId ?? null, title, body }) }
@@ -20,6 +43,7 @@ export const noteRoutes: FastifyPluginAsync = async (app) => {
 
   app.put<{ Params: { id: string }; Body: { title?: string; body?: string } }>(
     '/api/notes/:id',
+    { schema: noteUpdateSchema },
     async (request, reply) => {
       const id = Number(request.params.id)
       if (!getNote(id)) return reply.code(404).send({ error: 'note not found' })

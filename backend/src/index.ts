@@ -1,4 +1,4 @@
-import Fastify from 'fastify'
+import Fastify, { type FastifyError, type FastifyReply, type FastifyRequest } from 'fastify'
 import fastifyCookie from '@fastify/cookie'
 import fastifySession from '@fastify/session'
 import fastifyRateLimit from '@fastify/rate-limit'
@@ -37,6 +37,24 @@ async function main() {
     logger: true,
     // Backups can be a few MB; allow a generous JSON/body limit.
     bodyLimit: 16 * 1024 * 1024,
+  })
+
+  // Consistent error envelope for THROWN errors + schema-validation failures.
+  // Routes that call reply.send({ error }) explicitly are unaffected. 500s hide
+  // internals in production; validation errors become a clean 400.
+  app.setErrorHandler((err: FastifyError, req: FastifyRequest, reply: FastifyReply) => {
+    if (err.validation) {
+      return reply.code(400).send({ error: `invalid request: ${err.message}`, code: 'validation' })
+    }
+    const status = typeof err.statusCode === 'number' && err.statusCode >= 400 ? err.statusCode : 500
+    if (status >= 500) {
+      req.log.error({ err }, 'unhandled route error')
+      return reply.code(status).send({ error: config.isProd ? 'internal server error' : err.message })
+    }
+    return reply.code(status).send({ error: err.message })
+  })
+  app.setNotFoundHandler((_req, reply) => {
+    reply.code(404).send({ error: 'not found' })
   })
 
   // Apply schema, then create the operator if this is a first run.
