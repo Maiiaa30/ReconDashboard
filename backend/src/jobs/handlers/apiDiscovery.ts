@@ -1,6 +1,7 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
 import { discoverApiSurface } from '../../sources/apiSurface'
+import { knownUrlsFor } from './owaspActive'
 import { listSubdomains } from '../../subdomains/store'
 import type { JobContext } from '../worker'
 
@@ -23,6 +24,10 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
     if (hosts.length >= MAX_HOSTS) break
   }
 
+  // Known .js URLs from prior recon (wayback/commoncrawl/katana) broaden the JS
+  // corpus beyond just the homepage bundles.
+  const knownJs = knownUrlsFor(domainId).filter((u) => /^https?:\/\/[^\s"']+\.m?js(\?|$)/i.test(u))
+
   let specCount = 0
   let graphqlCount = 0
   let jsEndpointCount = 0
@@ -31,7 +36,7 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
     progress(`probing API surface of ${host}`)
     let result
     try {
-      result = await discoverApiSurface(host)
+      result = await discoverApiSurface(host, knownJs)
     } catch (err) {
       log.warn({ host, err }, 'api-surface probe failed')
       continue

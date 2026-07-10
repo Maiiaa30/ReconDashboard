@@ -1,6 +1,7 @@
 import { assertPublicHost, guardedFetch } from './guard'
 import { jsRecon } from './jsRecon'
 import { mapLimit } from '../util/async'
+import { BROWSER_UA } from '../util/http'
 
 // Passive API-surface discovery for a host: locate published OpenAPI/Swagger
 // specs (JSON directly OR referenced from a Swagger-UI/ReDoc page), GraphQL
@@ -35,17 +36,21 @@ const GRAPHQL_PATHS = ['/graphql', '/api/graphql', '/v1/graphql', '/query', '/gr
 
 const HTTP_METHODS = ['get', 'post', 'put', 'delete', 'patch', 'head', 'options'] as const
 
-// Keep only endpoints that look like actual API calls. Strong path markers, OR a
-// version segment that is actually followed by a resource (/v1/users, not /v4/).
+// Endpoints that look like actual API calls: strong path markers, a version
+// segment followed by a resource (/v1/users), or a framework data route.
 const API_ENDPOINT_RE =
-  /(^|\/)(api|rest|graphql|gql|internal|services?|ajax|rpc|oauth|auth|token|admin|webhook|callback)(\/|$|\?)|\/v\d+\/[a-z]/i
+  /(^|\/)(api|rest|graphql|gql|internal|services?|ajax|rpc|oauth|auth|token|admin|webhook|callback|wp-json|_next\/data|umbraco|graphile)(\/|$|\?)|\/v\d+\/[a-z]/i
 // Asset extensions to exclude even when the path otherwise matches.
-const ASSET_RE = /\.(js|mjs|css|map|json|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|eot|mp4|webm|pdf)(\?|$)/i
+const ASSET_RE = /\.(js|mjs|css|map|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|eot|mp4|webm|pdf|txt|xml)(\?|$)/i
 
 function isApiEndpoint(e: string): boolean {
   if (typeof e !== 'string' || !e.startsWith('/') || e.startsWith('//')) return false // same-origin paths only
   if (ASSET_RE.test(e)) return false
-  return API_ENDPOINT_RE.test(e)
+  if (API_ENDPOINT_RE.test(e)) return true
+  // A query string usually means a dynamic/data call — but skip pure marketing /
+  // tracking links (utm_, gclid, campaign, …) which aren't API endpoints.
+  if (e.includes('?') && !/[?&](utm_\w+|gclid|fbclid|mc_\w+|ref|source|campaign|medium|content)=/i.test(e)) return true
+  return false
 }
 
 export interface ApiSpec {
@@ -131,20 +136,27 @@ const INTROSPECTION_QUERY = JSON.stringify({
   query: '{__schema{queryType{name} types{name}}}',
 })
 
-// Fetch a host's homepage and pull out the <script src> JS bundle URLs — the
-// live corpus jsRecon mines for API endpoints. https first, then http.
+// Fetch a host's homepage and pull out its JS bundle URLs — the live corpus
+// jsRecon mines for API endpoints. Matches BOTH <script src> AND
+// <link rel="modulepreload"/"preload" href> (modern bundlers — Next/Vite — load
+// their main chunks via modulepreload, which the app's API calls live in). Uses
+// a browser UA so CDN/bot gates don't hide the real page. https first, then http.
 async function homepageJsUrls(host: string): Promise<string[]> {
   const urls = new Set<string>()
   for (const scheme of ['https', 'http'] as const) {
     const base = `${scheme}://${host}/`
-    const res = await guardedFetch(base, { timeoutMs: TIMEOUT_MS, maxBytes: MAX_SPEC_BYTES })
+    const res = await guardedFetch(base, {
+      timeoutMs: TIMEOUT_MS,
+      maxBytes: MAX_SPEC_BYTES,
+      headers: { 'User-Agent': BROWSER_UA },
+    })
     if (!res || res.status >= 400) continue
-    for (const m of res.body.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)) {
+    // Any src= or href= attribute pointing at a .js/.mjs file.
+    for (const m of res.body.matchAll(/(?:src|href)=["']([^"']+\.m?js(?:\?[^"']*)?)["']/gi)) {
       try {
-        const abs = new URL(m[1], res.finalUrl || base).toString()
-        if (/\.js(\?|$)/i.test(abs)) urls.add(abs)
+        urls.add(new URL(m[1], res.finalUrl || base).toString())
       } catch {
-        /* skip unparseable src */
+        /* skip unparseable url */
       }
     }
     if (urls.size) break
@@ -274,10 +286,11 @@ async function sweepGraphql(host: string): Promise<GraphqlInfo[]> {
   return []
 }
 
-// JS bundle mining (the modern-SPA workhorse): pull the site's own JS and extract
-// API endpoints, params and leaked secrets — surfaces an API even with no spec.
-async function mineJs(host: string): Promise<JsFindings> {
-  const jsUrls = await homepageJsUrls(host)
+// JS bundle mining (the modern-SPA workhorse): pull the site's own JS (homepage
+// bundles + any already-known .js URLs from prior recon) and extract API
+// endpoints, params and leaked secrets — surfaces an API even with no spec.
+async function mineJs(host: string, extraJsUrls: string[]): Promise<JsFindings> {
+  const jsUrls = [...new Set([...(await homepageJsUrls(host)), ...extraJsUrls])]
   if (!jsUrls.length) return { filesScanned: 0, endpoints: [], params: [], secrets: [] }
   const raw = await jsRecon(jsUrls)
   return {
@@ -288,11 +301,11 @@ async function mineJs(host: string): Promise<JsFindings> {
   }
 }
 
-export async function discoverApiSurface(host: string): Promise<ApiSurfaceResult> {
+export async function discoverApiSurface(host: string, extraJsUrls: string[] = []): Promise<ApiSurfaceResult> {
   // SSRF: refuse a host that resolves internal before probing it.
   await assertPublicHost(host)
   // The three probes are independent — run them concurrently so total time is
   // the slowest phase, not their sum.
-  const [specs, graphql, js] = await Promise.all([sweepSpecs(host), sweepGraphql(host), mineJs(host)])
+  const [specs, graphql, js] = await Promise.all([sweepSpecs(host), sweepGraphql(host), mineJs(host, extraJsUrls)])
   return { host, specs, graphql, js }
 }

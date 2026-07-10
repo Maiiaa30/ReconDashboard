@@ -1,5 +1,6 @@
 import { guardedFetch } from './guard'
 import { mapLimit } from '../util/async'
+import { BROWSER_UA } from '../util/http'
 
 // Mine already-discovered .js URLs for API endpoints, hidden parameters, and
 // leaked secrets (LinkFinder / SecretFinder territory) — one of the highest-yield
@@ -32,9 +33,11 @@ export interface JsReconResult {
   secrets: { pattern: string; sample: string; file: string }[]
 }
 
+// Show the secret in full so the operator can verify it (these are their own
+// authorized findings, flagged needs-review); only trim pathologically long
+// matches so a minified blob can't blow up the UI.
 function truncSecret(s: string): string {
-  const t = s.length > 40 ? `${s.slice(0, 20)}…${s.slice(-6)}` : s
-  return t
+  return s.length > 200 ? `${s.slice(0, 160)}…${s.slice(-24)}` : s
 }
 
 export async function jsRecon(jsUrls: string[]): Promise<JsReconResult> {
@@ -47,7 +50,7 @@ export async function jsRecon(jsUrls: string[]): Promise<JsReconResult> {
     urls,
     6,
     async (url) => {
-      const res = await guardedFetch(url, { timeoutMs: 9_000, maxBytes: MAX_BYTES })
+      const res = await guardedFetch(url, { timeoutMs: 9_000, maxBytes: MAX_BYTES, headers: { 'User-Agent': BROWSER_UA } })
       if (!res || res.status !== 200) return
       const body = res.body
 

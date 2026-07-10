@@ -32,7 +32,7 @@ function discoveredParamsFor(domainId: number): string[] {
 
 // All URL strings this target is known to have (wayback / commoncrawl / katana /
 // prior findings) — the corpus for both param mining and JS recon.
-function knownUrlsFor(domainId: number): string[] {
+export function knownUrlsFor(domainId: number): string[] {
   const findings = listFindings({ domainId, limit: 2000 })
   const urls: string[] = []
   for (const f of findings) {

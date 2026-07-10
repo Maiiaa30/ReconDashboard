@@ -5,6 +5,12 @@ const DEFAULT_TIMEOUT_MS = 20_000
 const MAX_BYTES = 8 * 1024 * 1024 // 8 MB cap to avoid memory blowups
 const USER_AGENT = 'recon-dashboard/0.1 (+passive recon)'
 
+// A real-browser UA for fetching pages/JS that gate content on the User-Agent
+// (many CDNs serve a bot/challenge page to non-browser agents, which would
+// otherwise hide the app's real script bundles).
+export const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+
 export class HttpError extends Error {
   constructor(
     public status: number,
