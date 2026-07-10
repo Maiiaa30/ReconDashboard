@@ -11,7 +11,7 @@ type Scheme = 'https' | 'http'
 
 // Common nuclei template-tag presets — the high-signal categories an operator
 // reaches for most. Clicking toggles them into the tags field.
-const NUCLEI_TAG_PRESETS = ['cve', 'exposure', 'misconfig', 'takeover', 'default-login', 'tech', 'panel', 'xss', 'sqli', 'lfi', 'rce']
+const NUCLEI_TAG_PRESETS = ['cve', 'exposure', 'misconfig', 'takeover', 'default-login', 'tech', 'panel', 'xss', 'sqli', 'lfi', 'rce', 'graphql', 'swagger', 'jwt', 'oauth', 'api']
 
 interface ScanResult {
   jobId: number | null

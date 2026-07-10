@@ -62,6 +62,7 @@ export async function guardedFetch(
     maxRedirects?: number
     maxBytes?: number
     method?: string
+    body?: string
     signal?: AbortSignal
   } = {},
 ): Promise<GuardedResponse | null> {
@@ -91,6 +92,7 @@ export async function guardedFetch(
     try {
       const res = await fetch(current, {
         method: opts.method,
+        body: opts.body,
         redirect: 'manual',
         // Combine our per-request timeout with the caller's cancel signal.
         signal: opts.signal ? AbortSignal.any([controller.signal, opts.signal]) : controller.signal,

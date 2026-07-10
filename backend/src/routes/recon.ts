@@ -23,4 +23,11 @@ export const reconRoutes: FastifyPluginAsync = async (app) => {
     if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
     return reply.code(202).send({ jobId: enqueueJob('origin_scan', { domainId: id }) })
   })
+
+  // Passive API-surface discovery: OpenAPI/Swagger specs + GraphQL endpoints.
+  app.post<{ Params: { id: string } }>('/api/domains/:id/api-discovery', async (request, reply) => {
+    const id = Number(request.params.id)
+    if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+    return reply.code(202).send({ jobId: enqueueJob('api_discovery', { domainId: id }) })
+  })
 }

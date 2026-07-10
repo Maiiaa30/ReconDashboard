@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   Home as HomeIcon, Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
   Activity, ScanSearch, ShieldCheck, Flag, StickyNote, PenTool, ScrollText,
-  Settings as SettingsIcon, LogOut, Menu, X, Search, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, Router, ChevronsLeft, ChevronsRight, type LucideIcon,
+  Settings as SettingsIcon, LogOut, Menu, X, Search, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, Router, ChevronsLeft, ChevronsRight, Webhook, type LucideIcon,
 } from 'lucide-react'
 import { CommandPalette } from './CommandPalette'
 import { JobNotifier } from './JobNotifier'
@@ -21,6 +21,7 @@ import { Osint } from '../pages/Osint'
 import { SocialForensics } from '../pages/SocialForensics'
 import { DataLeaks } from '../pages/DataLeaks'
 import { Origin } from '../pages/Origin'
+import { ApiSurface } from '../pages/ApiSurface'
 import { Whois } from '../pages/Whois'
 import { CheckHost } from '../pages/CheckHost'
 import { Scans } from '../pages/Scans'
@@ -54,6 +55,7 @@ const NAV_SECTIONS: { title: string; items: { key: string; label: string; icon: 
       { key: 'screenshots', label: 'Screenshots', icon: Camera },
       { key: 'exposure', label: 'Exposure', icon: Radar },
       { key: 'ports', label: 'Ports', icon: Router },
+      { key: 'api', label: 'API Surface', icon: Webhook },
       { key: 'osint', label: 'OSINT', icon: Eye },
     ],
   },
@@ -103,7 +105,7 @@ const MODULE_INDEX = NAV_SECTIONS.flatMap((s) => s.items.map((it) => ({ key: it.
 type ModuleKey = (typeof MODULES)[number]['key']
 
 // Modules that operate on a selected domain show the domain picker.
-const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'methodology', 'subdomains', 'screenshots', 'fuzzing', 'exposure', 'ports', 'osint', 'leaks', 'origin', 'scans', 'tools', 'owasp', 'notes']
+const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'methodology', 'subdomains', 'screenshots', 'fuzzing', 'exposure', 'ports', 'api', 'osint', 'leaks', 'origin', 'scans', 'tools', 'owasp', 'notes']
 
 export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { domains, selectedId, select } = useApp()
@@ -328,6 +330,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         {active === 'fuzzing' && <Fuzzing />}
         {active === 'exposure' && <Exposure />}
         {active === 'ports' && <Ports />}
+        {active === 'api' && <ApiSurface />}
         {active === 'osint' && <Osint />}
         {active === 'social' && <SocialForensics />}
         {active === 'leaks' && <DataLeaks />}

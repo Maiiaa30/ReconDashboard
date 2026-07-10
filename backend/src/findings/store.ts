@@ -16,6 +16,7 @@ export type FindingType =
   | 'tool'
   | 'cve_new'
   | 'leak'
+  | 'api'
 
 // Triage lifecycle state.
 export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
@@ -51,6 +52,14 @@ export function findingKey(type: string, data: any): string | null {
       return `tool:${data.tool ?? ''}@${data.target ?? ''}`
     case 'ffuf':
       return data.url ? `url:${data.url}` : null
+    case 'api':
+      return data.kind === 'graphql'
+        ? data.endpoint
+          ? `api:gql:${data.endpoint}`
+          : null
+        : data.specUrl
+          ? `api:spec:${data.specUrl}`
+          : null
     case 'cve_new':
       return data.ip && data.cveId ? `cvenew:${data.ip}:${data.cveId}` : null
     case 'leak': {

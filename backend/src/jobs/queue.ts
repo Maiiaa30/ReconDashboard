@@ -14,6 +14,7 @@ export type JobType =
   | 'owasp_active'
   | 'tool_scan'
   | 'leak_check'
+  | 'api_discovery'
 
 // Loud/active job types we deliberately do NOT auto-resume after a crash: a scan
 // interrupted mid-run would silently re-fire against the target on the next boot,

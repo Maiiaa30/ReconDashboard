@@ -29,7 +29,7 @@ const STATUS_FILTERS = ['active', 'all', ...STATUSES] as const
 type StatusFilter = (typeof STATUS_FILTERS)[number]
 const STATUS_FILTER_LABEL: Record<StatusFilter, string> = { active: 'Active', all: 'All', ...STATUS_LABEL }
 
-const TYPE_OPTIONS = ['', 'new_subdomain', 'exposure', 'osint', 'origin', 'nmap', 'nuclei', 'ffuf'] as const
+const TYPE_OPTIONS = ['', 'new_subdomain', 'exposure', 'osint', 'origin', 'api', 'nmap', 'nuclei', 'ffuf'] as const
 
 // "New since" presets — filters to findings first discovered within the window
 // (createdAt is the frozen first-seen timestamp, so re-scans of unchanged
@@ -53,6 +53,7 @@ const TYPE_LABEL: Record<string, string> = {
   exposure: 'exposure',
   osint: 'osint',
   origin: 'origin',
+  api: 'api',
   nmap: 'nmap',
   nuclei: 'nuclei',
   ffuf: 'ffuf',

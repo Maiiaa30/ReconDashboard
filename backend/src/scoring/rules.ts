@@ -272,6 +272,40 @@ function scoreFfuf(data: any): ScoreResult {
   return { score: clamp(score), tags: [...tags], reasons }
 }
 
+function scoreApi(data: any): ScoreResult {
+  const tags = new Set<string>(['api'])
+  const reasons: string[] = []
+  let score = 20
+
+  if (data?.kind === 'graphql') {
+    tags.add('graphql')
+    reasons.push(`GraphQL endpoint exposed at ${data.endpoint ?? '?'}`)
+    if (data.introspectionEnabled) {
+      tags.add('graphql-introspection')
+      score = 55
+      reasons.push('GraphQL introspection is ENABLED — the full schema is publicly readable (disable in production)')
+      if (data.typeCount) reasons.push(`${data.typeCount} types exposed via introspection`)
+    } else {
+      score = 22
+      reasons.push('Introspection appears disabled (good)')
+    }
+  } else {
+    // OpenAPI / Swagger spec
+    tags.add('api-spec')
+    tags.add(data?.format === 'swagger' ? 'swagger' : 'openapi')
+    reasons.push(`Public API spec (${data?.format ?? 'openapi'} ${data?.version ?? ''}) at ${data?.specUrl ?? '?'}`)
+    if (data?.operationCount) reasons.push(`${data.operationCount} operation(s) enumerated from the spec`)
+    if (!Array.isArray(data?.authSchemes) || data.authSchemes.length === 0) {
+      tags.add('no-auth-scheme')
+      score += 10
+      reasons.push('Spec declares no security schemes — endpoints may be unauthenticated (+10)')
+    } else {
+      reasons.push(`Auth schemes: ${data.authSchemes.slice(0, 4).join(', ')}`)
+    }
+  }
+  return { score: clamp(score), tags: [...tags], reasons }
+}
+
 export class RulesScorer implements Scorer {
   readonly name = 'rules'
 
@@ -296,6 +330,8 @@ export class RulesScorer implements Scorer {
         return scoreOrigin(data)
       case 'osint':
         return scoreOsint(data)
+      case 'api':
+        return scoreApi(data)
       default:
         return { score: 15, tags: [input.type], reasons: [] }
     }

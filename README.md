@@ -62,6 +62,7 @@ The sidebar is grouped into **Overview · Recon · OSINT & Leaks · Offensive ·
 | **Screenshots** | Headless-Chromium gallery with lightbox | 🟢 passive |
 | **Exposure** | "Shodan of each domain" via InternetDB + cvedb — ports, CVEs, CPEs — plus **ASN / reverse-IP** and **TLS-cert SAN** harvest; interesting ports flagged | 🟢 passive |
 | **Ports** | Every open port across the target (from Exposure + nmap), de-duped and filterable, showing **state** (open / filtered) and **nmap service/version**, with **port intelligence** — cameras/DVR, ICS & building-automation, databases, remote-access and admin panels auto-flagged by risk | 🟢 passive |
+| **API Surface** | Passive **API recon** — discovers **OpenAPI/Swagger** specs (enumerates operations, servers, auth schemes) and **GraphQL** endpoints (flags **introspection left enabled**), plus a client-side **JWT inspector** (decodes header/claims, flags `alg:none` / expiry). Nuclei presets add `graphql` · `swagger` · `jwt` · `oauth` | 🟢 passive |
 | **OSINT** | DNS · WHOIS · cert transparency · zone-transfer · tech fingerprint · archived URLs (Wayback / CommonCrawl / urlscan / OTX) · **cloud-bucket enum** | 🟢 passive |
 | **Social Forensics** | Passive people/account **OSINT** — pivot a username / email / name / phone into public-profile, search-dork and breach-lookup links, plus a people-OSINT methodology | 🟢 passive |
 | **Data Leaks** | Domain **breach exposure** — configurable provider (HIBP / DeHashed / LeakCheck) *plus* a free, keyless per-email breach check and a HIBP domain link | 🟢 passive |

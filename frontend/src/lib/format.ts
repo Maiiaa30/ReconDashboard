@@ -58,6 +58,12 @@ export function summarizeFinding(type: string, data: any): string {
       const found = (data.confirmedOrigins ?? []).length
       return `${data.domain ?? ''} — ${waf}${found ? `, origin: ${data.confirmedOrigins[0]?.ip}` : ''}`
     }
+    case 'api': {
+      if (data.kind === 'graphql') {
+        return `GraphQL @ ${data.endpoint ?? '?'}${data.introspectionEnabled ? ' — introspection ON' : ''}`
+      }
+      return `${data.format ?? 'API'} spec · ${data.operationCount ?? 0} ops @ ${data.specUrl ?? data.host ?? '?'}`
+    }
     default:
       // Never dump raw JSON into the UI — fall back to the most human field.
       return String(data.title ?? data.name ?? data.host ?? data.target ?? data.ip ?? data.url ?? type)

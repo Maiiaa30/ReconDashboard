@@ -452,6 +452,9 @@ export const api = {
   // origin discovery (WAF/CDN bypass)
   findOrigin: (id: number) => post<{ jobId: number }>(`/domains/${id}/origin`),
 
+  // passive API-surface discovery (OpenAPI/Swagger + GraphQL)
+  apiDiscovery: (id: number) => post<{ jobId: number }>(`/domains/${id}/api-discovery`),
+
   // domain breach/leak exposure (needs a configured provider; passive lookup)
   leaks: (id: number) => get<LeaksResponse>(`/domains/${id}/leaks`),
   checkLeaks: (id: number) => post<{ jobId: number }>(`/domains/${id}/leaks/check`),
