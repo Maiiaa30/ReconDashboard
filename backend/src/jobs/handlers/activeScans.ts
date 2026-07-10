@@ -52,6 +52,12 @@ export async function nmapHandler({ params, log, signal, progress }: JobContext)
   const args = ['-Pn', deep ? '-T4' : '-T3', '-sV', '-oX', '-']
   if (deep) {
     args.push('-sC', '-p-')
+    // A -p- sweep of a filtered/CDN host (e.g. behind Cloudflare) can otherwise
+    // run until it's force-killed and yields truncated, unparseable XML. Let nmap
+    // bound itself instead: --host-timeout makes it exit cleanly with valid XML
+    // for whatever it found, and --max-retries stops endless retransmits against
+    // dropped ports. The outer run() timeout stays above this as a backstop.
+    args.push('--host-timeout', '15m', '--max-retries', '2')
     const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
     if (isRoot) args.push('-O')
   } else {
@@ -69,9 +75,10 @@ export async function nmapHandler({ params, log, signal, progress }: JobContext)
 
   let xml = ''
   try {
-    // Keep the run timeout just under the worker's 20-min job cap so a slow deep
-    // scan times out here first — that path preserves partial stdout to parse.
-    const res = await run('nmap', args, { timeoutMs: deep ? 1_140_000 : 600_000, signal })
+    // Backstop above nmap's own --host-timeout (15m) but under the worker's 20-min
+    // job cap. In normal operation nmap self-terminates first and returns valid
+    // XML; this only fires if nmap itself wedges.
+    const res = await run('nmap', args, { timeoutMs: deep ? 1_020_000 : 600_000, signal })
     xml = res.stdout
   } catch (err) {
     const e = err as Error & { stdout?: string }
