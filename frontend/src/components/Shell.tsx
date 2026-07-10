@@ -5,6 +5,7 @@ import {
   Settings as SettingsIcon, LogOut, Menu, X, Search, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, Router, ChevronsLeft, ChevronsRight, Webhook, type LucideIcon,
 } from 'lucide-react'
 import { CommandPalette } from './CommandPalette'
+import { ErrorBoundary } from './ErrorBoundary'
 import { JobNotifier } from './JobNotifier'
 import type { Me } from '../api'
 import { api } from '../api'
@@ -321,32 +322,34 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           </div>
         )}
 
-        {active === 'home' && <Home navigate={navigate} />}
-        {active === 'domains' && <Domains />}
-        {active === 'intel' && <Intel />}
-        {active === 'methodology' && <Methodology />}
-        {active === 'subdomains' && <Subdomains />}
-        {active === 'screenshots' && <Screenshots />}
-        {active === 'fuzzing' && <Fuzzing />}
-        {active === 'exposure' && <Exposure />}
-        {active === 'ports' && <Ports />}
-        {active === 'api' && <ApiSurface />}
-        {active === 'osint' && <Osint />}
-        {active === 'social' && <SocialForensics />}
-        {active === 'leaks' && <DataLeaks />}
-        {active === 'origin' && <Origin />}
-        {active === 'whois' && <Whois />}
-        {active === 'checkhost' && <CheckHost />}
-        {active === 'scans' && <Scans />}
-        {active === 'tools' && <Tools />}
-        {active === 'owasp' && <Owasp />}
-        {active === 'llm' && <LlmSecurity />}
-        {active === 'findings' && <Findings />}
-        {active === 'notes' && <Notes />}
-        {active === 'canvas' && <Canvas />}
-        {active === 'jobs' && <Jobs />}
-        {active === 'audit' && <Audit />}
-        {active === 'settings' && <Settings totpEnabled={me.user.totpEnabled} />}
+        <ErrorBoundary key={active}>
+          {active === 'home' && <Home navigate={navigate} />}
+          {active === 'domains' && <Domains />}
+          {active === 'intel' && <Intel />}
+          {active === 'methodology' && <Methodology />}
+          {active === 'subdomains' && <Subdomains />}
+          {active === 'screenshots' && <Screenshots />}
+          {active === 'fuzzing' && <Fuzzing />}
+          {active === 'exposure' && <Exposure />}
+          {active === 'ports' && <Ports />}
+          {active === 'api' && <ApiSurface />}
+          {active === 'osint' && <Osint />}
+          {active === 'social' && <SocialForensics />}
+          {active === 'leaks' && <DataLeaks />}
+          {active === 'origin' && <Origin />}
+          {active === 'whois' && <Whois />}
+          {active === 'checkhost' && <CheckHost />}
+          {active === 'scans' && <Scans />}
+          {active === 'tools' && <Tools />}
+          {active === 'owasp' && <Owasp />}
+          {active === 'llm' && <LlmSecurity />}
+          {active === 'findings' && <Findings />}
+          {active === 'notes' && <Notes />}
+          {active === 'canvas' && <Canvas />}
+          {active === 'jobs' && <Jobs />}
+          {active === 'audit' && <Audit />}
+          {active === 'settings' && <Settings totpEnabled={me.user.totpEnabled} />}
+        </ErrorBoundary>
         </div>
       </main>
 
