@@ -74,6 +74,12 @@ export function JobNotifier() {
           for (const j of jobs) {
             const prev = seen.current.get(j.id)
             seen.current.set(j.id, j.status)
+            // START notification: a job entering the running state (from queued,
+            // or a brand-new job first caught running after the prime pass).
+            if (j.status === 'running' && prev !== 'running') {
+              toast.info(`${labelFor(j)} started`)
+              continue
+            }
             if (!TERMINAL.has(j.status)) continue
             // Fire on a real transition from a live state we saw, OR on a
             // brand-new job (enqueued after prime) that finished so fast we only

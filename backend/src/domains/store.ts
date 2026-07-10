@@ -4,6 +4,7 @@ import { db } from '../db/index'
 import { domains } from '../db/schema'
 import { isValidDomain, normalizeDomain } from '../util/validate'
 import { screenshotDirFor } from '../util/screenshotPaths'
+import { invalidateDomainOverviews } from './overview'
 
 export type DomainMode = 'passive_only' | 'active_authorized'
 
@@ -31,11 +32,13 @@ export function createDomain(input: { host: string; label?: string; mode?: Domai
     .insert(domains)
     .values({ host, label: input.label?.trim() || null, mode })
     .run()
+  invalidateDomainOverviews()
   return getDomain(Number(res.lastInsertRowid))
 }
 
 export function updateDomainMode(id: number, mode: DomainMode) {
   db.update(domains).set({ mode, updatedAt: new Date() }).where(eq(domains.id, id)).run()
+  invalidateDomainOverviews()
   return getDomain(id)
 }
 
@@ -69,6 +72,7 @@ export function updateDomain(
     set.monitorIntervalHours = Number.isFinite(h) && h > 0 ? Math.min(h, 168) : 0
   }
   db.update(domains).set(set).where(eq(domains.id, id)).run()
+  invalidateDomainOverviews()
   return getDomain(id)
 }
 
@@ -95,6 +99,7 @@ export function markMonitored(id: number, when: Date = new Date()): void {
 
 export async function deleteDomain(id: number): Promise<void> {
   db.delete(domains).where(eq(domains.id, id)).run()
+  invalidateDomainOverviews()
   // Remove orphaned screenshot files (the FK cascade only drops DB rows).
   await rm(screenshotDirFor(id), { recursive: true, force: true }).catch(() => {})
 }

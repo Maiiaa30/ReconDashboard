@@ -10,18 +10,26 @@ interface PortRow {
   host: string
   port: number
   service: string | null // from nmap (service/product/version)
+  state: string // open | filtered | closed (nmap); exposure ports are open
   category: PortCategory | 'unknown'
   notable: boolean
 }
 
 const RISK_ORDER = { high: 0, medium: 1, low: 2 } as const
 
-// Flatten exposure (IP → ports[]) and nmap (host → openPorts[{service…}]) into a
-// single de-duped list of ports across the whole target.
+// nmap port state → badge tone.
+function stateTone(state: string): 'green' | 'amber' | 'zinc' {
+  if (state === 'open') return 'green'
+  if (state === 'filtered') return 'amber'
+  return 'zinc'
+}
+
+// Flatten exposure (IP → ports[]) and nmap (host → allPorts[{state,service…}])
+// into a single de-duped list of ports across the whole target.
 function buildRows(exposure: Finding[], nmap: Finding[]): PortRow[] {
   const byKey = new Map<string, PortRow>()
 
-  const put = (host: string, port: number, service: string | null) => {
+  const put = (host: string, port: number, service: string | null, state = 'open') => {
     if (!host || !Number.isFinite(port)) return
     const key = `${host}|${port}`
     const info = classifyPort(port)
@@ -29,11 +37,12 @@ function buildRows(exposure: Finding[], nmap: Finding[]): PortRow[] {
       host,
       port,
       service,
+      state,
       category: info?.category ?? 'unknown',
       notable: isNotablePort(port),
     }
     const existing = byKey.get(key)
-    // Prefer the row that carries an nmap service label.
+    // Prefer the row that carries an nmap service label (and its real state).
     if (!existing || (!existing.service && service)) byKey.set(key, row)
   }
 
@@ -45,9 +54,11 @@ function buildRows(exposure: Finding[], nmap: Finding[]): PortRow[] {
   for (const f of nmap) {
     const d = f.data as any
     const host = d.target ?? ''
-    for (const op of (d.openPorts ?? []) as any[]) {
+    // allPorts (open + filtered, with state) when present; fall back to the
+    // older open-only openPorts shape for findings scanned before this field.
+    for (const op of (d.allPorts ?? d.openPorts ?? []) as any[]) {
       const svc = [op.product, op.version].filter(Boolean).join(' ') || op.service || null
-      put(host, Number(op.port), svc)
+      put(host, Number(op.port), svc, op.state ?? 'open')
     }
   }
 
@@ -62,7 +73,7 @@ export function Ports() {
   const { selected } = useApp()
   const [exposure, setExposure] = useState<Finding[]>([])
   const [nmap, setNmap] = useState<Finding[]>([])
-  const [cat, setCat] = useState<PortCategory | 'all' | 'notable'>('notable')
+  const [cat, setCat] = useState<PortCategory | 'all' | 'notable'>('all')
   const [query, setQuery] = useState('')
 
   usePoll(
@@ -89,7 +100,7 @@ export function Ports() {
     return rows.filter((r) => {
       if (cat === 'notable' && !r.notable) return false
       if (cat !== 'all' && cat !== 'notable' && r.category !== cat) return false
-      if (q && !`${r.host} ${r.port} ${r.service ?? ''} ${classifyPort(r.port)?.label ?? ''}`.toLowerCase().includes(q)) return false
+      if (q && !`${r.host} ${r.port} ${r.state} ${r.service ?? ''} ${classifyPort(r.port)?.label ?? ''}`.toLowerCase().includes(q)) return false
       return true
     })
   }, [rows, cat, q])
@@ -146,10 +157,11 @@ export function Ports() {
         <Empty>No ports match this filter.</Empty>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-hair">
-          <table className="w-full min-w-[640px] text-sm">
+          <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-ink-900/60 text-left text-xs uppercase tracking-wide text-zinc-500">
               <tr>
                 <th className="px-3 py-2 w-24">Port</th>
+                <th className="px-3 py-2 w-24">State</th>
                 <th className="px-3 py-2">Host / IP</th>
                 <th className="px-3 py-2 w-40">Likely service</th>
                 <th className="px-3 py-2 w-44">nmap service</th>
@@ -163,6 +175,9 @@ export function Ports() {
                   <tr key={`${r.host}|${r.port}`} className={`border-t border-hair/60 ${r.notable ? 'bg-amber-950/10' : ''}`}>
                     <td className="px-3 py-2">
                       <PortBadge port={r.port} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Badge tone={stateTone(r.state)}>{r.state}</Badge>
                     </td>
                     <td className="px-3 py-2 font-mono text-xs text-zinc-200 break-all">{r.host}</td>
                     <td className="px-3 py-2 text-xs">

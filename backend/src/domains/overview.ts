@@ -21,6 +21,13 @@ export interface DomainOverview {
 let cache: { at: number; data: DomainOverview[] } | null = null
 const TTL_MS = 8_000
 
+// Drop the cache so the next read recomputes immediately. Called when the domain
+// set changes (add/edit/delete) so a freshly-added domain shows up at once
+// instead of after the TTL window.
+export function invalidateDomainOverviews(): void {
+  cache = null
+}
+
 // One pass of aggregate queries (GROUP BY) instead of N+1, then assembled in JS.
 export function domainOverviews(): DomainOverview[] {
   const nowMs = Date.now()

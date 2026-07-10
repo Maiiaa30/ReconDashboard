@@ -42,19 +42,23 @@ export async function nmapHandler({ params, log, signal, progress }: JobContext)
   }
   progress(`scanning ${target} with nmap`)
 
-  const args = ['-Pn', '-T3', '-oX', '-']
+  // -sV runs service/version detection so the "nmap service" column is populated
+  // (without it, product/version are empty). Default sweep covers nmap's own
+  // top-1000 (its CLI default) rather than the top-100 we used before, so the
+  // dashboard surfaces the same ports a manual `nmap <host>` would.
+  const args = ['-Pn', '-T3', '-sV', '-oX', '-']
   const portSpec = params.ports ? String(params.ports) : ''
   if (portSpec) {
     if (!PORT_SPEC_RE.test(portSpec)) throw new Error(`invalid port spec: ${portSpec}`)
     args.push('-p', portSpec)
   } else {
-    args.push('--top-ports', '100')
+    args.push('--top-ports', '1000')
   }
   args.push(target)
 
   let xml = ''
   try {
-    const res = await run('nmap', args, { timeoutMs: 300_000, signal })
+    const res = await run('nmap', args, { timeoutMs: 600_000, signal })
     xml = res.stdout
   } catch (err) {
     const e = err as Error & { stdout?: string }
@@ -68,19 +72,27 @@ export async function nmapHandler({ params, log, signal, progress }: JobContext)
   const portsNode = hostNode?.ports?.port
   const portArray = Array.isArray(portsNode) ? portsNode : portsNode ? [portsNode] : []
 
-  const openPorts = portArray
-    .filter((p: any) => p?.state?.['@_state'] === 'open')
+  // Keep open + filtered ports (filtered = firewalled, still worth showing);
+  // closed ports are dropped as noise. Each row carries its state so the UI can
+  // render an open/filtered column.
+  const KEEP = new Set(['open', 'filtered'])
+  const allPorts = portArray
+    .filter((p: any) => KEEP.has(p?.state?.['@_state']))
     .map((p: any) => ({
       port: Number(p['@_portid']),
       protocol: String(p['@_protocol'] ?? 'tcp'),
+      state: String(p?.state?.['@_state'] ?? 'open'),
       service: p?.service?.['@_name'] ?? null,
       product: p?.service?.['@_product'] ?? null,
       version: p?.service?.['@_version'] ?? null,
     }))
+  // openPorts stays the open-only subset (same shape as before) for existing
+  // consumers — overview counts, scoring, reports, exports.
+  const openPorts = allPorts.filter((p) => p.state === 'open')
 
-  const finding = { target, openPorts }
+  const finding = { target, openPorts, allPorts }
   await addScoredFinding({ domainId, type: 'nmap', data: finding, tags: ['nmap', 'active'] })
-  log.info({ target, open: openPorts.length }, 'nmap scan complete')
+  log.info({ target, open: openPorts.length, kept: allPorts.length }, 'nmap scan complete')
   return { available: true, ...finding }
 }
 
