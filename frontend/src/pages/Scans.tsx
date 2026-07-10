@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { api, ApiError, type Finding, type MetaStatus } from '../api'
 import { useApp, useHosts, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
@@ -192,6 +193,30 @@ export function Scans() {
             >
               {runLabel(nmapBusy, 'nmap')}
             </Button>
+            <Button
+              variant="ghost"
+              disabled={!nmapInstalled || nmapBusy || !target}
+              title="Full sweep: all 65535 ports + service/version + default NSE scripts (TLS certs, HTTP titles/headers…) + OS detection when privileged. Ignores the Ports field. Much slower."
+              onClick={() => {
+                const ok = confirm(
+                  `Deep scan probes ALL 65,535 ports with version detection + NSE scripts on ${target}.\n\n` +
+                    `It is far slower than a normal scan — expect several minutes (and up to ~19 min before it is auto-stopped). ` +
+                    `The Ports field is ignored.\n\nStart the deep scan?`,
+                )
+                if (!ok) return
+                run('nmap (deep)', setNmapBusy, setNmapResult, (confirm) => api.nmap(selected.id, { target, deep: true, confirm }))
+              }}
+            >
+              {nmapBusy ? 'Queuing…' : 'Deep scan'}
+            </Button>
+          </div>
+          <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-200/90">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-400" />
+            <span>
+              <span className="font-semibold">Deep scan is slow.</span> It sweeps all 65,535 ports with version detection + NSE
+              scripts (and OS detection if the server runs privileged), so it can take several minutes versus seconds for a
+              normal scan. It ignores the Ports field and runs in the background — watch Logs for progress.
+            </span>
           </div>
           <ResultLine result={nmapResult} />
         </Card>
@@ -345,40 +370,117 @@ function sevTone(sev: unknown): 'zinc' | 'green' | 'amber' | 'red' | 'blue' {
   }
 }
 
+interface NmapPort {
+  port: number
+  protocol?: string
+  state?: string
+  service?: string | null
+  product?: string | null
+  version?: string | null
+  extrainfo?: string | null
+  scripts?: { id: string; output: string }[]
+}
+
 // Renders an nmap or nuclei finding with type-appropriate detail (open ports as
-// chips; nuclei severity + matched URL).
+// chips; nuclei severity + matched URL). Deep nmap scans also show OS guesses,
+// service versions and NSE script output.
 function ScanResultCard({ f }: { f: Finding }) {
   const d = f.data ?? {}
   const isNmap = f.type === 'nmap'
-  const ports: { port: number; protocol?: string; service?: string | null; product?: string | null; version?: string | null }[] =
-    Array.isArray(d.openPorts) ? d.openPorts : []
+  const ports: NmapPort[] = Array.isArray(d.openPorts) ? d.openPorts : []
+  const allPorts: NmapPort[] = Array.isArray(d.allPorts) ? d.allPorts : ports
+  const os: { name: string; accuracy: number }[] = Array.isArray(d.os) ? d.os : []
+  const hostScripts: { id: string; output: string }[] = Array.isArray(d.hostScripts) ? d.hostScripts : []
+  const deep = d.deep === true
+  const filteredCount = allPorts.filter((p) => p.state === 'filtered').length
+  // Every port that carries version or script detail worth expanding.
+  const detailPorts = allPorts.filter((p) => p.product || p.version || (p.scripts && p.scripts.length))
+  const hasDetail = detailPorts.length > 0 || hostScripts.length > 0
+
   return (
     <Card>
       <div className="flex flex-wrap items-center gap-2">
         <ScoreBadge score={f.score} />
         <Badge tone="indigo">{f.type}</Badge>
+        {isNmap && deep && <Badge tone="purple">deep</Badge>}
         {!isNmap && <Badge tone={sevTone(d.severity)}>{String(d.severity ?? 'info')}</Badge>}
         <span className="text-sm font-medium text-zinc-100">
-          {isNmap ? `${d.target ?? ''} · ${ports.length} open port(s)` : String(d.name ?? d.templateId ?? 'nuclei match')}
+          {isNmap
+            ? `${d.target ?? ''} · ${ports.length} open${filteredCount ? ` · ${filteredCount} filtered` : ''}`
+            : String(d.name ?? d.templateId ?? 'nuclei match')}
         </span>
         <span className="font-mono text-xs text-zinc-500 break-all">
           {isNmap ? '' : String(d.matched ?? d.target ?? '')}
         </span>
         <span className="ml-auto text-xs text-zinc-500">{timeAgo(new Date(f.createdAt).getTime())}</span>
       </div>
+
+      {/* OS fingerprint guesses (deep scans, privileged runs) */}
+      {isNmap && os.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-zinc-500">OS:</span>
+          {os.map((o, i) => (
+            <Badge key={i} tone="blue">
+              {o.name}
+              {o.accuracy ? ` ${o.accuracy}%` : ''}
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      {/* Open-port chips */}
       {isNmap && ports.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {ports.map((p, i) => (
             <span
               key={i}
               className="rounded bg-ink-800/70 px-1.5 py-0.5 font-mono text-[11px] text-zinc-300"
-              title={[p.product, p.version].filter(Boolean).join(' ') || undefined}
+              title={[p.product, p.version, p.extrainfo].filter(Boolean).join(' ') || undefined}
             >
               {p.port}
               {p.service ? `/${p.service}` : ''}
             </span>
           ))}
         </div>
+      )}
+
+      {/* Deep detail: per-port versions + NSE script output */}
+      {isNmap && hasDetail && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-300">
+            Service &amp; script detail ({detailPorts.length + hostScripts.length})
+          </summary>
+          <div className="mt-2 space-y-2">
+            {detailPorts.map((p, i) => (
+              <div key={i} className="rounded-lg border border-hair/60 bg-ink-900/50 p-2">
+                <div className="font-mono text-xs text-zinc-200">
+                  {p.port}/{p.protocol ?? 'tcp'}
+                  {p.service ? ` ${p.service}` : ''}
+                  <span className="text-zinc-400">
+                    {' '}
+                    {[p.product, p.version, p.extrainfo && `(${p.extrainfo})`].filter(Boolean).join(' ')}
+                  </span>
+                </div>
+                {(p.scripts ?? []).map((s, j) => (
+                  <div key={j} className="mt-1">
+                    <div className="text-[10px] uppercase tracking-wide text-zinc-600">{s.id}</div>
+                    <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all text-[11px] text-zinc-400">
+                      {s.output}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {hostScripts.map((s, i) => (
+              <div key={`h${i}`} className="rounded-lg border border-hair/60 bg-ink-900/50 p-2">
+                <div className="text-[10px] uppercase tracking-wide text-zinc-600">host · {s.id}</div>
+                <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all text-[11px] text-zinc-400">
+                  {s.output}
+                </pre>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
     </Card>
   )

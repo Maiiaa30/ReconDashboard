@@ -40,25 +40,38 @@ export async function nmapHandler({ params, log, signal, progress }: JobContext)
   if (!(await toolExists('nmap'))) {
     return { available: false, note: 'nmap binary not installed' }
   }
-  progress(`scanning ${target} with nmap`)
+  // Deep scan: every port (-p-) + default NSE scripts (-sC) for rich, useful
+  // detail (TLS certs, HTTP titles/headers, etc.) on top of version detection.
+  // Modelled on `nmap -sS -sV -O -sC -p- -A` but adapted to run unprivileged:
+  // -sS (SYN) and -O (OS) need root/admin + Npcap, so -O is only added when we
+  // actually run as root; otherwise the scan degrades to a connect scan and the
+  // rest of the data still comes back.
+  const deep = params.deep === true
+  progress(`scanning ${target} with nmap${deep ? ' (deep: all ports + scripts)' : ''}`)
 
-  // -sV runs service/version detection so the "nmap service" column is populated
-  // (without it, product/version are empty). Default sweep covers nmap's own
-  // top-1000 (its CLI default) rather than the top-100 we used before, so the
-  // dashboard surfaces the same ports a manual `nmap <host>` would.
-  const args = ['-Pn', '-T3', '-sV', '-oX', '-']
-  const portSpec = params.ports ? String(params.ports) : ''
-  if (portSpec) {
-    if (!PORT_SPEC_RE.test(portSpec)) throw new Error(`invalid port spec: ${portSpec}`)
-    args.push('-p', portSpec)
+  const args = ['-Pn', deep ? '-T4' : '-T3', '-sV', '-oX', '-']
+  if (deep) {
+    args.push('-sC', '-p-')
+    const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
+    if (isRoot) args.push('-O')
   } else {
-    args.push('--top-ports', '1000')
+    // -sV so the service column is populated; nmap's own top-1000 default (vs the
+    // old top-100) so a manual `nmap <host>` and the dashboard agree.
+    const portSpec = params.ports ? String(params.ports) : ''
+    if (portSpec) {
+      if (!PORT_SPEC_RE.test(portSpec)) throw new Error(`invalid port spec: ${portSpec}`)
+      args.push('-p', portSpec)
+    } else {
+      args.push('--top-ports', '1000')
+    }
   }
   args.push(target)
 
   let xml = ''
   try {
-    const res = await run('nmap', args, { timeoutMs: 600_000, signal })
+    // Keep the run timeout just under the worker's 20-min job cap so a slow deep
+    // scan times out here first — that path preserves partial stdout to parse.
+    const res = await run('nmap', args, { timeoutMs: deep ? 1_140_000 : 600_000, signal })
     xml = res.stdout
   } catch (err) {
     const e = err as Error & { stdout?: string }
@@ -66,11 +79,23 @@ export async function nmapHandler({ params, log, signal, progress }: JobContext)
     if (!xml) throw err
   }
 
-  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' })
-  const parsed = parser.parse(xml) as any
+  const arr = (x: any): any[] => (Array.isArray(x) ? x : x ? [x] : [])
+  // Normalize an nmap <script> element (or list) into {id, output} pairs.
+  const scriptsOf = (node: any) =>
+    arr(node?.script)
+      .map((s: any) => ({ id: String(s?.['@_id'] ?? ''), output: String(s?.['@_output'] ?? '').trim() }))
+      .filter((s: any) => s.id && s.output)
+
+  let parsed: any = {}
+  try {
+    const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' })
+    parsed = parser.parse(xml) as any
+  } catch (err) {
+    // Truncated XML (e.g. an aborted deep scan) — salvage nothing rather than crash.
+    log.warn({ target, err }, 'nmap XML parse failed; returning empty result')
+  }
   const hostNode = parsed?.nmaprun?.host
-  const portsNode = hostNode?.ports?.port
-  const portArray = Array.isArray(portsNode) ? portsNode : portsNode ? [portsNode] : []
+  const portArray = arr(hostNode?.ports?.port)
 
   // Keep open + filtered ports (filtered = firewalled, still worth showing);
   // closed ports are dropped as noise. Each row carries its state so the UI can
@@ -78,21 +103,36 @@ export async function nmapHandler({ params, log, signal, progress }: JobContext)
   const KEEP = new Set(['open', 'filtered'])
   const allPorts = portArray
     .filter((p: any) => KEEP.has(p?.state?.['@_state']))
-    .map((p: any) => ({
-      port: Number(p['@_portid']),
-      protocol: String(p['@_protocol'] ?? 'tcp'),
-      state: String(p?.state?.['@_state'] ?? 'open'),
-      service: p?.service?.['@_name'] ?? null,
-      product: p?.service?.['@_product'] ?? null,
-      version: p?.service?.['@_version'] ?? null,
-    }))
+    .map((p: any) => {
+      const svc = p?.service ?? {}
+      return {
+        port: Number(p['@_portid']),
+        protocol: String(p['@_protocol'] ?? 'tcp'),
+        state: String(p?.state?.['@_state'] ?? 'open'),
+        service: svc['@_name'] ?? null,
+        product: svc['@_product'] ?? null,
+        version: svc['@_version'] ?? null,
+        extrainfo: svc['@_extrainfo'] ?? null,
+        // NSE script output per port (deep scans only).
+        ...(deep ? { scripts: scriptsOf(p) } : {}),
+      }
+    })
   // openPorts stays the open-only subset (same shape as before) for existing
   // consumers — overview counts, scoring, reports, exports.
   const openPorts = allPorts.filter((p) => p.state === 'open')
 
-  const finding = { target, openPorts, allPorts }
-  await addScoredFinding({ domainId, type: 'nmap', data: finding, tags: ['nmap', 'active'] })
-  log.info({ target, open: openPorts.length, kept: allPorts.length }, 'nmap scan complete')
+  // Deep extras: OS fingerprint guesses and host-level script output.
+  const os = deep
+    ? arr(hostNode?.os?.osmatch)
+        .map((m: any) => ({ name: String(m?.['@_name'] ?? ''), accuracy: Number(m?.['@_accuracy'] ?? 0) }))
+        .filter((m: any) => m.name)
+        .slice(0, 3)
+    : []
+  const hostScripts = deep ? scriptsOf(hostNode?.hostscript) : []
+
+  const finding = { target, deep, openPorts, allPorts, ...(deep ? { os, hostScripts } : {}) }
+  await addScoredFinding({ domainId, type: 'nmap', data: finding, tags: ['nmap', 'active', ...(deep ? ['deep'] : [])] })
+  log.info({ target, deep, open: openPorts.length, kept: allPorts.length }, 'nmap scan complete')
   return { available: true, ...finding }
 }
 

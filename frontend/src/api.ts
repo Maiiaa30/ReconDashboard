@@ -474,7 +474,7 @@ export const api = {
     post<{ jobId: number; tool: string; target: string }>(`/domains/${id}/tool`, opts),
 
   // active scans (gated server-side; passive domains require confirm:true)
-  nmap: (id: number, opts: { target?: string; ports?: string; confirm?: boolean } = {}) =>
+  nmap: (id: number, opts: { target?: string; ports?: string; deep?: boolean; confirm?: boolean } = {}) =>
     post<{ jobId: number }>(`/domains/${id}/scan/nmap`, opts),
   nuclei: (id: number, opts: { target?: string; severity?: string; tags?: string; scheme?: string; confirm?: boolean } = {}) =>
     post<{ jobId: number }>(`/domains/${id}/scan/nuclei`, opts),

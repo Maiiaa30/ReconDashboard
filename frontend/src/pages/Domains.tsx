@@ -373,8 +373,20 @@ function DomainCard({
         <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
           <Button
             variant="loud"
-            title="One-click passive sweep: subdomain discovery (→ auto-chains exposure + screenshots) + OSINT"
-            onClick={() => onAction('recon', () => Promise.all([api.discover(d.id), api.osint(d.id)]))}
+            title={
+              active
+                ? 'One-click recon: subdomain discovery (→ exposure + screenshots) + OSINT + origin discovery + nmap (active)'
+                : 'One-click passive recon: subdomain discovery (→ exposure + screenshots) + OSINT + origin discovery'
+            }
+            onClick={() =>
+              onAction('recon', () => {
+                // Full passive sweep; add nmap only when the domain is authorized
+                // for active/loud scans.
+                const jobs = [api.discover(d.id), api.osint(d.id), api.findOrigin(d.id)]
+                if (active) jobs.push(api.nmap(d.id, { confirm: false }))
+                return Promise.all(jobs)
+              })
+            }
             disabled={busyAction?.startsWith(`${d.id}:`)}
           >
             <Zap size={14} /> {isBusy('recon') ? 'Running…' : 'Run recon'}

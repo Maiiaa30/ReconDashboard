@@ -44,6 +44,7 @@ export const scanRoutes: FastifyPluginAsync = async (app) => {
 
   makeRoute('/api/domains/:id/scan/nmap', 'nmap_scan', (body) => ({
     ports: typeof body.ports === 'string' ? body.ports : undefined,
+    deep: body.deep === true,
   }))
 
   makeRoute('/api/domains/:id/scan/nuclei', 'nuclei_scan', (body) => {
