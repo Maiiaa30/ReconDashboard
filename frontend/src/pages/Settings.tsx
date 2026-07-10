@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, type MetaStatus } from '../api'
 import { Badge, Button, Card, PageHeader } from '../components/ui'
 import { TwoFactorPanel } from '../components/TwoFactorPanel'
+import { useConfirm } from '../components/Confirm'
 
 export function Settings({ totpEnabled }: { totpEnabled: boolean }) {
   const [meta, setMeta] = useState<MetaStatus | null>(null)
@@ -182,6 +183,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 function BackupPanel() {
+  const confirm = useConfirm()
   const [serverConfigured, setServerConfigured] = useState<boolean | null>(null)
   const [passphrase, setPassphrase] = useState('')
   const [busy, setBusy] = useState(false)
@@ -210,12 +212,14 @@ function BackupPanel() {
 
   async function restore() {
     if (!file) return
-    if (
-      !confirm(
-        'Stage this backup for restore? It will REPLACE the current database on the next backend restart (the current DB is kept as a .pre-restore copy).',
-      )
-    )
-      return
+    const ok = await confirm({
+      title: 'Stage backup for restore?',
+      message:
+        'This will REPLACE the current database on the next backend restart (the current DB is kept as a .pre-restore copy).',
+      confirmLabel: 'Stage restore',
+      tone: 'danger',
+    })
+    if (!ok) return
     setBusy(true)
     setCheckMsg(null)
     try {

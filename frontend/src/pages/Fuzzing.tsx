@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react'
 import { api, ApiError, type Finding, type MetaStatus } from '../api'
 import { useApp, useHosts, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
+import { useConfirm } from '../components/Confirm'
 import { timeAgo } from '../lib/format'
 
 function statusTone(status: number): 'green' | 'amber' | 'red' | 'blue' | 'zinc' {
@@ -70,6 +71,7 @@ function SortTh({
 
 export function Fuzzing() {
   const { selected } = useApp()
+  const ask = useConfirm()
   const hosts = useHosts(selected)
   const [hits, setHits] = useState<Finding[]>([])
   const [meta, setMeta] = useState<MetaStatus | null>(null)
@@ -137,9 +139,12 @@ export function Fuzzing() {
     if (!selected) return
     // Passive domain: warn, then run with explicit confirmation.
     if (!active) {
-      const ok = confirm(
-        `⚠ ${selected.host} is passive_only.\n\nffuf is a LOUD, active scan. Only run it against ${target} if you are authorized to actively test this target.\n\nRun anyway?`,
-      )
+      const ok = await ask({
+        title: 'Run a loud scan?',
+        message: `${selected.host} is passive_only.\n\nffuf is a LOUD, active scan. Only run it against ${target} if you are authorized to actively test this target.`,
+        confirmLabel: 'Run anyway',
+        tone: 'danger',
+      })
       if (!ok) return
     }
     setMsg(null)
@@ -175,9 +180,12 @@ export function Fuzzing() {
       /* keep defaults */
     }
     if (!active) {
-      const ok = confirm(
-        `⚠ ${selected.host} is passive_only.\n\nThe 403 bypass is a LOUD, active tool. Only run it against ${host}${hitPath} if you are authorized to actively test this target.\n\nRun anyway?`,
-      )
+      const ok = await ask({
+        title: 'Run a loud tool?',
+        message: `${selected.host} is passive_only.\n\nThe 403 bypass is a LOUD, active tool. Only run it against ${host}${hitPath} if you are authorized to actively test this target.`,
+        confirmLabel: 'Run anyway',
+        tone: 'danger',
+      })
       if (!ok) return
     }
     try {

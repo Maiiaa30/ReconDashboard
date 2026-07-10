@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, ApiError, type Finding, type MetaStatus } from '../api'
 import { useApp, useHosts, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
+import { useConfirm } from '../components/Confirm'
 import { timeAgo } from '../lib/format'
 
 interface ToolDef {
@@ -39,6 +40,7 @@ function severityTone(sev: unknown): 'zinc' | 'green' | 'amber' | 'red' | 'blue'
 
 export function Tools() {
   const { selected } = useApp()
+  const ask = useConfirm()
   const hosts = useHosts(selected)
   const [meta, setMeta] = useState<MetaStatus | null>(null)
   const [target, setTarget] = useState('')
@@ -67,9 +69,12 @@ export function Tools() {
   async function runTool(tool: string) {
     if (!selected) return
     if (!active) {
-      const ok = confirm(
-        `⚠ ${selected.host} is passive_only.\n\nThis is a LOUD, active tool. Only run it against ${target} if you are authorized to actively test this target.\n\nRun anyway?`,
-      )
+      const ok = await ask({
+        title: 'Run a loud tool?',
+        message: `${selected.host} is passive_only.\n\nThis is a LOUD, active tool. Only run it against ${target} if you are authorized to actively test this target.`,
+        confirmLabel: 'Run anyway',
+        tone: 'danger',
+      })
       if (!ok) return
     }
     setBusy(tool)

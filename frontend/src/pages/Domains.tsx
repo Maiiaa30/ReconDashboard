@@ -6,6 +6,8 @@ import {
 import { api, ApiError, type DomainMode, type DomainOverview } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
+import { useToast } from '../components/Toast'
+import { useConfirm } from '../components/Confirm'
 import { riskFromScore, timeAgo } from '../lib/format'
 
 const RISK_STYLES: Record<string, { label: string; tone: 'zinc' | 'blue' | 'amber' | 'red' }> = {
@@ -160,6 +162,8 @@ function DomainCard({
   onChanged: () => Promise<void>
 }) {
   const { domains: allDomains } = useApp()
+  const toast = useToast()
+  const confirm = useConfirm()
   const full = allDomains.find((x) => x.id === d.id)
   const risk = riskFromScore(d.findings.maxScore)
   const rs = RISK_STYLES[risk]
@@ -184,14 +188,15 @@ function DomainCard({
   }
 
   async function saveEdit() {
-    if (
-      modeDraft === 'active_authorized' &&
-      d.mode !== 'active_authorized' &&
-      !confirm(
-        `Set ${d.host} to active_authorized? This permits LOUD/active scans (nmap/nuclei/ffuf/OWASP). Only for targets you are authorized to actively test.`,
-      )
-    )
-      return
+    if (modeDraft === 'active_authorized' && d.mode !== 'active_authorized') {
+      const ok = await confirm({
+        title: 'Enable active scanning?',
+        message: `Set ${d.host} to active_authorized? This permits LOUD/active scans (nmap/nuclei/ffuf/OWASP). Only for targets you are authorized to actively test.`,
+        confirmLabel: 'Enable',
+        tone: 'danger',
+      })
+      if (!ok) return
+    }
     try {
       await api.updateDomain(d.id, {
         label: labelDraft.trim() || null,
@@ -203,34 +208,43 @@ function DomainCard({
       setEditing(false)
       await onChanged()
     } catch (err) {
-      alert(`Failed to save: ${err instanceof Error ? err.message : 'error'}`)
+      toast.error(`Failed to save: ${err instanceof Error ? err.message : 'error'}`)
     }
   }
 
   async function toggleMode() {
     const next: DomainMode = active ? 'passive_only' : 'active_authorized'
-    if (
-      next === 'active_authorized' &&
-      !confirm(
-        `Mark ${d.host} as active_authorized? This permits LOUD/active scans (nmap/nuclei/ffuf). Only do this for a target you are authorized to actively test.`,
-      )
-    )
-      return
+    if (next === 'active_authorized') {
+      const ok = await confirm({
+        title: 'Enable active scanning?',
+        message: `Mark ${d.host} as active_authorized? This permits LOUD/active scans (nmap/nuclei/ffuf). Only do this for a target you are authorized to actively test.`,
+        confirmLabel: 'Enable',
+        tone: 'danger',
+      })
+      if (!ok) return
+    }
     try {
       await api.setDomainMode(d.id, next)
       await onChanged()
     } catch (err) {
-      alert(`Failed to change mode: ${err instanceof Error ? err.message : 'error'}`)
+      toast.error(`Failed to change mode: ${err instanceof Error ? err.message : 'error'}`)
     }
   }
 
   async function remove() {
-    if (!confirm(`Delete ${d.host} and all its data (subdomains, findings)?`)) return
+    const ok = await confirm({
+      title: 'Delete target?',
+      message: `Delete ${d.host} and all its data (subdomains, findings)? This can't be undone.`,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (!ok) return
     try {
       await api.deleteDomain(d.id)
+      toast.success(`${d.host} deleted.`)
       await onChanged()
     } catch (err) {
-      alert(`Failed to delete: ${err instanceof Error ? err.message : 'error'}`)
+      toast.error(`Failed to delete: ${err instanceof Error ? err.message : 'error'}`)
     }
   }
 
@@ -241,7 +255,7 @@ function DomainCard({
       await api.updateDomain(d.id, { monitorIntervalHours: hours })
       await onChanged()
     } catch (err) {
-      alert(`Failed to set monitoring: ${err instanceof Error ? err.message : 'error'}`)
+      toast.error(`Failed to set monitoring: ${err instanceof Error ? err.message : 'error'}`)
     }
   }
 

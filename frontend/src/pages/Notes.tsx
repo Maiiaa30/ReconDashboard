@@ -3,9 +3,13 @@ import { Send } from 'lucide-react'
 import { api, type Note } from '../api'
 import { useApp } from '../state'
 import { Button, Card, Empty, PageHeader } from '../components/ui'
+import { useToast } from '../components/Toast'
+import { useConfirm } from '../components/Confirm'
 
 export function Notes() {
   const { selected } = useApp()
+  const toast = useToast()
+  const confirm = useConfirm()
   const [scope, setScope] = useState<'global' | 'domain'>('global')
   const [notes, setNotes] = useState<Note[]>([])
   const [editing, setEditing] = useState<Note | null>(null)
@@ -63,18 +67,19 @@ export function Notes() {
       startNew()
       await load()
     } catch (err) {
-      alert(`Failed to save note: ${err instanceof Error ? err.message : 'error'}`)
+      toast.error(`Failed to save note: ${err instanceof Error ? err.message : 'error'}`)
     }
   }
 
   async function remove(id: number) {
-    if (!confirm('Delete this note?')) return
+    const ok = await confirm({ title: 'Delete note?', message: 'Delete this note?', confirmLabel: 'Delete', tone: 'danger' })
+    if (!ok) return
     if (editing?.id === id) startNew()
     try {
       await api.deleteNote(id)
       await load()
     } catch (err) {
-      alert(`Failed to delete note: ${err instanceof Error ? err.message : 'error'}`)
+      toast.error(`Failed to delete note: ${err instanceof Error ? err.message : 'error'}`)
     }
   }
 

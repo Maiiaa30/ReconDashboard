@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { api, type Drawing, type DrawingMeta } from '../api'
 import { Button, Empty, PageHeader } from '../components/ui'
+import { useConfirm } from '../components/Confirm'
 import '@excalidraw/excalidraw/index.css'
 
 // Excalidraw is heavy; load it only when the Canvas page is opened.
@@ -9,6 +10,7 @@ const Excalidraw = lazy(() =>
 )
 
 export function Canvas() {
+  const confirm = useConfirm()
   const [list, setList] = useState<DrawingMeta[]>([])
   const [current, setCurrent] = useState<Drawing | null>(null)
   const [saving, setSaving] = useState(false)
@@ -99,7 +101,8 @@ export function Canvas() {
   }
 
   async function remove(id: number) {
-    if (!confirm('Delete this drawing?')) return
+    const ok = await confirm({ title: 'Delete drawing?', message: 'Delete this drawing?', confirmLabel: 'Delete', tone: 'danger' })
+    if (!ok) return
     await api.deleteDrawing(id)
     if (current?.id === id) setCurrent(null)
     await loadList()

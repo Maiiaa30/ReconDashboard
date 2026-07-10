@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   Home as HomeIcon, Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
   Activity, ScanSearch, ShieldCheck, Flag, StickyNote, PenTool, ScrollText,
-  Settings as SettingsIcon, LogOut, Menu, X, Search, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, Router, type LucideIcon,
+  Settings as SettingsIcon, LogOut, Menu, X, Search, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, Router, ChevronsLeft, ChevronsRight, type LucideIcon,
 } from 'lucide-react'
 import { CommandPalette } from './CommandPalette'
 import { JobNotifier } from './JobNotifier'
@@ -110,6 +110,22 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [active, setActive] = useState<ModuleKey>('home')
   const [navOpen, setNavOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // Desktop-only: collapse the sidebar to an icon rail. Persisted so it sticks
+  // across reloads. Ignored on mobile, where the drawer always shows full width.
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('sidebarCollapsed') === '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0')
+    } catch {
+      /* storage unavailable — collapse just won't persist */
+    }
+  }, [collapsed])
   const activeLabel = MODULES.find((m) => m.key === active)?.label ?? 'Recon Dashboard'
 
   // Global ⌘/Ctrl-K toggles the command palette.
@@ -165,15 +181,15 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
       {/* Sidebar: a static column on desktop, a slide-in drawer on mobile. */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-hair bg-ink-900 transition-transform duration-200 ease-out md:sticky md:top-0 md:z-auto md:h-screen md:w-56 md:translate-x-0 ${
-          navOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-hair bg-ink-900 transition-[transform,width] duration-200 ease-out md:sticky md:top-0 md:z-auto md:h-screen md:translate-x-0 ${
+          collapsed ? 'md:w-16' : 'md:w-56'
+        } ${navOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
-        <div className="flex items-center gap-2.5 px-4 py-4">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-500 shadow-sm shadow-accent-500/30">
+        <div className={`flex items-center gap-2.5 px-4 py-4 ${collapsed ? 'md:justify-center md:px-0' : ''}`}>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-500 shadow-sm shadow-accent-500/30">
             <RadarLogo size={18} className="text-white" />
           </span>
-          <div className="min-w-0 flex-1">
+          <div className={`min-w-0 flex-1 ${collapsed ? 'md:hidden' : ''}`}>
             <div className="truncate text-sm font-semibold tracking-tight">Recon Dashboard</div>
             <div className="truncate text-xs text-zinc-500">{me.user.username}</div>
           </div>
@@ -190,16 +206,17 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             setPaletteOpen(true)
             setNavOpen(false)
           }}
-          className="mx-2 mb-1 flex items-center gap-2 rounded-lg border border-hair bg-ink-850 px-3 py-2 text-sm text-zinc-500 transition hover:border-hair-strong hover:text-zinc-300"
+          title="Search (⌘K)"
+          className={`mx-2 mb-1 flex items-center gap-2 rounded-lg border border-hair bg-ink-850 px-3 py-2 text-sm text-zinc-500 transition hover:border-hair-strong hover:text-zinc-300 ${collapsed ? 'md:justify-center md:px-0' : ''}`}
         >
-          <Search size={15} />
-          <span className="flex-1 text-left">Search…</span>
-          <kbd className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px]">⌘K</kbd>
+          <Search size={15} className="shrink-0" />
+          <span className={`flex-1 text-left ${collapsed ? 'md:hidden' : ''}`}>Search…</span>
+          <kbd className={`rounded bg-ink-800 px-1.5 py-0.5 text-[10px] ${collapsed ? 'md:hidden' : ''}`}>⌘K</kbd>
         </button>
         <nav className="flex-1 overflow-y-auto px-2 pb-2">
           {NAV_SECTIONS.map((section) => (
-            <div key={section.title}>
-              <div className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+            <div key={section.title} className={collapsed ? 'md:border-t md:border-hair/40 md:pt-1 md:first:border-t-0' : ''}>
+              <div className={`px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 ${collapsed ? 'md:hidden' : ''}`}>
                 {section.title}
               </div>
               {section.items.map((m) => {
@@ -212,14 +229,17 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
                       setActive(m.key)
                       setNavOpen(false)
                     }}
+                    title={m.label}
                     className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition ${
+                      collapsed ? 'md:justify-center md:px-0' : ''
+                    } ${
                       isActive
                         ? 'bg-accent-500/15 font-medium text-accent-fg'
                         : 'text-zinc-400 hover:bg-ink-800 hover:text-zinc-200'
                     }`}
                   >
-                    <Icon size={17} className={isActive ? 'text-accent-400' : 'text-zinc-500'} />
-                    {m.label}
+                    <Icon size={17} className={`shrink-0 ${isActive ? 'text-accent-400' : 'text-zinc-500'}`} />
+                    <span className={collapsed ? 'md:hidden' : ''}>{m.label}</span>
                   </button>
                 )
               })}
@@ -227,11 +247,31 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           ))}
         </nav>
         <div className="border-t border-hair p-2">
+          {/* Collapse toggle — desktop only; the mobile drawer uses the X instead. */}
+          <button
+            onClick={() => setCollapsed((v) => !v)}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className={`hidden w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-zinc-400 transition hover:bg-ink-800 hover:text-zinc-200 md:flex ${
+              collapsed ? 'md:justify-center md:px-0' : ''
+            }`}
+          >
+            {collapsed ? (
+              <ChevronsRight size={17} className="shrink-0 text-zinc-500" />
+            ) : (
+              <ChevronsLeft size={17} className="shrink-0 text-zinc-500" />
+            )}
+            <span className={collapsed ? 'md:hidden' : ''}>Collapse</span>
+          </button>
           <button
             onClick={logout}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-zinc-400 hover:bg-ink-800 hover:text-zinc-200"
+            title="Log out"
+            className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-zinc-400 hover:bg-ink-800 hover:text-zinc-200 ${
+              collapsed ? 'md:justify-center md:px-0' : ''
+            }`}
           >
-            <LogOut size={17} className="text-zinc-500" /> Log out
+            <LogOut size={17} className="shrink-0 text-zinc-500" />
+            <span className={collapsed ? 'md:hidden' : ''}>Log out</span>
           </button>
         </div>
       </aside>

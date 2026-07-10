@@ -3,6 +3,7 @@ import { api, ApiError, type Me } from './api'
 import { Login } from './components/Login'
 import { Shell } from './components/Shell'
 import { ToastProvider } from './components/Toast'
+import { ConfirmProvider } from './components/Confirm'
 import { AppProvider } from './state'
 
 type AuthState =
@@ -41,13 +42,15 @@ export default function App() {
 
   return (
     <ToastProvider>
-      {auth.status === 'anon' ? (
-        <Login onSuccess={refresh} />
-      ) : (
-        <AppProvider>
-          <Shell me={auth.me} onLogout={() => setAuth({ status: 'anon' })} />
-        </AppProvider>
-      )}
+      <ConfirmProvider>
+        {auth.status === 'anon' ? (
+          <Login onSuccess={refresh} />
+        ) : (
+          <AppProvider>
+            <Shell me={auth.me} onLogout={() => setAuth({ status: 'anon' })} />
+          </AppProvider>
+        )}
+      </ConfirmProvider>
     </ToastProvider>
   )
 }

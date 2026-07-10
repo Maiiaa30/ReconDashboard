@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react'
 import { api, ApiError, type Finding, type MetaStatus } from '../api'
 import { useApp, useHosts, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
+import { useConfirm } from '../components/Confirm'
 import { timeAgo } from '../lib/format'
 
 type Scheme = 'https' | 'http'
@@ -39,6 +40,7 @@ function ResultLine({ result }: { result: ScanResult }) {
 
 export function Scans() {
   const { selected } = useApp()
+  const ask = useConfirm()
   const hosts = useHosts(selected)
   const [meta, setMeta] = useState<MetaStatus | null>(null)
   const [target, setTarget] = useState('')
@@ -104,9 +106,12 @@ export function Scans() {
   ): Promise<void> {
     if (!selected) return
     if (!active) {
-      const ok = confirm(
-        `⚠ ${selected.host} is passive_only.\n\n${toolName} is a LOUD, active scan. Only run it against ${target} if you are authorized to actively test this target.\n\nRun anyway?`,
-      )
+      const ok = await ask({
+        title: 'Run a loud scan?',
+        message: `${selected.host} is passive_only.\n\n${toolName} is a LOUD, active scan. Only run it against ${target} if you are authorized to actively test this target.`,
+        confirmLabel: 'Run anyway',
+        tone: 'danger',
+      })
       if (!ok) return
     }
     setBusy(true)
@@ -197,12 +202,14 @@ export function Scans() {
               variant="ghost"
               disabled={!nmapInstalled || nmapBusy || !target}
               title="Full sweep: all 65535 ports + service/version + default NSE scripts (TLS certs, HTTP titles/headers…) + OS detection when privileged. Ignores the Ports field. Much slower."
-              onClick={() => {
-                const ok = confirm(
-                  `Deep scan probes ALL 65,535 ports with version detection + NSE scripts on ${target}.\n\n` +
-                    `It is far slower than a normal scan — expect several minutes (and up to ~19 min before it is auto-stopped). ` +
-                    `The Ports field is ignored.\n\nStart the deep scan?`,
-                )
+              onClick={async () => {
+                const ok = await ask({
+                  title: 'Start deep scan?',
+                  message:
+                    `Deep scan probes ALL 65,535 ports with version detection + NSE scripts on ${target}.\n\n` +
+                    `It is far slower than a normal scan — expect several minutes (up to ~15 min before nmap stops itself). The Ports field is ignored.`,
+                  confirmLabel: 'Start deep scan',
+                })
                 if (!ok) return
                 run('nmap (deep)', setNmapBusy, setNmapResult, (confirm) => api.nmap(selected.id, { target, deep: true, confirm }))
               }}

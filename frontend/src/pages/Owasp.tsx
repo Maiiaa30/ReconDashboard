@@ -3,6 +3,7 @@ import { api, ApiError } from '../api'
 import type { OwaspCategory, OwaspProfileKey, DomainProfile, Finding, OwaspConfig } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
+import { useConfirm } from '../components/Confirm'
 import { timeAgo } from '../lib/format'
 
 // Map a nuclei severity string to a Badge tone, so high/critical reads red.
@@ -30,10 +31,13 @@ function isApplicable(category: OwaspCategory, profile: DomainProfile): boolean 
 
 // Passive_only domains may still run after an explicit confirmation (the server
 // enforces the same gate via confirm:true). Mirrors the Scans/Fuzzing flow.
-function confirmPassiveOwasp(host: string): boolean {
-  return confirm(
-    `⚠ ${host} is passive_only.\n\nOWASP tests are LOUD, active nuclei scans. Only run them against ${host} if you are authorized to actively test this target.\n\nRun anyway?`,
-  )
+function passiveOwaspConfirm(host: string) {
+  return {
+    title: 'Run a loud scan?',
+    message: `${host} is passive_only.\n\nOWASP tests are LOUD, active nuclei scans. Only run them against ${host} if you are authorized to actively test this target.`,
+    confirmLabel: 'Run anyway',
+    tone: 'danger' as const,
+  }
 }
 
 function CategoryCard({
@@ -210,6 +214,7 @@ function CustomPayloadsCard({ domainId, config, onSaved }: { domainId: number; c
 
 export function Owasp() {
   const { selected, refreshDomains } = useApp()
+  const ask = useConfirm()
 
   const [catalog, setCatalog] = useState<OwaspCategory[]>([])
   const [profileKeys, setProfileKeys] = useState<OwaspProfileKey[]>([])
@@ -305,7 +310,7 @@ export function Owasp() {
   async function runAllApplicable(): Promise<void> {
     if (!selected) return
     const needConfirm = selected.mode !== 'active_authorized'
-    if (needConfirm && !confirmPassiveOwasp(selected.host)) return
+    if (needConfirm && !(await ask(passiveOwaspConfirm(selected.host)))) return
     setBusy('all')
     setRunMessage(null)
     setRunError(null)
@@ -324,7 +329,7 @@ export function Owasp() {
   async function runCategory(category: OwaspCategory): Promise<void> {
     if (!selected) return
     const needConfirm = selected.mode !== 'active_authorized'
-    if (needConfirm && !confirmPassiveOwasp(selected.host)) return
+    if (needConfirm && !(await ask(passiveOwaspConfirm(selected.host)))) return
     setBusy(category.id)
     setRunMessage(null)
     setRunError(null)

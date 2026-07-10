@@ -11,6 +11,7 @@ import {
 } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Card, Empty, PageHeader } from '../components/ui'
+import { useConfirm } from '../components/Confirm'
 
 const STATUS: Record<StepStatus, { label: string; cls: string; icon: typeof Circle; spin?: boolean }> = {
   found: { label: 'found', cls: 'text-green-400', icon: CheckCircle2 },
@@ -52,13 +53,17 @@ async function runStepAction(domainId: number, a: StepAction, host: string, conf
 function RunButton({ domainId, host, active, action }: { domainId: number; host: string; active: boolean; action: StepAction }) {
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [msg, setMsg] = useState('')
+  const ask = useConfirm()
   const label = action.tool ?? action.kind
 
   async function go() {
     if (!active && ACTIVE_KINDS.has(action.kind)) {
-      const ok = window.confirm(
-        `⚠ "${label}" is a LOUD, active step and ${host} is passive_only.\n\nOnly run it if you are authorized to actively test ${host}.\n\nRun anyway?`,
-      )
+      const ok = await ask({
+        title: 'Run a loud step?',
+        message: `"${label}" is a LOUD, active step and ${host} is passive_only.\n\nOnly run it if you are authorized to actively test ${host}.`,
+        confirmLabel: 'Run anyway',
+        tone: 'danger',
+      })
       if (!ok) return
     }
     setState('running')
