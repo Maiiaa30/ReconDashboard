@@ -35,7 +35,7 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
   // corpus beyond just the homepage bundles.
   const knownJs = knownUrlsFor(domainId).filter((u) => /^https?:\/\/[^\s"']+\.m?js(\?|$)/i.test(u))
 
-  const counts = { spec: 0, graphql: 0, jsEndpoints: 0 }
+  const counts = { spec: 0, graphql: 0, jsEndpoints: 0, jsFiles: 0 }
   await mapLimit(
     hosts,
     HOST_CONCURRENCY,
@@ -50,6 +50,7 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
         return null
       }
       if (signal.aborted) return null
+      counts.jsFiles += result.js.filesScanned
 
       for (const spec of result.specs) {
         await addScoredFinding({ domainId, type: 'api', data: { kind: 'openapi', host, ...spec }, tags: ['api', spec.format] })
@@ -78,6 +79,7 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
   return {
     domain: domain.host,
     hostsChecked: hosts.length,
+    jsFilesScanned: counts.jsFiles,
     specs: counts.spec,
     graphql: counts.graphql,
     jsEndpoints: counts.jsEndpoints,

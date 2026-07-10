@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useState, type MouseEvent } from 'react'
 import {
   Network, Radar, Eye, ScanSearch, ShieldCheck, ShieldAlert, Crosshair, Camera, Wrench,
-  Activity, ListChecks, Loader, CheckCircle2, XCircle, Clock, type LucideIcon,
+  Activity, ListChecks, Loader, CheckCircle2, XCircle, Clock, Webhook, type LucideIcon,
 } from 'lucide-react'
 import { api, type Job } from '../api'
 import { useApp, usePoll } from '../state'
@@ -23,6 +23,7 @@ const JOB_META: Record<string, { label: string; icon: LucideIcon }> = {
   origin_scan: { label: 'WAF / Origin', icon: ShieldAlert },
   owasp_active: { label: 'OWASP checks', icon: ShieldCheck },
   tool_scan: { label: 'Tool', icon: Wrench },
+  api_discovery: { label: 'API discovery', icon: Webhook },
 }
 const jobMeta = (type: string) => JOB_META[type] ?? { label: type, icon: Activity }
 

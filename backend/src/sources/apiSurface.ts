@@ -286,19 +286,44 @@ async function sweepGraphql(host: string): Promise<GraphqlInfo[]> {
   return []
 }
 
+// Registrable-domain heuristic (last two labels) for scoping absolute URLs.
+function baseDomain(host: string): string {
+  const parts = host.toLowerCase().split('.')
+  return parts.length <= 2 ? host.toLowerCase() : parts.slice(-2).join('.')
+}
+const API_HOST_RE = /(^|\.)(api|apis|graphql|gql|gateway|gw|rest|backend|bff|services?|svc|auth|sso|data|admin)\b/i
+
 // JS bundle mining (the modern-SPA workhorse): pull the site's own JS (homepage
 // bundles + any already-known .js URLs from prior recon) and extract API
-// endpoints, params and leaked secrets — surfaces an API even with no spec.
+// endpoints (relative paths AND in-scope absolute URLs like api.target.com/…),
+// params and leaked secrets — surfaces an API even when no spec is published.
 async function mineJs(host: string, extraJsUrls: string[]): Promise<JsFindings> {
   const jsUrls = [...new Set([...(await homepageJsUrls(host)), ...extraJsUrls])]
   if (!jsUrls.length) return { filesScanned: 0, endpoints: [], params: [], secrets: [] }
   const raw = await jsRecon(jsUrls)
-  return {
-    filesScanned: raw.filesScanned,
-    endpoints: raw.endpoints.filter(isApiEndpoint).slice(0, MAX_ENDPOINTS),
-    params: raw.params,
-    secrets: raw.secrets,
+
+  const relative = raw.endpoints.filter(isApiEndpoint)
+
+  // Absolute URLs on the target's own domain/subdomains that look like API calls.
+  const base = baseDomain(host)
+  const absolute: string[] = []
+  for (const u of raw.urls) {
+    try {
+      const url = new URL(u)
+      const h = url.hostname.toLowerCase()
+      const inScope = h === host.toLowerCase() || h === base || h.endsWith('.' + base)
+      if (!inScope) continue
+      const looksApi = API_HOST_RE.test(h) || API_ENDPOINT_RE.test(url.pathname) || !!url.search
+      if (!looksApi) continue
+      // Cross-host → keep the host prefix; same-host → bare path (dedups vs relative).
+      absolute.push(h === host.toLowerCase() ? url.pathname + url.search : `${h}${url.pathname}${url.search}`)
+    } catch {
+      /* skip */
+    }
   }
+
+  const endpoints = [...new Set([...relative, ...absolute])].slice(0, MAX_ENDPOINTS)
+  return { filesScanned: raw.filesScanned, endpoints, params: raw.params, secrets: raw.secrets }
 }
 
 export async function discoverApiSurface(host: string, extraJsUrls: string[] = []): Promise<ApiSurfaceResult> {

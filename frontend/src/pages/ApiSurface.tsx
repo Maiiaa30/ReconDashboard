@@ -132,8 +132,18 @@ export function ApiSurface() {
 
       {loaded && empty ? (
         <Empty>
-          No API surface found yet. Click <span className="text-zinc-300">Discover API surface</span> to probe for specs, GraphQL,
-          and API endpoints mined from the site's JavaScript.
+          <div className="space-y-1.5">
+            <div>No API surface found for this target yet.</div>
+            <div className="text-xs leading-relaxed text-zinc-500">
+              <span className="text-zinc-300">Discover API surface</span> probes for OpenAPI/Swagger specs, GraphQL, and API
+              endpoints mined from the site&apos;s JavaScript. Two tips if it comes back empty: run{' '}
+              <span className="text-zinc-300">Subdomains</span> discovery first so it also checks{' '}
+              <span className="font-mono">api.*</span> / <span className="font-mono">backend.*</span> hosts; and note that
+              heavily-minified SPAs (e.g. large apps) often expose no endpoints in static JS — for those, run{' '}
+              <span className="text-zinc-300">katana</span> on the Tools page, which crawls with a real browser and captures the
+              live requests.
+            </div>
+          </div>
         </Empty>
       ) : (
         <div className="space-y-3">

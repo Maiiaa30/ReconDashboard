@@ -20,6 +20,7 @@ const LABEL: Record<string, string> = {
   owasp_active: 'OWASP checks',
   tool_scan: 'Tool scan',
   leak_check: 'Leak check',
+  api_discovery: 'API discovery',
 }
 
 const TERMINAL = new Set(['done', 'error', 'cancelled', 'dead'])

@@ -95,6 +95,17 @@ export function summarizeJob(type: string, result: any): string {
       return result.available === false ? 'chromium not installed' : `${result.captured ?? 0} captured`
     case 'origin_scan':
       return `${result.behindCdn ? `behind ${result.provider}` : 'no CDN'}${result.confirmedOrigins ? `, ${result.confirmedOrigins} origin(s)` : ''}`
+    case 'api_discovery': {
+      const found = (result.specs ?? 0) + (result.graphql ?? 0) + (result.jsEndpoints ?? 0)
+      if (found === 0) {
+        return `no API surface found (scanned ${result.jsFilesScanned ?? 0} JS files across ${result.hostsChecked ?? 0} host(s))`
+      }
+      const bits = []
+      if (result.jsEndpoints) bits.push(`${result.jsEndpoints} JS endpoint(s)`)
+      if (result.specs) bits.push(`${result.specs} spec(s)`)
+      if (result.graphql) bits.push(`${result.graphql} GraphQL`)
+      return `${bits.join(' · ')} across ${result.hostsChecked ?? 0} host(s)`
+    }
     default:
       return ''
   }
