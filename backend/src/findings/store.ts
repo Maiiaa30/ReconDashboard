@@ -53,13 +53,9 @@ export function findingKey(type: string, data: any): string | null {
     case 'ffuf':
       return data.url ? `url:${data.url}` : null
     case 'api':
-      return data.kind === 'graphql'
-        ? data.endpoint
-          ? `api:gql:${data.endpoint}`
-          : null
-        : data.specUrl
-          ? `api:spec:${data.specUrl}`
-          : null
+      if (data.kind === 'graphql') return data.endpoint ? `api:gql:${data.endpoint}` : null
+      if (data.kind === 'js') return data.host ? `api:js:${data.host}` : null
+      return data.specUrl ? `api:spec:${data.specUrl}` : null
     case 'cve_new':
       return data.ip && data.cveId ? `cvenew:${data.ip}:${data.cveId}` : null
     case 'leak': {

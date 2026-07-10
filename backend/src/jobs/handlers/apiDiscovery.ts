@@ -25,6 +25,7 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
 
   let specCount = 0
   let graphqlCount = 0
+  let jsEndpointCount = 0
   for (const host of hosts) {
     if (signal.aborted) break
     progress(`probing API surface of ${host}`)
@@ -55,8 +56,22 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
       })
       graphqlCount++
     }
+    // API endpoints / secrets mined from the site's JavaScript.
+    const js = result.js
+    if (js.endpoints.length || js.secrets.length || js.params.length) {
+      await addScoredFinding({
+        domainId,
+        type: 'api',
+        data: { kind: 'js', host, ...js },
+        tags: ['api', 'js-endpoints', ...(js.secrets.length ? ['secret-in-js'] : [])],
+      })
+      jsEndpointCount += js.endpoints.length
+    }
   }
 
-  log.info({ domain: domain.host, hosts: hosts.length, specCount, graphqlCount }, 'api discovery complete')
-  return { domain: domain.host, hostsChecked: hosts.length, specs: specCount, graphql: graphqlCount }
+  log.info(
+    { domain: domain.host, hosts: hosts.length, specCount, graphqlCount, jsEndpointCount },
+    'api discovery complete',
+  )
+  return { domain: domain.host, hostsChecked: hosts.length, specs: specCount, graphql: graphqlCount, jsEndpoints: jsEndpointCount }
 }

@@ -62,6 +62,11 @@ export function summarizeFinding(type: string, data: any): string {
       if (data.kind === 'graphql') {
         return `GraphQL @ ${data.endpoint ?? '?'}${data.introspectionEnabled ? ' — introspection ON' : ''}`
       }
+      if (data.kind === 'js') {
+        const eps = Array.isArray(data.endpoints) ? data.endpoints.length : 0
+        const secs = Array.isArray(data.secrets) ? data.secrets.length : 0
+        return `JS recon @ ${data.host ?? '?'} · ${eps} endpoint(s)${secs ? ` · ${secs} secret(s)!` : ''}`
+      }
       return `${data.format ?? 'API'} spec · ${data.operationCount ?? 0} ops @ ${data.specUrl ?? data.host ?? '?'}`
     }
     default:

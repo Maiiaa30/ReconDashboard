@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Braces, Webhook, KeyRound, ShieldAlert, ChevronRight } from 'lucide-react'
+import { Braces, Webhook, KeyRound, ShieldAlert, ChevronRight, Code, AlertTriangle } from 'lucide-react'
 import { api, type Finding } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
@@ -26,6 +26,14 @@ interface GqlData {
   introspectionEnabled: boolean
   queryType: string | null
   typeCount: number
+}
+interface JsData {
+  kind: 'js'
+  host: string
+  filesScanned: number
+  endpoints: string[]
+  params: string[]
+  secrets: { pattern: string; sample: string; file: string }[]
 }
 
 export function ApiSurface() {
@@ -62,7 +70,13 @@ export function ApiSurface() {
         .map((f) => ({ f, d: f.data as unknown as GqlData })),
     [findings],
   )
+  const jsCards = useMemo(
+    () => findings.filter((f) => (f.data as any)?.kind === 'js').map((f) => ({ f, d: f.data as unknown as JsData })),
+    [findings],
+  )
   const introspectable = gqls.filter((g) => g.d.introspectionEnabled).length
+  const jsSecrets = jsCards.reduce((n, j) => n + (Array.isArray(j.d.secrets) ? j.d.secrets.length : 0), 0)
+  const empty = specs.length === 0 && gqls.length === 0 && jsCards.length === 0
 
   async function discover() {
     if (!selected || busy) return
@@ -83,7 +97,7 @@ export function ApiSurface() {
     <div>
       <PageHeader
         title="API Surface"
-        subtitle={`${selected.host} — OpenAPI/Swagger specs, GraphQL endpoints & a JWT inspector`}
+        subtitle={`${selected.host} — specs, GraphQL, endpoints mined from JS & a JWT inspector`}
         actions={
           <Button variant="loud" onClick={discover} disabled={busy}>
             <Webhook size={15} /> {busy ? 'Queuing…' : 'Discover API surface'}
@@ -99,18 +113,27 @@ export function ApiSurface() {
         <span className="text-zinc-400">
           <span className="font-semibold text-zinc-200">{gqls.length}</span> GraphQL endpoint{gqls.length === 1 ? '' : 's'}
         </span>
+        <span className="text-zinc-400">
+          <span className="font-semibold text-zinc-200">{jsCards.reduce((n, j) => n + (j.d.endpoints?.length ?? 0), 0)}</span> JS
+          endpoint(s)
+        </span>
         {introspectable > 0 && (
           <span className="inline-flex items-center gap-1.5 text-red-300">
             <ShieldAlert size={14} /> {introspectable} with introspection enabled
           </span>
         )}
+        {jsSecrets > 0 && (
+          <span className="inline-flex items-center gap-1.5 text-red-300">
+            <ShieldAlert size={14} /> {jsSecrets} possible secret(s) in JS
+          </span>
+        )}
         <span className="text-xs text-zinc-600">passive — probes the apex + likely API subdomains</span>
       </div>
 
-      {loaded && specs.length === 0 && gqls.length === 0 ? (
+      {loaded && empty ? (
         <Empty>
-          No API surface found yet. Click <span className="text-zinc-300">Discover API surface</span> to probe for OpenAPI/Swagger
-          specs and GraphQL endpoints.
+          No API surface found yet. Click <span className="text-zinc-300">Discover API surface</span> to probe for specs, GraphQL,
+          and API endpoints mined from the site's JavaScript.
         </Empty>
       ) : (
         <div className="space-y-3">
@@ -119,6 +142,9 @@ export function ApiSurface() {
           ))}
           {specs.map(({ f, d }) => (
             <SpecCard key={f.id} d={d} at={f.createdAt} score={f.score} />
+          ))}
+          {jsCards.map(({ f, d }) => (
+            <JsCard key={f.id} d={d} at={f.createdAt} score={f.score} />
           ))}
         </div>
       )}
@@ -213,6 +239,74 @@ function SpecCard({ d, at, score }: { d: SpecData; at: string; score: number | n
               {open ? 'show fewer' : `show all ${endpoints.length}`}
             </button>
           )}
+        </div>
+      )}
+      <div className="mt-2 text-right text-[11px] text-zinc-600">{timeAgo(new Date(at).getTime())}</div>
+    </Card>
+  )
+}
+
+function JsCard({ d, at, score }: { d: JsData; at: string; score: number | null }) {
+  const [open, setOpen] = useState(false)
+  const endpoints = Array.isArray(d.endpoints) ? d.endpoints : []
+  const params = Array.isArray(d.params) ? d.params : []
+  const secrets = Array.isArray(d.secrets) ? d.secrets : []
+  const shown = open ? endpoints : endpoints.slice(0, 12)
+  return (
+    <Card className={secrets.length ? 'border-red-900/50' : ''}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Code size={16} className="text-green-400" />
+        <Badge tone="green">JS recon</Badge>
+        <span className="font-mono text-sm text-zinc-100 break-all">{d.host}</span>
+        {secrets.length > 0 && <Badge tone="red">{secrets.length} secret(s)</Badge>}
+        {score != null && <span className="ml-auto text-xs text-zinc-500">score {score}</span>}
+      </div>
+      <div className="mt-1 text-xs text-zinc-500">
+        {endpoints.length} API endpoint(s) · {params.length} param(s) · from {d.filesScanned ?? 0} JS file(s)
+      </div>
+
+      {/* Leaked secrets — highest signal, shown first */}
+      {secrets.length > 0 && (
+        <div className="mt-2 space-y-1 rounded-lg border border-red-900/40 bg-red-950/20 p-2">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-red-200">
+            <AlertTriangle size={13} className="text-red-400" /> Possible secrets (review — may be false positives)
+          </div>
+          {secrets.slice(0, 15).map((s, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-x-2 font-mono text-[11px] text-red-200/90">
+              <span className="text-red-300">{s.pattern}:</span>
+              <span className="break-all">{s.sample}</span>
+              <span className="text-zinc-500 break-all">({s.file})</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {endpoints.length > 0 && (
+        <div className="mt-2.5">
+          <div className="flex flex-wrap gap-1">
+            {shown.map((e, i) => (
+              <span key={i} className="rounded border border-hair bg-ink-900/50 px-1.5 py-0.5 font-mono text-[11px] text-zinc-300 break-all">
+                {e}
+              </span>
+            ))}
+          </div>
+          {endpoints.length > 12 && (
+            <button onClick={() => setOpen((v) => !v)} className="mt-1.5 inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300">
+              <ChevronRight size={12} className={open ? 'rotate-90 transition' : 'transition'} />
+              {open ? 'show fewer' : `show all ${endpoints.length}`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {params.length > 0 && (
+        <div className="mt-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-600">Parameters</div>
+          <div className="flex flex-wrap gap-1">
+            {params.slice(0, 40).map((p, i) => (
+              <span key={i} className="rounded bg-ink-800/70 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">{p}</span>
+            ))}
+          </div>
         </div>
       )}
       <div className="mt-2 text-right text-[11px] text-zinc-600">{timeAgo(new Date(at).getTime())}</div>

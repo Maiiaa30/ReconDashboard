@@ -277,6 +277,23 @@ function scoreApi(data: any): ScoreResult {
   const reasons: string[] = []
   let score = 20
 
+  if (data?.kind === 'js') {
+    tags.add('js-endpoints')
+    const eps = Array.isArray(data.endpoints) ? data.endpoints.length : 0
+    const secs = Array.isArray(data.secrets) ? data.secrets.length : 0
+    score = 18
+    reasons.push(`${eps} API endpoint(s) extracted from the site's JavaScript`)
+    if (Array.isArray(data.params) && data.params.length) {
+      reasons.push(`${data.params.length} request parameter name(s) for testing`)
+    }
+    if (secs > 0) {
+      tags.add('secret-in-js')
+      score = 65
+      reasons.push(`${secs} possible secret(s) found in JS — REVIEW (may be false positives)`)
+    }
+    return { score: clamp(score), tags: [...tags], reasons }
+  }
+
   if (data?.kind === 'graphql') {
     tags.add('graphql')
     reasons.push(`GraphQL endpoint exposed at ${data.endpoint ?? '?'}`)
