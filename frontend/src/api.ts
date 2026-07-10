@@ -476,6 +476,15 @@ export const api = {
   // active scans (gated server-side; passive domains require confirm:true)
   nmap: (id: number, opts: { target?: string; ports?: string; deep?: boolean; confirm?: boolean } = {}) =>
     post<{ jobId: number }>(`/domains/${id}/scan/nmap`, opts),
+  // Attack-surface sweep: one nmap job per live host of the domain (deduped by IP).
+  nmapSweep: (id: number, opts: { deep?: boolean; confirm?: boolean } = {}) =>
+    post<{
+      queued: number
+      jobs: { host: string; jobId: number }[]
+      skipped: { host: string; reason: string }[]
+      capped: boolean
+      considered: number
+    }>(`/domains/${id}/scan/nmap-sweep`, opts),
   nuclei: (id: number, opts: { target?: string; severity?: string; tags?: string; scheme?: string; confirm?: boolean } = {}) =>
     post<{ jobId: number }>(`/domains/${id}/scan/nuclei`, opts),
   ffuf: (id: number, opts: { target?: string; path?: string; wordlist?: string; scheme?: string; confirm?: boolean } = {}) =>

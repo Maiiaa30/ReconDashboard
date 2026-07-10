@@ -1,6 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { assertScanAllowed, ScanPolicyError } from '../domains/scanPolicy'
-import { enqueueJob, type JobType } from '../jobs/queue'
+import { assertScanAllowed, assertDomainActive, assertHostInScope, ScanPolicyError } from '../domains/scanPolicy'
+import { getDomain } from '../domains/store'
+import { listSubdomains } from '../subdomains/store'
+import { enqueueJob, hasPendingJob, type JobType } from '../jobs/queue'
 import { actorName, writeAudit } from '../audit/store'
 
 // ACTIVE / LOUD scans. All gating (mode/confirm, target-belongs, authorization
@@ -66,4 +68,75 @@ export const scanRoutes: FastifyPluginAsync = async (app) => {
     path: typeof body.path === 'string' ? body.path : 'FUZZ',
     wordlist: typeof body.wordlist === 'string' ? body.wordlist : undefined,
   }))
+
+  // Attack-surface nmap sweep: fan out one nmap job per LIVE host of the domain
+  // (apex + discovered subdomains that resolved to an IP or answered HTTP),
+  // deduped by resolved IP so a shared origin / CDN isn't scanned many times.
+  // Domain rails are checked once; each host is still scope-checked individually
+  // (out-of-scope hosts are skipped, never scanned). Fan-out bypasses the
+  // single-scan pending/cooldown guard by design.
+  const SWEEP_MAX_HOSTS = 50
+  app.post<{ Params: { id: string }; Body: { deep?: boolean; confirm?: boolean } }>(
+    '/api/domains/:id/scan/nmap-sweep',
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      const confirm = request.body?.confirm === true
+      const deep = request.body?.deep === true
+      try {
+        const domain = getDomain(id)
+        if (!domain) return reply.code(404).send({ error: 'domain not found', code: 'not_found' })
+        assertDomainActive(domain, confirm)
+        // Don't stack a second sweep on top of one that's still draining.
+        if (hasPendingJob('nmap_scan', id)) {
+          return reply.code(409).send({ error: 'nmap scans are already queued for this domain', code: 'already_pending' })
+        }
+
+        // Candidate live hosts: apex (always) + subdomains with an IP or HTTP hit,
+        // deduped by resolved IP.
+        const seenIp = new Set<string>()
+        const hosts: string[] = []
+        const consider = (host: string, ip: string | null) => {
+          if (ip) {
+            if (seenIp.has(ip)) return
+            seenIp.add(ip)
+          }
+          if (!hosts.includes(host)) hosts.push(host)
+        }
+        consider(domain.host, null)
+        for (const s of listSubdomains(id)) {
+          if (s.ipAddress || s.httpStatus != null) consider(s.host, s.ipAddress ?? null)
+        }
+        const capped = hosts.length > SWEEP_MAX_HOSTS
+        const chosen = hosts.slice(0, SWEEP_MAX_HOSTS)
+
+        const jobs: { host: string; jobId: number }[] = []
+        const skipped: { host: string; reason: string }[] = []
+        for (const host of chosen) {
+          try {
+            const target = await assertHostInScope(domain, host)
+            const jobId = enqueueJob('nmap_scan', { domainId: id, target, deep })
+            jobs.push({ host: target, jobId })
+            writeAudit({
+              actor: actorName(request.session.userId),
+              action: 'enqueue:nmap_scan',
+              domainId: id,
+              target,
+              mode: domain.mode,
+              jobId,
+              detail: { sweep: true, deep },
+            })
+          } catch (err) {
+            skipped.push({ host, reason: err instanceof ScanPolicyError ? err.code : 'error' })
+          }
+        }
+        return reply.code(202).send({ queued: jobs.length, jobs, skipped, capped, considered: hosts.length })
+      } catch (err) {
+        if (err instanceof ScanPolicyError) {
+          if (err.retryAfterSec) reply.header('Retry-After', String(err.retryAfterSec))
+          return reply.code(err.status).send({ error: err.message, code: err.code })
+        }
+        throw err
+      }
+    },
+  )
 }

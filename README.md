@@ -67,7 +67,7 @@ The sidebar is grouped into **Overview · Recon · OSINT & Leaks · Offensive ·
 | **Data Leaks** | Domain **breach exposure** — configurable provider (HIBP / DeHashed / LeakCheck) *plus* a free, keyless per-email breach check and a HIBP domain link | 🟢 passive |
 | **WHOIS / Check Host** | Ad-hoc lookups — WHOIS (domain + IP) and reachability (ping / TCP / DNS / HTTP), rate-limited | 🟢 passive |
 | **WAF / Origin** | Origin-IP discovery behind Cloudflare / WAF | 🟢 passive |
-| **Scans** | `nmap` (quick top-1000 · **deep = all ports + `-sV` + NSE scripts + OS detection**, with service/version, port state and script output) · `nuclei` (template-tag presets) · `ffuf` — **gated, loud** | 🔴 active |
+| **Scans** | `nmap` (quick top-1000 · **deep = all ports + `-sV` + NSE scripts + OS detection**, with service/version, port state and script output · **attack-surface sweep** — one nmap per live host of the domain, deduped by IP) · `nuclei` (template-tag presets) · `ffuf` — **gated, loud** | 🔴 active |
 | **Tools** | `katana` · `naabu` · `dalfox` · `sslscan` · `sqlmap` · WordPress enum · 403/401 bypass · HTTP-method audit · exposed-datastore probes — **gated** | 🔴 active |
 | **OWASP** | In-process HTTP checks (headers, exposed `.env`/`.git`, reflected XSS, open redirect, CORS, TRACE, listings) + JS endpoint/secret extraction + nuclei pass, target-aware | 🔴 active |
 | **Fuzzing** | `ffuf` content discovery with target + wordlist pickers | 🔴 active |

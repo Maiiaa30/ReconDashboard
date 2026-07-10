@@ -48,29 +48,18 @@ export interface ScanRequest {
   cooldownMs?: number
 }
 
-export async function assertScanAllowed(req: ScanRequest): Promise<{ domain: Domain; target: string }> {
-  const domain = getDomain(req.domainId)
-  if (!domain) throw new ScanPolicyError('domain not found', 404, 'not_found')
-
+// Domain-level rails: mode gate + authorization window. Split out so a
+// multi-host sweep can check them ONCE instead of per host.
+export function assertDomainActive(domain: Domain, confirm?: boolean): void {
   // 1. Mode gate — passive_only needs an explicit confirm.
-  if (domain.mode !== 'active_authorized' && !req.confirm) {
+  if (domain.mode !== 'active_authorized' && !confirm) {
     throw new ScanPolicyError(
       `domain "${domain.host}" is passive_only — confirm you are authorized to actively scan it`,
       400,
       'confirm_required',
     )
   }
-
-  // 2. Target validity + belongs-to-domain.
-  const target = (req.target ?? domain.host).trim().toLowerCase()
-  if (target !== domain.host && !isValidHostname(target) && !isValidDomain(target)) {
-    throw new ScanPolicyError(`invalid target: ${req.target}`, 400, 'invalid_target')
-  }
-  if (target !== domain.host && !hostBelongsToDomain(target, domain.host)) {
-    throw new ScanPolicyError(`target ${target} is not within domain ${domain.host}`, 400, 'out_of_domain')
-  }
-
-  // 3. Authorization window (active scans are time-boxed).
+  // 2. Authorization window (active scans are time-boxed).
   const now = Date.now()
   if (domain.authorizedFrom && now < domain.authorizedFrom.getTime()) {
     throw new ScanPolicyError(
@@ -86,8 +75,20 @@ export async function assertScanAllowed(req: ScanRequest): Promise<{ domain: Dom
       'window_expired',
     )
   }
+}
 
-  // 4. Engagement scope (allow/deny of hosts + CIDRs).
+// Host-level rails: target validity, belongs-to-domain, engagement scope.
+// Returns the normalized target. Reused per host by the sweep (which has already
+// checked the domain-level rails once). Does NOT apply the pending/cooldown
+// guard — those are single-scan concerns, not batch ones.
+export async function assertHostInScope(domain: Domain, rawTarget?: string): Promise<string> {
+  const target = (rawTarget ?? domain.host).trim().toLowerCase()
+  if (target !== domain.host && !isValidHostname(target) && !isValidDomain(target)) {
+    throw new ScanPolicyError(`invalid target: ${rawTarget}`, 400, 'invalid_target')
+  }
+  if (target !== domain.host && !hostBelongsToDomain(target, domain.host)) {
+    throw new ScanPolicyError(`target ${target} is not within domain ${domain.host}`, 400, 'out_of_domain')
+  }
   const scope = parseScopeConfig(safeJsonParse<unknown>(domain.scopeConfig, {}))
   if (!scopeIsEmpty(scope)) {
     let ips: string[] = []
@@ -100,8 +101,17 @@ export async function assertScanAllowed(req: ScanRequest): Promise<{ domain: Dom
       throw new ScanPolicyError(`target ${target} is out of scope: ${res.reason}`, 403, 'out_of_scope')
     }
   }
+  return target
+}
 
-  // 5. Don't stack a duplicate of the same active scan on the single worker.
+export async function assertScanAllowed(req: ScanRequest): Promise<{ domain: Domain; target: string }> {
+  const domain = getDomain(req.domainId)
+  if (!domain) throw new ScanPolicyError('domain not found', 404, 'not_found')
+
+  assertDomainActive(domain, req.confirm)
+  const target = await assertHostInScope(domain, req.target)
+
+  // Don't stack a duplicate of the same active scan on the single worker.
   if (hasPendingJob(req.jobType, req.domainId)) {
     throw new ScanPolicyError(
       `a ${req.jobType} for "${domain.host}" is already queued or running`,
@@ -110,12 +120,12 @@ export async function assertScanAllowed(req: ScanRequest): Promise<{ domain: Dom
     )
   }
 
-  // 6. Per-target cooldown after a completed scan of the same type.
+  // Per-target cooldown after a completed scan of the same type.
   const cooldownMs = req.cooldownMs ?? DEFAULT_COOLDOWN_MS
   if (cooldownMs > 0) {
     const last = lastFinishedJobAt(req.jobType, req.domainId)
-    if (last && now - last.getTime() < cooldownMs) {
-      const retryAfterSec = Math.ceil((cooldownMs - (now - last.getTime())) / 1000)
+    if (last && Date.now() - last.getTime() < cooldownMs) {
+      const retryAfterSec = Math.ceil((cooldownMs - (Date.now() - last.getTime())) / 1000)
       throw new ScanPolicyError(
         `please wait ${retryAfterSec}s before re-running ${req.jobType} on "${domain.host}"`,
         429,

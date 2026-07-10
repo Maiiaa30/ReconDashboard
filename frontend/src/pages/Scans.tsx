@@ -4,6 +4,7 @@ import { api, ApiError, type Finding, type MetaStatus } from '../api'
 import { useApp, useHosts, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
 import { useConfirm } from '../components/Confirm'
+import { useToast } from '../components/Toast'
 import { timeAgo } from '../lib/format'
 
 type Scheme = 'https' | 'http'
@@ -41,6 +42,7 @@ function ResultLine({ result }: { result: ScanResult }) {
 export function Scans() {
   const { selected } = useApp()
   const ask = useConfirm()
+  const toast = useToast()
   const hosts = useHosts(selected)
   const [meta, setMeta] = useState<MetaStatus | null>(null)
   const [target, setTarget] = useState('')
@@ -48,6 +50,7 @@ export function Scans() {
   const [ports, setPorts] = useState('')
   const [nmapResult, setNmapResult] = useState<ScanResult>(emptyResult)
   const [nmapBusy, setNmapBusy] = useState(false)
+  const [sweepBusy, setSweepBusy] = useState(false)
 
   const [severity, setSeverity] = useState('')
   const [nucleiTags, setNucleiTags] = useState('')
@@ -215,6 +218,43 @@ export function Scans() {
               }}
             >
               {nmapBusy ? 'Queuing…' : 'Deep scan'}
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={!nmapInstalled || sweepBusy}
+              title="Attack-surface sweep: queue an nmap scan for every live host of this domain (apex + discovered subdomains), deduped by IP. Uses the quick top-1000 scan per host."
+              onClick={async () => {
+                const ok = await ask({
+                  title: 'Scan all live hosts?',
+                  message:
+                    `Queue an nmap scan for every live host of ${selected.host} — the apex plus discovered subdomains that resolved to an IP, deduped so a shared IP is scanned once.\n\n` +
+                    `This can enqueue many loud scans that run one after another. Watch Logs for progress.`,
+                  confirmLabel: 'Scan all hosts',
+                  tone: active ? 'default' : 'danger',
+                })
+                if (!ok) return
+                setSweepBusy(true)
+                try {
+                  const r = await api.nmapSweep(selected.id, { confirm: !active })
+                  if (r.queued === 0) {
+                    toast.info(
+                      `No live hosts to scan${r.skipped.length ? ` — ${r.skipped.length} skipped` : ''}. Run discovery first.`,
+                    )
+                  } else {
+                    toast.success(
+                      `Queued ${r.queued} host scan${r.queued === 1 ? '' : 's'}` +
+                        (r.skipped.length ? ` · ${r.skipped.length} skipped` : '') +
+                        (r.capped ? ' · capped at 50' : ''),
+                    )
+                  }
+                } catch (err) {
+                  toast.error(err instanceof ApiError ? err.message : 'sweep failed to enqueue')
+                } finally {
+                  setSweepBusy(false)
+                }
+              }}
+            >
+              {sweepBusy ? 'Queuing…' : 'Scan all live hosts'}
             </Button>
           </div>
           <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-200/90">
