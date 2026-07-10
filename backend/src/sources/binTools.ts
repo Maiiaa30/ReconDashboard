@@ -188,31 +188,31 @@ const WP_TIMEOUT = 9_000
 // SSRF-guarded: re-resolves the host on every redirect hop and refuses internal
 // addresses, so a WordPress site that 30x-redirects into an internal URL can't
 // be used to reach our own infrastructure.
-async function wpFetch(url: string): Promise<{ status: number; body: string } | null> {
-  const res = await guardedFetch(url, { timeoutMs: WP_TIMEOUT })
+async function wpFetch(url: string, signal?: AbortSignal): Promise<{ status: number; body: string } | null> {
+  const res = await guardedFetch(url, { timeoutMs: WP_TIMEOUT, signal })
   return res ? { status: res.status, body: res.body } : null
 }
 
-export async function runWpEnum(scheme: string, host: string): Promise<ToolFinding | null> {
+export async function runWpEnum(scheme: string, host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
   // Guard the initial host against all resolved A/AAAA records before probing
   // (throws SsrfBlockedError with a clear message if it resolves internal).
   await assertPublicHost(host)
   const base = `${scheme}://${host}`
 
-  const home = await wpFetch(base)
+  const home = await wpFetch(base, signal)
   const isWp = !!home && (/wp-content|wp-includes|<meta name="generator" content="WordPress/i.test(home.body))
   if (!isWp) return null
 
   const items: string[] = []
   // Version
   const gen = home!.body.match(/<meta name="generator" content="WordPress ([\d.]+)"/i)?.[1]
-  const readme = await wpFetch(`${base}/readme.html`)
+  const readme = await wpFetch(`${base}/readme.html`, signal)
   const rmVer = readme?.body.match(/Version ([\d.]+)/i)?.[1]
   const version = gen || rmVer
   if (version) items.push(`WordPress ${version}`)
 
   // Users via the REST API
-  const users = await wpFetch(`${base}/wp-json/wp/v2/users`)
+  const users = await wpFetch(`${base}/wp-json/wp/v2/users`, signal)
   if (users && users.status === 200) {
     try {
       const arr = JSON.parse(users.body) as { slug?: string; name?: string }[]
@@ -228,7 +228,7 @@ export async function runWpEnum(scheme: string, host: string): Promise<ToolFindi
   if (plugins.length) items.push(`Plugins: ${plugins.slice(0, 20).join(', ')}`)
 
   // Exposed endpoints
-  const xmlrpc = await wpFetch(`${base}/xmlrpc.php`)
+  const xmlrpc = await wpFetch(`${base}/xmlrpc.php`, signal)
   if (xmlrpc && (xmlrpc.status === 200 || xmlrpc.status === 405)) items.push('xmlrpc.php reachable (brute-force / pingback)')
 
   return {
@@ -271,6 +271,7 @@ export async function runBypass403(
   scheme: string,
   host: string,
   paths?: string[],
+  signal?: AbortSignal,
 ): Promise<ToolFinding | null> {
   await assertPublicHost(host)
   const base = `${scheme}://${host}`
@@ -282,7 +283,8 @@ export async function runBypass403(
   // 1. Find protected paths (plain GET returns 401/403).
   const forbidden: string[] = []
   for (const p of candidates) {
-    const res = await guardedFetch(`${base}${p}`, { timeoutMs: BYPASS_TIMEOUT })
+    if (signal?.aborted) break
+    const res = await guardedFetch(`${base}${p}`, { timeoutMs: BYPASS_TIMEOUT, signal })
     if (res && (res.status === 401 || res.status === 403)) forbidden.push(p)
     if (forbidden.length >= MAX_FORBIDDEN) break
   }
@@ -297,6 +299,7 @@ export async function runBypass403(
   // 2. For each, try the bypass battery; a 2xx means access was granted.
   const hits: string[] = []
   for (const p of forbidden) {
+    if (signal?.aborted) break
     const attempts: { url: string; method?: string; headers?: Record<string, string>; label: string }[] = [
       ...IP_SPOOF_HEADERS.map((h) => ({ url: `${base}${p}`, headers: { [h]: '127.0.0.1' }, label: `header ${h}: 127.0.0.1` })),
       { url: `${base}/`, headers: { 'X-Original-URL': p }, label: `header X-Original-URL: ${p}` },
@@ -305,7 +308,8 @@ export async function runBypass403(
       ...BYPASS_METHODS.map((m) => ({ url: `${base}${p}`, method: m, label: `method ${m}` })),
     ]
     for (const a of attempts) {
-      const res = await guardedFetch(a.url, { timeoutMs: BYPASS_TIMEOUT, headers: a.headers, method: a.method })
+      if (signal?.aborted) break
+      const res = await guardedFetch(a.url, { timeoutMs: BYPASS_TIMEOUT, headers: a.headers, method: a.method, signal })
       if (res && res.status >= 200 && res.status < 300) {
         hits.push(`${p} → ${res.status} via ${a.label}`)
       }
@@ -329,12 +333,13 @@ export async function runBypass403(
 // deletes. (TRACE/CONNECT are forbidden by the fetch spec so can't be sent here;
 // the OWASP engine already covers TRACE.) Status-only, SSRF-guarded, always on.
 const WRITE_METHODS = ['PUT', 'DELETE', 'PATCH']
-export async function runHttpMethods(scheme: string, host: string): Promise<ToolFinding | null> {
+export async function runHttpMethods(scheme: string, host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
   await assertPublicHost(host)
   const base = `${scheme}://${host}/`
   const accepted: string[] = []
   for (const m of WRITE_METHODS) {
-    const res = await guardedFetch(base, { method: m, timeoutMs: BYPASS_TIMEOUT })
+    if (signal?.aborted) break
+    const res = await guardedFetch(base, { method: m, timeoutMs: BYPASS_TIMEOUT, signal })
     if (res && ![400, 401, 403, 404, 405, 501].includes(res.status)) {
       accepted.push(`${m} → ${res.status} (not rejected)`)
     }
@@ -356,10 +361,10 @@ export async function runHttpMethods(scheme: string, host: string): Promise<Tool
 // (phpMyAdmin/Adminer/pgAdmin/Fauxton/Mongo-Express). Confirmed by CONTENT
 // SIGNATURE, not status code (a SPA catch-all 200s everything). Records only
 // proof-of-exposure metadata — versions and index/db NAMES — never rows/docs.
-export async function runDatastores(scheme: string, host: string): Promise<ToolFinding | null> {
+export async function runDatastores(scheme: string, host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
   await assertPublicHost(host)
   const hits: { label: string; severity: Severity; detail: string }[] = []
-  const get = (url: string) => guardedFetch(url, { timeoutMs: BYPASS_TIMEOUT })
+  const get = (url: string) => guardedFetch(url, { timeoutMs: BYPASS_TIMEOUT, signal })
 
   // Elasticsearch (:9200) — no-auth cluster info + index names.
   for (const sc of ['http', 'https']) {

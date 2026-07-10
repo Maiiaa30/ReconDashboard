@@ -57,22 +57,30 @@ export function domainOverviews(): DomainOverview[] {
     .groupBy(findings.domainId)
     .all()
 
-  // Exposure highlights need the JSON payload. Cap to the most recent rows so
-  // this can't grow unbounded as findings accumulate over the instance's life.
+  // Exposure highlights need the JSON payload. A single global LIMIT would let a
+  // high-volume domain push older domains entirely out of the window (showing
+  // them 0 IPs/ports/CVEs); instead apply a PER-DOMAIN cap so every domain gets
+  // a fair slice, with a generous overall safety limit to bound work.
+  const EXP_PER_DOMAIN_CAP = 5_000
+  const EXP_SAFETY_LIMIT = 50_000
   const expRows = db
     .select({ domainId: findings.domainId, data: findings.data })
     .from(findings)
     .where(eq(findings.type, 'exposure'))
     .orderBy(desc(findings.id))
-    .limit(5000)
+    .limit(EXP_SAFETY_LIMIT)
     .all()
 
   const subMap = new Map(subAgg.map((r) => [r.domainId, r]))
   const findMap = new Map(findAgg.map((r) => [r.domainId, r]))
 
   const expMap = new Map<number, { ips: Set<string>; ports: Set<number>; cves: Set<string> }>()
+  const perDomainSeen = new Map<number, number>()
   for (const row of expRows) {
     if (row.domainId == null) continue
+    const seen = perDomainSeen.get(row.domainId) ?? 0
+    if (seen >= EXP_PER_DOMAIN_CAP) continue
+    perDomainSeen.set(row.domainId, seen + 1)
     const data = safeJsonParse<{ ip?: string; ports?: number[]; vulns?: string[] }>(row.data, {})
     if (!expMap.has(row.domainId)) {
       expMap.set(row.domainId, { ips: new Set(), ports: new Set(), cves: new Set() })

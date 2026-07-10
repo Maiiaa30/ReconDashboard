@@ -1,4 +1,5 @@
 import { resolveDns } from './dns'
+import { assertPublicHost } from './guard'
 import { isInternalIp } from '../util/validate'
 
 // Lightweight HTTP probe (httpx-style): one GET to learn status, page title, and
@@ -30,54 +31,86 @@ interface FetchInfo {
   apiHint: boolean
 }
 
-async function fetchOnce(url: string): Promise<FetchInfo | null> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
-  try {
-    const res = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow',
-      signal: controller.signal,
-      headers: { 'User-Agent': 'recon-dashboard/0.1 (+probe)' },
-    })
-    const server = res.headers.get('server')
-    const ct = res.headers.get('content-type') ?? ''
-    let title: string | null = null
-    let loginHint = false
-    const apiHint = ct.includes('json') || ct.includes('graphql')
+// Follow redirects MANUALLY, re-resolving and SSRF-checking every hop — a
+// public host can otherwise 30x-redirect the probe into http://127.0.0.1/, and
+// fetch's redirect:'follow' would chase it without re-validating.
+const MAX_REDIRECTS = 5
 
-    if (ct.includes('html') && res.body) {
-      const reader = res.body.getReader()
-      const chunks: Uint8Array[] = []
-      let total = 0
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        if (value) {
-          chunks.push(value)
-          total += value.byteLength
-          if (total >= MAX_TITLE_BYTES) {
-            await reader.cancel()
-            break
+async function fetchOnce(startUrl: string): Promise<FetchInfo | null> {
+  let current = startUrl
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    let u: URL
+    try {
+      u = new URL(current)
+    } catch {
+      return null
+    }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    try {
+      await assertPublicHost(u.hostname)
+    } catch {
+      return null // this hop resolves to an internal address — refuse
+    }
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    try {
+      const res = await fetch(current, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: controller.signal,
+        headers: { 'User-Agent': 'recon-dashboard/0.1 (+probe)' },
+      })
+
+      // Redirect: re-loop so the next hop is guarded too.
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get('location')
+        if (res.body) await res.body.cancel().catch(() => {})
+        if (!loc) return { status: res.status, server: res.headers.get('server'), title: null, loginHint: false, apiHint: false }
+        current = new URL(loc, current).toString()
+        continue
+      }
+
+      const server = res.headers.get('server')
+      const ct = res.headers.get('content-type') ?? ''
+      let title: string | null = null
+      let loginHint = false
+      const apiHint = ct.includes('json') || ct.includes('graphql')
+
+      if (ct.includes('html') && res.body) {
+        const reader = res.body.getReader()
+        const chunks: Uint8Array[] = []
+        let total = 0
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          if (value) {
+            chunks.push(value)
+            total += value.byteLength
+            if (total >= MAX_TITLE_BYTES) {
+              await reader.cancel()
+              break
+            }
           }
         }
+        const html = Buffer.concat(chunks).toString('utf8')
+        const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+        if (m) title = m[1].replace(/\s+/g, ' ').trim().slice(0, 200)
+        // Login heuristic: a password input, or login wording in the title.
+        loginHint =
+          /<input[^>]+type=["']?password/i.test(html) ||
+          /\b(sign[\s-]?in|log[\s-]?in)\b/i.test(title ?? '')
+      } else if (res.body) {
+        await res.body.cancel().catch(() => {})
       }
-      const html = Buffer.concat(chunks).toString('utf8')
-      const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
-      if (m) title = m[1].replace(/\s+/g, ' ').trim().slice(0, 200)
-      // Login heuristic: a password input, or login wording in the title.
-      loginHint =
-        /<input[^>]+type=["']?password/i.test(html) ||
-        /\b(sign[\s-]?in|log[\s-]?in)\b/i.test(title ?? '')
-    } else if (res.body) {
-      await res.body.cancel().catch(() => {})
+      return { status: res.status, server, title, loginHint, apiHint }
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timer)
     }
-    return { status: res.status, server, title, loginHint, apiHint }
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timer)
   }
+  return null // too many redirects
 }
 
 export async function probeHost(host: string): Promise<ProbeResult> {
@@ -86,8 +119,10 @@ export async function probeHost(host: string): Promise<ProbeResult> {
   const cnames = dns?.cname ?? []
   const apiByName = /^api[.-]/i.test(host) || /\bapi\b/i.test(host)
 
-  // SSRF defense: refuse to fetch a host that resolves to an internal address.
-  if (ip && isInternalIp(ip)) {
+  // SSRF defense: refuse if ANY resolved address (all A + AAAA records, not just
+  // the first A) is internal. fetchOnce re-checks each redirect hop too.
+  const allIps = [...(dns?.a ?? []), ...(dns?.aaaa ?? [])]
+  if (allIps.some(isInternalIp)) {
     return {
       host, scheme: null, status: null, title: null, server: null, ip, url: null, cnames,
       loginHint: false, apiHint: apiByName,

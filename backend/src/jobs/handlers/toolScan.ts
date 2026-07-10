@@ -49,7 +49,7 @@ export async function toolScanHandler({ params, log, signal, progress }: JobCont
         finding = await runSqlmap(scheme, target, signal)
         break
       case 'wpenum':
-        finding = await runWpEnum(scheme, target)
+        finding = await runWpEnum(scheme, target, signal)
         break
       case 'bypass403': {
         // Optional specific path(s) to bypass (e.g. a 403 hit sent from Fuzzing).
@@ -59,14 +59,14 @@ export async function toolScanHandler({ params, log, signal, progress }: JobCont
           : typeof raw === 'string' && raw
             ? [raw]
             : undefined
-        finding = await runBypass403(scheme, target, paths)
+        finding = await runBypass403(scheme, target, paths, signal)
         break
       }
       case 'methods':
-        finding = await runHttpMethods(scheme, target)
+        finding = await runHttpMethods(scheme, target, signal)
         break
       case 'datastores':
-        finding = await runDatastores(scheme, target)
+        finding = await runDatastores(scheme, target, signal)
         break
       default:
         throw new Error(`unknown tool: ${tool}`)

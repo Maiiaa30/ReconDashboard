@@ -8,6 +8,7 @@ import { grabTlsCert } from '../../sources/tlsCert'
 import { internetDbLookup } from '../../sources/internetdb'
 import { diffAndStore, listSubdomains } from '../../subdomains/store'
 import { hostBelongsToDomain, isValidIp } from '../../util/validate'
+import { mapLimit } from '../../util/async'
 import type { JobContext } from '../worker'
 
 const MAX_HOSTS = 150
@@ -23,65 +24,86 @@ export async function exposureHandler({ params, log }: JobContext) {
   // Build the host list: the apex + known subdomains (capped).
   const hosts = [domain.host, ...listSubdomains(domainId).map((s) => s.host)].slice(0, MAX_HOSTS)
 
-  // Resolve each host to IPs, remembering which hostnames map to each IP.
-  const ipToHosts = new Map<string, Set<string>>()
-  for (const host of hosts) {
-    try {
-      const dns = await resolveDns(host)
-      for (const ip of [...dns.a, ...dns.aaaa]) {
-        if (!isValidIp(ip)) continue
-        if (!ipToHosts.has(ip)) ipToHosts.set(ip, new Set())
-        ipToHosts.get(ip)!.add(host)
+  // Resolve hosts to IPs with bounded concurrency (one slow/timeout host no
+  // longer adds its full timeout to the wall clock), remembering which hostnames
+  // map to each IP.
+  const resolved = await mapLimit(
+    hosts,
+    8,
+    async (host) => {
+      try {
+        const dns = await resolveDns(host)
+        return { host, ips: [...dns.a, ...dns.aaaa].filter(isValidIp) }
+      } catch (err) {
+        log.warn({ host, err }, 'dns resolution failed during exposure scan')
+        return { host, ips: [] as string[] }
       }
-    } catch (err) {
-      log.warn({ host, err }, 'dns resolution failed during exposure scan')
+    },
+    { host: '', ips: [] as string[] },
+  )
+  const ipToHosts = new Map<string, Set<string>>()
+  for (const { host, ips } of resolved) {
+    for (const ip of ips) {
+      if (!ipToHosts.has(ip)) {
+        if (ipToHosts.size >= MAX_IPS) continue
+        ipToHosts.set(ip, new Set())
+      }
+      ipToHosts.get(ip)!.add(host)
     }
-    if (ipToHosts.size >= MAX_IPS) break
   }
 
   // ASN/BGP enrichment for every resolved IP in one bulk Team Cymru query.
   const asnMap = await asnLookup([...ipToHosts.keys()])
 
-  const records: unknown[] = []
-  let exposedIps = 0
+  // InternetDB + CVE enrichment per IP, again with bounded concurrency. Kept
+  // modest so we stay polite to the free InternetDB/cvedb endpoints. DB writes
+  // inside each task are synchronous (better-sqlite3), so they don't interleave;
+  // each IP is distinct, so the per-asset CVE baseline is race-free.
+  const perIp = await mapLimit(
+    [...ipToHosts.entries()],
+    4,
+    async ([ip, hostSet]) => {
+      try {
+        const rec = await internetDbLookup(ip)
+        if (!rec) return null
 
-  for (const [ip, hostSet] of ipToHosts) {
-    try {
-      const rec = await internetDbLookup(ip)
-      if (!rec) continue
-      exposedIps++
+        const cves = rec.vulns.length ? await enrichCves(rec.vulns) : []
+        const asn = asnMap.get(ip) ?? null
+        const finding = {
+          ip,
+          host: [...hostSet][0],
+          hostnames: [...hostSet],
+          ports: rec.ports,
+          cpes: rec.cpes,
+          tags: rec.tags,
+          vulns: rec.vulns,
+          cves,
+          asn,
+        }
+        const asnTags = asn?.asn ? [`asn:${asn.asn}`] : []
+        await addScoredFinding({ domainId, type: 'exposure', data: finding, tags: ['exposure', ...asnTags] })
 
-      const cves = rec.vulns.length ? await enrichCves(rec.vulns) : []
-      const asn = asnMap.get(ip) ?? null
-      const finding = {
-        ip,
-        host: [...hostSet][0],
-        hostnames: [...hostSet],
-        ports: rec.ports,
-        cpes: rec.cpes,
-        tags: rec.tags,
-        vulns: rec.vulns,
-        cves,
-        asn,
+        // "New CVE on a known asset" watch: rec.vulns is the authoritative CVE-id
+        // set for this IP; enrich each with cvss/kev from the cvedb records. Record
+        // + diff vs the asset's baseline, and alert on anything genuinely new.
+        const cveMap = new Map(cves.map((c) => [c.cve_id, c]))
+        const assetCveList: AssetCve[] = rec.vulns.map((id) => {
+          const c = cveMap.get(id)
+          return { id, cvss: c?.cvss_v3 ?? c?.cvss ?? null, kev: !!c?.kev }
+        })
+        const fresh = recordAndDetectNewCves(domainId, ip, assetCveList)
+        if (fresh.length) await alertNewCves(domainId, ip, [...hostSet], fresh)
+        return finding
+      } catch (err) {
+        log.warn({ ip, err }, 'internetdb enrichment failed')
+        return null
       }
-      records.push(finding)
-      const asnTags = asn?.asn ? [`asn:${asn.asn}`] : []
-      await addScoredFinding({ domainId, type: 'exposure', data: finding, tags: ['exposure', ...asnTags] })
+    },
+    null,
+  )
 
-      // "New CVE on a known asset" watch: rec.vulns is the authoritative CVE-id
-      // set for this IP; enrich each with cvss/kev from the cvedb records. Record
-      // + diff vs the asset's baseline, and alert on anything genuinely new.
-      const cveMap = new Map(cves.map((c) => [c.cve_id, c]))
-      const assetCveList: AssetCve[] = rec.vulns.map((id) => {
-        const c = cveMap.get(id)
-        return { id, cvss: c?.cvss_v3 ?? c?.cvss ?? null, kev: !!c?.kev }
-      })
-      const fresh = recordAndDetectNewCves(domainId, ip, assetCveList)
-      if (fresh.length) await alertNewCves(domainId, ip, [...hostSet], fresh)
-    } catch (err) {
-      log.warn({ ip, err }, 'internetdb lookup failed')
-    }
-  }
+  const records: unknown[] = perIp.filter((r) => r !== null)
+  const exposedIps = records.length
 
   // TLS certificate SAN harvest on the apex — SANs frequently reveal sibling
   // hostnames; in-scope ones are folded into the subdomain inventory.

@@ -1,4 +1,5 @@
 import { Socket } from 'node:net'
+import { assertPublicHost } from './guard'
 import { isValidDomain, isValidIp } from '../util/validate'
 
 // Minimal, dependency-free WHOIS client (TCP port 43). Passive.
@@ -73,11 +74,16 @@ async function whoisResolve(query: string, kind: 'domain' | 'ip'): Promise<Whois
 
   if (referral && referral !== 'whois.iana.org') {
     try {
+      // SSRF: the referral host comes from the (untrusted) IANA/registrar
+      // response. Refuse a referral that resolves to an internal address before
+      // opening the port-43 socket; on refusal we fall back to the IANA response.
+      await assertPublicHost(referral)
       const authoritative = await whoisQuery(referral, query)
       // Some registries refer once more (thin registries). One hop is enough here.
       const secondReferral = parseReferral(authoritative)
       if (secondReferral && secondReferral !== referral) {
         try {
+          await assertPublicHost(secondReferral)
           const final = await whoisQuery(secondReferral, query)
           return { query, kind, server: secondReferral, raw: final || authoritative }
         } catch {

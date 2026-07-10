@@ -317,10 +317,11 @@ export async function runActiveChecks(
     customPaths: uniqCap((opts.sensitivePaths ?? []).filter((p) => SAFE_PATH.test(p)), 25),
   }
 
-  // SSRF guard — refuse a target that resolves to an internal address.
+  // SSRF guard — refuse if ANY resolved address (all A + AAAA, not just the
+  // first A) is internal.
   const dns = await resolveDns(host).catch(() => null)
-  const ip = dns?.a[0] ?? null
-  if (ip && isInternalIp(ip)) return { findings: [], reachable: false, targetedParams: 0 }
+  const allIps = [...(dns?.a ?? []), ...(dns?.aaaa ?? [])]
+  if (allIps.some(isInternalIp)) return { findings: [], reachable: false, targetedParams: 0 }
 
   const base = await fetchRaw(baseUrl, { redirect: 'follow', headers })
   if (!base) return { findings: [], reachable: false, targetedParams: 0 }

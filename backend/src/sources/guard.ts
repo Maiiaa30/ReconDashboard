@@ -21,6 +21,12 @@ export class SsrfBlockedError extends Error {
  * Throw SsrfBlockedError if the host resolves to any internal address.
  * A host that does not resolve is allowed through — the underlying connection
  * will simply fail on its own, and we don't want DNS hiccups to mask a scan.
+ *
+ * RESIDUAL RISK (accepted for this threat model): this is a check-then-connect
+ * guard — the tool/fetch re-resolves at connect time, so a hostile short-TTL
+ * record that flips public→internal between the check and the connection (DNS
+ * rebinding) can still defeat it. Fully closing this requires pinning the vetted
+ * IP for the actual connection (the SNI/Host pattern in sources/origin.ts).
  */
 export async function assertPublicHost(host: string): Promise<void> {
   let ips: string[]
@@ -56,6 +62,7 @@ export async function guardedFetch(
     maxRedirects?: number
     maxBytes?: number
     method?: string
+    signal?: AbortSignal
   } = {},
 ): Promise<GuardedResponse | null> {
   const timeoutMs = opts.timeoutMs ?? 9_000
@@ -64,6 +71,8 @@ export async function guardedFetch(
   let current = url
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
+    // Bail promptly if the caller's job was cancelled / timed out.
+    if (opts.signal?.aborted) return null
     let u: URL
     try {
       u = new URL(current)
@@ -83,7 +92,8 @@ export async function guardedFetch(
       const res = await fetch(current, {
         method: opts.method,
         redirect: 'manual',
-        signal: controller.signal,
+        // Combine our per-request timeout with the caller's cancel signal.
+        signal: opts.signal ? AbortSignal.any([controller.signal, opts.signal]) : controller.signal,
         headers: { 'User-Agent': 'recon-dashboard/0.1', ...opts.headers },
       })
       if (res.status >= 300 && res.status < 400) {
