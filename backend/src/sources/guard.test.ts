@@ -58,4 +58,18 @@ describe('assertPublicHost (SSRF guard)', () => {
     mockDns.mockResolvedValue(dns([], []))
     await expect(assertPublicHost('empty.example.com')).resolves.toBeUndefined()
   })
+
+  // Literal-IP + localhost hosts have no DNS to resolve, so they must be blocked
+  // synchronously (the Replay tool lets an operator type any URL directly).
+  it('blocks literal internal IPs and localhost without DNS', async () => {
+    for (const host of ['127.0.0.1', '10.0.0.5', '169.254.169.254', '[::1]', 'localhost', 'foo.localhost']) {
+      await expect(assertPublicHost(host)).rejects.toBeInstanceOf(SsrfBlockedError)
+    }
+    expect(mockDns).not.toHaveBeenCalled() // resolved by the literal/name short-circuit, no DNS
+  })
+
+  it('allows a public literal IP without a DNS lookup', async () => {
+    await expect(assertPublicHost('8.8.8.8')).resolves.toBeUndefined()
+    expect(mockDns).not.toHaveBeenCalled()
+  })
 })

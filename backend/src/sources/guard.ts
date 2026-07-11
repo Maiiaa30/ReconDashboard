@@ -8,7 +8,7 @@
 // connection, checking EVERY resolved A/AAAA record (not just the first).
 
 import { resolveDns } from './dns'
-import { isInternalIp } from '../util/validate'
+import { isInternalIp, isValidIp } from '../util/validate'
 
 export class SsrfBlockedError extends Error {
   constructor(public host: string, public ip: string) {
@@ -29,6 +29,19 @@ export class SsrfBlockedError extends Error {
  * IP for the actual connection (the SNI/Host pattern in sources/origin.ts).
  */
 export async function assertPublicHost(host: string): Promise<void> {
+  // A literal IP host (http://127.0.0.1, http://[::1], http://169.254.169.254)
+  // has no DNS to resolve, so the loop below would never see it — check it
+  // directly. Without this, a literal internal IP slips past and is "blocked"
+  // only by the connection happening to fail, which is not guaranteed.
+  const bare = host.replace(/^\[/, '').replace(/\]$/, '')
+  if (isValidIp(bare)) {
+    if (isInternalIp(bare)) throw new SsrfBlockedError(host, bare)
+    return // public literal IP — nothing to resolve
+  }
+  // `localhost` (and *.localhost) is loopback by convention but resolves via the
+  // hosts file, which dns.resolve below bypasses — block it by name.
+  const lower = bare.toLowerCase()
+  if (lower === 'localhost' || lower.endsWith('.localhost')) throw new SsrfBlockedError(host, '127.0.0.1')
   let ips: string[]
   try {
     const dns = await resolveDns(host)
