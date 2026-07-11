@@ -1,5 +1,5 @@
 import { assertPublicHost, guardedFetch } from './guard'
-import { jsRecon } from './jsRecon'
+import { jsRecon, type JsReconResult } from './jsRecon'
 import { mapLimit } from '../util/async'
 import { BROWSER_UA } from '../util/http'
 
@@ -77,6 +77,7 @@ export interface JsFindings {
   endpoints: string[] // API-ish paths pulled from JS
   params: string[]
   secrets: { pattern: string; sample: string; file: string }[]
+  fromCorpus?: number // how many endpoints came from the passive URL corpus (not JS)
 }
 
 export interface ApiSurfaceResult {
@@ -293,14 +294,41 @@ function baseDomain(host: string): string {
 }
 const API_HOST_RE = /(^|\.)(api|apis|graphql|gql|gateway|gw|rest|backend|bff|services?|svc|auth|sso|data|admin)\b/i
 
+const PARAM_IN_QUERY = /[?&]([a-zA-Z0-9_.-]{1,40})=/g
+
+// Pull API-looking paths this exact host already exposed in the passive URL
+// corpus (wayback / CommonCrawl / urlscan / katana results the domain already
+// collected) — surfaces real, historically-live endpoints with NO new request
+// to the target. Scoped to the one host so each finding is correctly attributed.
+export function apiPathsFromCorpus(host: string, knownUrls: string[]): { endpoints: string[]; params: string[] } {
+  const endpoints = new Set<string>()
+  const params = new Set<string>()
+  const h = host.toLowerCase()
+  for (const u of knownUrls) {
+    let url: URL
+    try {
+      url = new URL(u)
+    } catch {
+      continue // not an absolute URL — skip
+    }
+    if (url.hostname.toLowerCase() !== h) continue
+    const path = url.pathname + url.search
+    if (ASSET_RE.test(path) || !isApiEndpoint(path)) continue
+    endpoints.add(path)
+    for (const pm of url.search.matchAll(PARAM_IN_QUERY)) params.add(pm[1])
+  }
+  return { endpoints: [...endpoints], params: [...params] }
+}
+
 // JS bundle mining (the modern-SPA workhorse): pull the site's own JS (homepage
 // bundles + any already-known .js URLs from prior recon) and extract API
 // endpoints (relative paths AND in-scope absolute URLs like api.target.com/…),
 // params and leaked secrets — surfaces an API even when no spec is published.
-async function mineJs(host: string, extraJsUrls: string[]): Promise<JsFindings> {
+async function mineJs(host: string, extraJsUrls: string[], knownUrls: string[] = []): Promise<JsFindings> {
   const jsUrls = [...new Set([...(await homepageJsUrls(host)), ...extraJsUrls])]
-  if (!jsUrls.length) return { filesScanned: 0, endpoints: [], params: [], secrets: [] }
-  const raw = await jsRecon(jsUrls)
+  const raw: JsReconResult = jsUrls.length
+    ? await jsRecon(jsUrls)
+    : { filesScanned: 0, endpoints: [], urls: [], params: [], secrets: [] }
 
   const relative = raw.endpoints.filter(isApiEndpoint)
 
@@ -322,15 +350,29 @@ async function mineJs(host: string, extraJsUrls: string[]): Promise<JsFindings> 
     }
   }
 
-  const endpoints = [...new Set([...relative, ...absolute])].slice(0, MAX_ENDPOINTS)
-  return { filesScanned: raw.filesScanned, endpoints, params: raw.params, secrets: raw.secrets }
+  // Fold in API paths this host already exposed in the passive corpus (wayback /
+  // CommonCrawl / urlscan / katana) — no extra request, and it works even when a
+  // host publishes zero JS (jsUrls empty above but the corpus still has paths).
+  const corpus = apiPathsFromCorpus(host, knownUrls)
+
+  const endpoints = [...new Set([...relative, ...absolute, ...corpus.endpoints])].slice(0, MAX_ENDPOINTS)
+  const params = [...new Set([...raw.params, ...corpus.params])].slice(0, 100)
+  return { filesScanned: raw.filesScanned, endpoints, params, secrets: raw.secrets, fromCorpus: corpus.endpoints.length }
 }
 
-export async function discoverApiSurface(host: string, extraJsUrls: string[] = []): Promise<ApiSurfaceResult> {
+export async function discoverApiSurface(
+  host: string,
+  extraJsUrls: string[] = [],
+  knownUrls: string[] = [],
+): Promise<ApiSurfaceResult> {
   // SSRF: refuse a host that resolves internal before probing it.
   await assertPublicHost(host)
   // The three probes are independent — run them concurrently so total time is
   // the slowest phase, not their sum.
-  const [specs, graphql, js] = await Promise.all([sweepSpecs(host), sweepGraphql(host), mineJs(host, extraJsUrls)])
+  const [specs, graphql, js] = await Promise.all([
+    sweepSpecs(host),
+    sweepGraphql(host),
+    mineJs(host, extraJsUrls, knownUrls),
+  ])
   return { host, specs, graphql, js }
 }

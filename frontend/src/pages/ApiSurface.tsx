@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Braces, Webhook, KeyRound, ShieldAlert, ChevronRight, Code, AlertTriangle, Route } from 'lucide-react'
+import { Braces, Webhook, KeyRound, ShieldAlert, ChevronRight, Code, AlertTriangle, Route, Crosshair } from 'lucide-react'
 import { api, ApiError, type Finding } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
@@ -35,6 +35,7 @@ interface JsData {
   endpoints: string[]
   params: string[]
   secrets: { pattern: string; sample: string; file: string }[]
+  fromCorpus?: number // how many endpoints came from passive URLs (wayback/crawl), not JS
 }
 
 export function ApiSurface() {
@@ -43,9 +44,11 @@ export function ApiSurface() {
   const ask = useConfirm()
   const [findings, setFindings] = useState<Finding[]>([])
   const [crawlFindings, setCrawlFindings] = useState<Finding[]>([])
+  const [ffufFindings, setFfufFindings] = useState<Finding[]>([])
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [crawlBusy, setCrawlBusy] = useState(false)
+  const [fuzzBusy, setFuzzBusy] = useState(false)
 
   usePoll(
     () => {
@@ -59,6 +62,11 @@ export function ApiSurface() {
       api
         .findings({ domainId: selected.id, type: 'tool', limit: 50 })
         .then((r) => setCrawlFindings(r.findings.filter((f) => (f.data as any)?.tool === 'katana')))
+        .catch(() => {})
+      // API path-fuzz results are stored as 'ffuf' findings (shared with the Fuzzing page).
+      api
+        .findings({ domainId: selected.id, type: 'ffuf', limit: 200 })
+        .then((r) => setFfufFindings(r.findings))
         .catch(() => {})
     },
     6000,
@@ -79,10 +87,27 @@ export function ApiSurface() {
         .map((f) => ({ f, d: f.data as unknown as GqlData })),
     [findings],
   )
-  const jsCards = useMemo(
-    () => findings.filter((f) => (f.data as any)?.kind === 'js').map((f) => ({ f, d: f.data as unknown as JsData })),
-    [findings],
-  )
+  const jsCards = useMemo(() => {
+    const all = findings
+      .filter((f) => (f.data as any)?.kind === 'js')
+      .map((f) => ({ f, d: f.data as unknown as JsData }))
+    // apex and www (or any hosts serving the same bundles behind a wildcard cert)
+    // mine byte-identical JS, so they'd render as duplicate cards. Collapse by a
+    // host-independent content signature, keeping the shortest host (the apex).
+    const sig = (d: JsData) =>
+      JSON.stringify([
+        [...(d.endpoints ?? [])].sort(),
+        [...(d.params ?? [])].sort(),
+        [...(d.secrets ?? [])].map((s) => `${s.pattern}:${s.sample}`).sort(),
+      ])
+    const best = new Map<string, { f: Finding; d: JsData }>()
+    for (const card of all) {
+      const key = sig(card.d)
+      const cur = best.get(key)
+      if (!cur || (card.d.host?.length ?? 0) < (cur.d.host?.length ?? 0)) best.set(key, card)
+    }
+    return all.filter((c) => best.get(sig(c.d)) === c)
+  }, [findings])
   const introspectable = gqls.filter((g) => g.d.introspectionEnabled).length
   const jsSecrets = jsCards.reduce((n, j) => n + (Array.isArray(j.d.secrets) ? j.d.secrets.length : 0), 0)
   // Katana-crawled URLs (dedup across findings), narrowed to API-looking ones.
@@ -93,7 +118,25 @@ export function ApiSurface() {
     }
     return [...urls].filter(isApiUrl)
   }, [crawlFindings])
-  const empty = specs.length === 0 && gqls.length === 0 && jsCards.length === 0 && crawlEndpoints.length === 0
+  // ffuf path-fuzz hits (dedup by URL), narrowed to API-looking ones. Each hit is
+  // a path that actually responded (200/401/403 = exists), so it's a confirmed
+  // endpoint, not just a reference.
+  const fuzzHits = useMemo(() => {
+    const seen = new Map<string, { url: string; status: number }>()
+    for (const f of ffufFindings) {
+      const d = f.data as any
+      if (typeof d?.url === 'string' && isApiUrl(d.url) && !seen.has(d.url)) {
+        seen.set(d.url, { url: d.url, status: Number(d.status) || 0 })
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.url.localeCompare(b.url))
+  }, [ffufFindings])
+  const empty =
+    specs.length === 0 &&
+    gqls.length === 0 &&
+    jsCards.length === 0 &&
+    crawlEndpoints.length === 0 &&
+    fuzzHits.length === 0
 
   async function discover() {
     if (!selected || busy) return
@@ -133,6 +176,36 @@ export function ApiSurface() {
     }
   }
 
+  // Active API path fuzz with ffuf + an API-focused wordlist — finds endpoints
+  // nothing references. Loud (hundreds of requests), so gated like the crawl:
+  // a passive domain needs an explicit confirm.
+  async function fuzzApi() {
+    if (!selected || fuzzBusy) return
+    const activeMode = selected.mode === 'active_authorized'
+    if (!activeMode) {
+      const ok = await ask({
+        title: 'Run an active API fuzz?',
+        message: `${selected.host} is passive_only.\n\nffuf brute-forces common API paths (hundreds of requests) against the host to find endpoints nothing references. Only run it if you are authorized to actively test this target.`,
+        confirmLabel: 'Fuzz anyway',
+        tone: 'danger',
+      })
+      if (!ok) return
+    }
+    setFuzzBusy(true)
+    try {
+      const { jobId } = await api.ffuf(selected.id, {
+        wordlist: '/usr/share/wordlists/api-endpoints.txt',
+        path: 'FUZZ',
+        confirm: !activeMode,
+      })
+      toast.success(`API fuzz queued (job #${jobId}) — discovered paths appear here when it finishes.`)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Failed to queue API fuzz.')
+    } finally {
+      setFuzzBusy(false)
+    }
+  }
+
   if (!selected) return <Empty>Select a domain to map its API surface.</Empty>
 
   return (
@@ -152,6 +225,14 @@ export function ApiSurface() {
               title="Active: crawl the site with katana (follows links + parses JS) to find endpoints static analysis misses. Loud — gated like a scan."
             >
               <Route size={15} /> {crawlBusy ? 'Queuing…' : 'Deep crawl (katana)'}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={fuzzApi}
+              disabled={fuzzBusy}
+              title="Active: brute-force common API paths with ffuf to find endpoints nothing references. Loud — gated like a scan."
+            >
+              <Crosshair size={15} /> {fuzzBusy ? 'Queuing…' : 'Fuzz API paths (ffuf)'}
             </Button>
           </div>
         }
@@ -177,6 +258,11 @@ export function ApiSurface() {
         {crawlEndpoints.length > 0 && (
           <span className="text-zinc-400">
             <span className="font-semibold text-zinc-200">{crawlEndpoints.length}</span> crawled (katana)
+          </span>
+        )}
+        {fuzzHits.length > 0 && (
+          <span className="text-zinc-400">
+            <span className="font-semibold text-zinc-200">{fuzzHits.length}</span> fuzzed (ffuf)
           </span>
         )}
         {jsSecrets > 0 && (
@@ -214,6 +300,7 @@ export function ApiSurface() {
             <JsCard key={f.id} d={d} at={f.createdAt} score={f.score} />
           ))}
           {crawlEndpoints.length > 0 && <CrawlCard urls={crawlEndpoints} />}
+          {fuzzHits.length > 0 && <FfufCard hits={fuzzHits} />}
         </div>
       )}
 
@@ -331,6 +418,7 @@ function JsCard({ d, at, score }: { d: JsData; at: string; score: number | null 
       </div>
       <div className="mt-1 text-xs text-zinc-500">
         {endpoints.length} API endpoint(s) · {params.length} param(s) · from {d.filesScanned ?? 0} JS file(s)
+        {d.fromCorpus ? ` + ${d.fromCorpus} from passive URLs (wayback/crawl)` : ''}
       </div>
 
       {/* Leaked secrets — highest signal, shown first */}
@@ -388,7 +476,7 @@ function isApiUrl(u: string): boolean {
     const url = new URL(u)
     if (/\.(js|mjs|css|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|eot|mp4|webm|pdf|xml|txt)$/i.test(url.pathname)) return false
     if (url.search) return true
-    return /(^|\/)(api|apis|rest|graphql|gql|v\d+|internal|services?|oauth|auth|token|admin|webhook|callback|wp-json)(\/|$)/i.test(
+    return /(^|\/)(api|apis|rest|graphql|graphiql|gql|v\d+|internal|services?|oauth|auth|token|admin|webhook|callback|wp-json|actuator|swagger|openapi|\.well-known)(\/|$)|\.(json|yaml|yml)$/i.test(
       url.pathname,
     )
   } catch {
@@ -431,6 +519,58 @@ function CrawlCard({ urls }: { urls: string[] }) {
         >
           <ChevronRight size={12} className={open ? 'rotate-90 transition' : 'transition'} />
           {open ? 'show fewer' : `show all ${urls.length}`}
+        </button>
+      )}
+    </Card>
+  )
+}
+
+const FFUF_STATUS_TONE = (s: number) =>
+  s === 200 || s === 204
+    ? 'text-green-300 bg-green-500/10'
+    : s === 401 || s === 403
+      ? 'text-amber-300 bg-amber-500/10'
+      : s >= 300 && s < 400
+        ? 'text-sky-300 bg-sky-500/10'
+        : 'text-zinc-300 bg-ink-800'
+
+function FfufCard({ hits }: { hits: { url: string; status: number }[] }) {
+  const [open, setOpen] = useState(false)
+  const shown = open ? hits : hits.slice(0, 15)
+  const fmt = (u: string) => {
+    try {
+      const x = new URL(u)
+      return x.host + x.pathname + x.search
+    } catch {
+      return u
+    }
+  }
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-2">
+        <Crosshair size={16} className="text-orange-400" />
+        <Badge tone="amber">ffuf fuzz</Badge>
+        <span className="text-sm font-medium text-zinc-100">{hits.length} API path(s) that responded</span>
+      </div>
+      <div className="mt-1 text-xs text-zinc-500">
+        Active brute-force of common API paths — each hit is a path that actually answered (200 = open, 401/403 = exists but
+        protected), so it&apos;s a confirmed endpoint, not just a reference.
+      </div>
+      <div className="mt-2.5 space-y-0.5">
+        {shown.map((h, i) => (
+          <div key={i} className="flex items-center gap-2 font-mono text-[11px]">
+            <span className={`rounded px-1 ${FFUF_STATUS_TONE(h.status)}`}>{h.status || '—'}</span>
+            <span className="text-zinc-300 break-all">{fmt(h.url)}</span>
+          </div>
+        ))}
+      </div>
+      {hits.length > 15 && (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="mt-1.5 inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300"
+        >
+          <ChevronRight size={12} className={open ? 'rotate-90 transition' : 'transition'} />
+          {open ? 'show fewer' : `show all ${hits.length}`}
         </button>
       )}
     </Card>

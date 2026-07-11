@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseSpec } from './apiSurface'
+import { parseSpec, apiPathsFromCorpus } from './apiSurface'
 
 describe('parseSpec', () => {
   it('parses an OpenAPI 3 document: endpoints, servers, auth schemes', () => {
@@ -44,5 +44,35 @@ describe('parseSpec', () => {
   it('rejects non-spec JSON and invalid input', () => {
     expect(parseSpec('u', JSON.stringify({ hello: 'world' }))).toBeNull()
     expect(parseSpec('u', 'not json')).toBeNull()
+  })
+})
+
+describe('apiPathsFromCorpus', () => {
+  it('keeps only this host’s API-looking paths and extracts query params', () => {
+    const urls = [
+      'https://target.com/api/v1/users?id=5',
+      'https://target.com/about', // not API-ish
+      'https://target.com/logo.png', // asset
+      'https://api.other.com/api/secret', // different host
+      'https://target.com/blog?utm_source=x', // marketing query → excluded
+      'https://target.com/graphql',
+      'not-a-url',
+    ]
+    const { endpoints, params } = apiPathsFromCorpus('target.com', urls)
+    expect(endpoints).toContain('/api/v1/users?id=5')
+    expect(endpoints).toContain('/graphql')
+    expect(endpoints).not.toContain('/about')
+    expect(endpoints).not.toContain('/logo.png')
+    expect(endpoints).not.toContain('/api/secret') // belongs to a different host
+    expect(endpoints.some((e) => e.startsWith('/blog'))).toBe(false)
+    expect(params).toContain('id')
+  })
+
+  it('is case-insensitive on the host and dedups', () => {
+    const { endpoints } = apiPathsFromCorpus('Target.com', [
+      'https://TARGET.com/api/a',
+      'https://target.com/api/a',
+    ])
+    expect(endpoints).toEqual(['/api/a'])
   })
 })

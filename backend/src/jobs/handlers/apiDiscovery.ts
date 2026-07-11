@@ -31,9 +31,11 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
     if (!hosts.includes(s.host)) hosts.push(s.host)
   }
 
-  // Known .js URLs from prior recon (wayback/commoncrawl/katana) broaden the JS
-  // corpus beyond just the homepage bundles.
-  const knownJs = knownUrlsFor(domainId).filter((u) => /^https?:\/\/[^\s"']+\.m?js(\?|$)/i.test(u))
+  // The full passive URL corpus from prior recon (wayback/commoncrawl/urlscan/
+  // katana). `.js` URLs broaden the JS corpus beyond the homepage bundles; the
+  // rest is mined per-host for API-looking paths (no new request to the target).
+  const knownUrls = knownUrlsFor(domainId)
+  const knownJs = knownUrls.filter((u) => /^https?:\/\/[^\s"']+\.m?js(\?|$)/i.test(u))
 
   const counts = { spec: 0, graphql: 0, jsEndpoints: 0, jsFiles: 0 }
   await mapLimit(
@@ -44,7 +46,7 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
       progress(`probing API surface of ${host}`)
       let result
       try {
-        result = await discoverApiSurface(host, knownJs)
+        result = await discoverApiSurface(host, knownJs, knownUrls)
       } catch (err) {
         log.warn({ host, err }, 'api-surface probe failed')
         return null
