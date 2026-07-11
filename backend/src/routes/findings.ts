@@ -9,7 +9,24 @@ import {
   type FindingType,
 } from '../findings/store'
 
-const VALID_TYPES: FindingType[] = ['new_subdomain', 'exposure', 'osint', 'nmap', 'nuclei', 'ffuf', 'origin', 'owasp', 'tool']
+// Must list EVERY FindingType — a type missing here is silently dropped from the
+// ?type= filter, so the query falls back to "all types" and the caller's findings
+// (e.g. the API Surface page's type=api) get buried under higher-scored rows past
+// the limit. Keep in sync with FindingType in findings/store.ts.
+const VALID_TYPES: FindingType[] = [
+  'new_subdomain',
+  'exposure',
+  'osint',
+  'nmap',
+  'nuclei',
+  'ffuf',
+  'origin',
+  'owasp',
+  'tool',
+  'cve_new',
+  'leak',
+  'api',
+]
 const MAX_NOTE = 2000
 
 export const findingRoutes: FastifyPluginAsync = async (app) => {
