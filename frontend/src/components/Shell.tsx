@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   Home as HomeIcon, Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
   Activity, ScanSearch, ShieldCheck, Flag, StickyNote, PenTool, ScrollText,
-  Settings as SettingsIcon, LogOut, Menu, X, Search, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, Router, ChevronsLeft, ChevronsRight, Webhook, type LucideIcon,
+  Settings as SettingsIcon, LogOut, Menu, X, Search, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, Router, ChevronsLeft, ChevronsRight, Webhook, Repeat, type LucideIcon,
 } from 'lucide-react'
 import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -23,6 +23,7 @@ import { SocialForensics } from '../pages/SocialForensics'
 import { DataLeaks } from '../pages/DataLeaks'
 import { Origin } from '../pages/Origin'
 import { ApiSurface } from '../pages/ApiSurface'
+import { Replay } from '../pages/Replay'
 import { Whois } from '../pages/Whois'
 import { CheckHost } from '../pages/CheckHost'
 import { Scans } from '../pages/Scans'
@@ -74,6 +75,7 @@ const NAV_SECTIONS: { title: string; items: { key: string; label: string; icon: 
     items: [
       { key: 'scans', label: 'Scans', icon: ScanSearch },
       { key: 'fuzzing', label: 'Fuzzing', icon: Crosshair },
+      { key: 'replay', label: 'Replay', icon: Repeat },
       { key: 'tools', label: 'Tools', icon: Wrench },
       { key: 'owasp', label: 'OWASP', icon: ShieldCheck },
       { key: 'origin', label: 'WAF / Origin', icon: ShieldAlert },
@@ -106,7 +108,7 @@ const MODULE_INDEX = NAV_SECTIONS.flatMap((s) => s.items.map((it) => ({ key: it.
 type ModuleKey = (typeof MODULES)[number]['key']
 
 // Modules that operate on a selected domain show the domain picker.
-const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'methodology', 'subdomains', 'screenshots', 'fuzzing', 'exposure', 'ports', 'api', 'osint', 'leaks', 'origin', 'scans', 'tools', 'owasp', 'notes']
+const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'methodology', 'subdomains', 'screenshots', 'fuzzing', 'replay', 'exposure', 'ports', 'api', 'osint', 'leaks', 'origin', 'scans', 'tools', 'owasp', 'notes']
 
 export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { domains, selectedId, selected, select } = useApp()
@@ -342,6 +344,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {active === 'subdomains' && <Subdomains />}
           {active === 'screenshots' && <Screenshots />}
           {active === 'fuzzing' && <Fuzzing />}
+          {active === 'replay' && <Replay />}
           {active === 'exposure' && <Exposure />}
           {active === 'ports' && <Ports />}
           {active === 'api' && <ApiSurface />}

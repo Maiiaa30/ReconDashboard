@@ -15,6 +15,7 @@ export type JobType =
   | 'tool_scan'
   | 'leak_check'
   | 'api_discovery'
+  | 'intruder'
 
 // Loud/active job types we deliberately do NOT auto-resume after a crash: a scan
 // interrupted mid-run would silently re-fire against the target on the next boot,
@@ -26,6 +27,7 @@ const LOUD_TYPES: ReadonlySet<JobType> = new Set([
   'owasp_active',
   'tool_scan',
   'origin_scan',
+  'intruder',
 ])
 
 // After this many claims a job is dead-lettered instead of re-queued, so a job

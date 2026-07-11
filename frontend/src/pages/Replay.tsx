@@ -1,0 +1,626 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Send, Crosshair, Repeat, ChevronRight, AlertTriangle, Clock, Ruler, StopCircle } from 'lucide-react'
+import { api, ApiError, type ReplayResponse, type IntruderResult, type IntruderAttempt, type Job, type Wordlist } from '../api'
+import { useApp } from '../state'
+import { Badge, Button, Card, Empty, PageHeader, Spinner } from '../components/ui'
+import { useToast } from '../components/Toast'
+import { useConfirm } from '../components/Confirm'
+
+const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const
+const PAYLOAD_MARKER = '{{PAYLOAD}}'
+
+function parseHeaders(text: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const line of text.split(/\r?\n/)) {
+    const t = line.trim()
+    if (!t) continue
+    const idx = t.indexOf(':')
+    if (idx <= 0) continue
+    const name = t.slice(0, idx).trim()
+    if (name) out[name] = t.slice(idx + 1).trim()
+  }
+  return out
+}
+
+function statusTone(s: number): 'green' | 'amber' | 'red' | 'blue' | 'zinc' {
+  if (s === 0) return 'red'
+  if (s >= 200 && s < 300) return 'green'
+  if (s >= 300 && s < 400) return 'blue'
+  if (s === 401 || s === 403 || s === 429) return 'amber'
+  if (s >= 400) return 'red'
+  return 'zinc'
+}
+
+export function Replay() {
+  const { selected } = useApp()
+  const toast = useToast()
+  const ask = useConfirm()
+  const [mode, setMode] = useState<'repeater' | 'intruder'>('repeater')
+
+  // Shared request editor state.
+  const [method, setMethod] = useState<(typeof METHODS)[number]>('GET')
+  const [url, setUrl] = useState('')
+  const [headersText, setHeadersText] = useState('')
+  const [bodyText, setBodyText] = useState('')
+  const [followRedirects, setFollowRedirects] = useState(false)
+
+  // Prefill the URL from the selected target the first time (and when switching to
+  // a target while the box is still empty/pointing at the old host).
+  const lastHost = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selected) return
+    if (!url || url === `https://${lastHost.current}/`) setUrl(`https://${selected.host}/`)
+    lastHost.current = selected.host
+  }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!selected) return <Empty>Select a domain to compose and replay requests against it.</Empty>
+
+  const passive = selected.mode !== 'active_authorized'
+
+  async function confirmActive(title: string, what: string): Promise<boolean> {
+    if (!passive) return true
+    return ask({
+      title,
+      message: `${selected!.host} is passive_only.\n\n${what} sends real traffic to the target. Only continue if you are authorized to actively test it.`,
+      confirmLabel: 'Send anyway',
+      tone: 'danger',
+    })
+  }
+
+  return (
+    <div>
+      <PageHeader
+        title="Replay"
+        subtitle={`${selected.host} — compose, send and fuzz requests (server-side, scoped to this target)`}
+        actions={
+          <div className="inline-flex rounded-lg border border-hair bg-ink-850 p-0.5">
+            <ModeTab active={mode === 'repeater'} onClick={() => setMode('repeater')} icon={<Repeat size={14} />} label="Repeater" />
+            <ModeTab active={mode === 'intruder'} onClick={() => setMode('intruder')} icon={<Crosshair size={14} />} label="Intruder" />
+          </div>
+        }
+      />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <RequestEditor
+          mode={mode}
+          method={method}
+          setMethod={setMethod}
+          url={url}
+          setUrl={setUrl}
+          headersText={headersText}
+          setHeadersText={setHeadersText}
+          bodyText={bodyText}
+          setBodyText={setBodyText}
+          followRedirects={followRedirects}
+          setFollowRedirects={setFollowRedirects}
+        />
+        {mode === 'repeater' ? (
+          <RepeaterPanel
+            domainId={selected.id}
+            passive={passive}
+            confirmActive={confirmActive}
+            build={() => ({
+              method,
+              url,
+              headers: parseHeaders(headersText),
+              body: method === 'GET' || method === 'HEAD' ? undefined : bodyText || undefined,
+              followRedirects,
+            })}
+            toast={toast}
+          />
+        ) : (
+          <IntruderPanel
+            domainId={selected.id}
+            passive={passive}
+            confirmActive={confirmActive}
+            build={() => ({
+              method,
+              url,
+              headers: parseHeaders(headersText),
+              body: method === 'GET' || method === 'HEAD' ? undefined : bodyText || undefined,
+              followRedirects,
+            })}
+            toast={toast}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ModeTab({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
+        active ? 'bg-accent-500/15 text-accent-fg' : 'text-zinc-400 hover:text-zinc-200'
+      }`}
+    >
+      {icon} {label}
+    </button>
+  )
+}
+
+type BuiltRequest = { method: string; url: string; headers: Record<string, string>; body?: string; followRedirects: boolean }
+
+function RequestEditor(props: {
+  mode: 'repeater' | 'intruder'
+  method: (typeof METHODS)[number]
+  setMethod: (m: (typeof METHODS)[number]) => void
+  url: string
+  setUrl: (s: string) => void
+  headersText: string
+  setHeadersText: (s: string) => void
+  bodyText: string
+  setBodyText: (s: string) => void
+  followRedirects: boolean
+  setFollowRedirects: (b: boolean) => void
+}) {
+  const bodyless = props.method === 'GET' || props.method === 'HEAD'
+  return (
+    <Card>
+      <div className="mb-2 flex items-center gap-2">
+        <select
+          value={props.method}
+          onChange={(e) => props.setMethod(e.target.value as (typeof METHODS)[number])}
+          className="rounded-lg border border-hair bg-ink-950 px-2 py-2 font-mono text-xs outline-none focus:border-accent-500"
+        >
+          {METHODS.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+        <input
+          value={props.url}
+          onChange={(e) => props.setUrl(e.target.value)}
+          placeholder="https://host/path"
+          spellCheck={false}
+          className="min-w-0 flex-1 rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500"
+        />
+      </div>
+      {props.mode === 'intruder' && (
+        <p className="mb-2 text-xs text-zinc-500">
+          Put <code className="rounded bg-ink-800 px-1 font-mono text-accent-fg">{PAYLOAD_MARKER}</code> where each payload
+          should go — in the URL, a header value, or the body.
+        </p>
+      )}
+      <label className="mb-1 block text-[10px] uppercase tracking-wide text-zinc-600">Headers (one per line: Name: Value)</label>
+      <textarea
+        value={props.headersText}
+        onChange={(e) => props.setHeadersText(e.target.value)}
+        placeholder={'Cookie: session=…\nAuthorization: Bearer …\nContent-Type: application/json'}
+        rows={5}
+        spellCheck={false}
+        className="mb-2 block w-full rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500"
+      />
+      <label className="mb-1 block text-[10px] uppercase tracking-wide text-zinc-600">
+        Body {bodyless && <span className="text-zinc-600">(ignored for {props.method})</span>}
+      </label>
+      <textarea
+        value={props.bodyText}
+        onChange={(e) => props.setBodyText(e.target.value)}
+        placeholder={bodyless ? '' : '{"code":"' + PAYLOAD_MARKER + '"}'}
+        rows={6}
+        spellCheck={false}
+        disabled={bodyless}
+        className="block w-full rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500 disabled:opacity-50"
+      />
+    </Card>
+  )
+}
+
+// --- Repeater ---------------------------------------------------------------
+function RepeaterPanel({
+  domainId,
+  passive,
+  confirmActive,
+  build,
+  toast,
+}: {
+  domainId: number
+  passive: boolean
+  confirmActive: (title: string, what: string) => Promise<boolean>
+  build: () => BuiltRequest
+  toast: ReturnType<typeof useToast>
+}) {
+  const [busy, setBusy] = useState(false)
+  const [resp, setResp] = useState<ReplayResponse | null>(null)
+  const [showHeaders, setShowHeaders] = useState(false)
+  const [view, setView] = useState<'body' | 'preview'>('body')
+  const [runScripts, setRunScripts] = useState(false)
+
+  async function send() {
+    if (busy) return
+    const req = build()
+    if (!req.url) return toast.error('Enter a URL first.')
+    if (!(await confirmActive('Send this request?', 'Replay'))) return
+    setBusy(true)
+    try {
+      const { response } = await api.replaySend({ domainId, ...req, confirm: passive })
+      setResp(response)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Request failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <div className="mb-3 flex items-center gap-2">
+        <Button variant="loud" onClick={send} disabled={busy}>
+          <Send size={15} /> {busy ? 'Sending…' : 'Send'}
+        </Button>
+        {resp && (
+          <div className="ml-auto flex items-center gap-3 text-xs text-zinc-400">
+            <Badge tone={statusTone(resp.status)}>
+              {resp.status} {resp.statusText}
+            </Badge>
+            <span className="inline-flex items-center gap-1">
+              <Clock size={12} /> {resp.timeMs}ms
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Ruler size={12} /> {resp.bodyBytes} B{resp.truncated ? '+' : ''}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {!resp ? (
+        <div className="rounded-lg border border-dashed border-hair bg-ink-900/50 p-6 text-sm text-zinc-500">
+          Compose a request on the left and hit Send — the response appears here.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {resp.redirects.length > 0 && (
+            <div className="text-xs text-zinc-500">
+              followed {resp.redirects.length} redirect(s) → <span className="font-mono text-zinc-400 break-all">{resp.finalUrl}</span>
+            </div>
+          )}
+          <button
+            onClick={() => setShowHeaders((v) => !v)}
+            className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300"
+          >
+            <ChevronRight size={12} className={showHeaders ? 'rotate-90 transition' : 'transition'} /> {resp.headers.length} response
+            headers
+          </button>
+          {showHeaders && (
+            <pre className="max-h-40 overflow-auto rounded-lg border border-hair/60 bg-ink-900/50 p-2 font-mono text-[11px] text-zinc-300">
+              {resp.headers.map(([k, v]) => `${k}: ${v}`).join('\n')}
+            </pre>
+          )}
+          <div>
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-lg border border-hair bg-ink-950 p-0.5 text-xs">
+                <button
+                  onClick={() => setView('body')}
+                  className={`rounded px-2.5 py-1 ${view === 'body' ? 'bg-accent-500/15 text-accent-fg' : 'text-zinc-400'}`}
+                >
+                  Body
+                </button>
+                <button
+                  onClick={() => setView('preview')}
+                  className={`rounded px-2.5 py-1 ${view === 'preview' ? 'bg-accent-500/15 text-accent-fg' : 'text-zinc-400'}`}
+                >
+                  Preview
+                </button>
+              </div>
+              {resp.truncated && <span className="text-[10px] text-amber-400">truncated</span>}
+              {view === 'preview' && (
+                <>
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-zinc-400">
+                    <input type="checkbox" checked={runScripts} onChange={(e) => setRunScripts(e.target.checked)} />
+                    Run scripts
+                  </label>
+                  <span className="text-[10px] text-zinc-600">
+                    {runScripts
+                      ? 'scripts run in an isolated origin — still cannot touch this app'
+                      : 'scripts disabled (JS-driven pages show only their pre-JS shell)'}
+                  </span>
+                </>
+              )}
+            </div>
+            {view === 'body' ? (
+              /* Rendered as inert text — never as HTML — so a hostile response body can't execute here. */
+              <pre className="max-h-[28rem] overflow-auto rounded-lg border border-hair/60 bg-ink-900/50 p-3 font-mono text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap break-all">
+                {resp.body || '(empty body)'}
+              </pre>
+            ) : (
+              /* Big, drag-to-resize preview. The iframe sandbox NEVER includes
+                 allow-same-origin, so even with allow-scripts the page runs in an
+                 opaque origin and cannot read this app's cookies/DOM. Keyed by
+                 runScripts so toggling remounts the frame with the new sandbox. */
+              <div
+                className="resize-y overflow-auto rounded-lg border border-hair/60 bg-white"
+                style={{ height: '70vh', minHeight: '22rem' }}
+              >
+                <iframe
+                  key={runScripts ? 'js' : 'nojs'}
+                  title="response preview"
+                  sandbox={runScripts ? 'allow-scripts' : ''}
+                  srcDoc={resp.body}
+                  className="h-full w-full border-0"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// --- Intruder ---------------------------------------------------------------
+function IntruderPanel({
+  domainId,
+  passive,
+  confirmActive,
+  build,
+  toast,
+}: {
+  domainId: number
+  passive: boolean
+  confirmActive: (title: string, what: string) => Promise<boolean>
+  build: () => BuiltRequest
+  toast: ReturnType<typeof useToast>
+}) {
+  const [payloadMode, setPayloadMode] = useState<'list' | 'range' | 'wordlist'>('list')
+  const [list, setList] = useState('')
+  const [from, setFrom] = useState('0')
+  const [to, setTo] = useState('99')
+  const [pad, setPad] = useState('0')
+  const [throttle, setThrottle] = useState('0')
+  const [wordlists, setWordlists] = useState<Wordlist[]>([])
+  const [wordlist, setWordlist] = useState('')
+
+  useEffect(() => {
+    api
+      .meta()
+      .then((m) => setWordlists(m.wordlists ?? []))
+      .catch(() => setWordlists([]))
+  }, [])
+
+  const [jobId, setJobId] = useState<number | null>(null)
+  const [job, setJob] = useState<Job | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [sortKey, setSortKey] = useState<'order' | 'status' | 'length' | 'timeMs'>('order')
+
+  // Poll the running intruder job until it finishes.
+  useEffect(() => {
+    if (jobId == null) return
+    let stop = false
+    const tick = async () => {
+      try {
+        const { job: j } = await api.job(jobId)
+        if (stop) return
+        setJob(j)
+        if (['done', 'error', 'cancelled', 'dead'].includes(j.status)) return
+      } catch {
+        /* transient — keep polling */
+      }
+      if (!stop) timer = setTimeout(tick, 1500)
+    }
+    let timer = setTimeout(tick, 600)
+    return () => {
+      stop = true
+      clearTimeout(timer)
+    }
+  }, [jobId])
+
+  const result = (job?.status === 'done' ? (job.result as IntruderResult | null) : null) ?? null
+  const running = job != null && ['queued', 'running'].includes(job.status)
+
+  async function start() {
+    if (busy || running) return
+    const req = build()
+    if (!req.url) return toast.error('Enter a URL first.')
+    const marked = [req.url, req.body ?? '', ...Object.values(req.headers)].some((s) => String(s).includes(PAYLOAD_MARKER))
+    if (!marked) return toast.error(`Add a ${PAYLOAD_MARKER} marker to the request first.`)
+    if (payloadMode === 'wordlist' && !wordlist) return toast.error('Pick a wordlist first.')
+    if (!(await confirmActive('Start this attack?', 'Intruder'))) return
+    setBusy(true)
+    setJob(null)
+    try {
+      const { jobId: id, count } = await api.intruder(domainId, {
+        template: req,
+        payload:
+          payloadMode === 'range'
+            ? { mode: 'range', from: Number(from), to: Number(to), pad: Number(pad) }
+            : payloadMode === 'wordlist'
+              ? { mode: 'wordlist', wordlist }
+              : { mode: 'list', list },
+        throttleMs: Number(throttle) || 0,
+        confirm: passive,
+      })
+      setJobId(id)
+      toast.success(`Intruder queued (job #${id}) — ${count} requests.`)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Failed to start attack.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function cancel() {
+    if (jobId == null) return
+    try {
+      await api.cancelJob(jobId)
+      toast.info('Cancel requested.')
+    } catch {
+      toast.error('Could not cancel.')
+    }
+  }
+
+  const attempts = useMemo(() => {
+    const a = result?.attempts ? [...result.attempts] : []
+    if (sortKey === 'order') return a
+    return a.sort((x, y) => (sortKey === 'status' ? x.status - y.status : sortKey === 'length' ? x.length - y.length : x.timeMs - y.timeMs))
+  }, [result, sortKey])
+
+  return (
+    <Card>
+      {/* Payload config */}
+      <div className="mb-3 space-y-2">
+        <div className="inline-flex rounded-lg border border-hair bg-ink-950 p-0.5 text-xs">
+          {(['list', 'range', 'wordlist'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setPayloadMode(m)}
+              className={`rounded px-2.5 py-1 capitalize ${payloadMode === m ? 'bg-accent-500/15 text-accent-fg' : 'text-zinc-400'}`}
+            >
+              {m === 'range' ? 'Number range' : m}
+            </button>
+          ))}
+        </div>
+        {payloadMode === 'list' && (
+          <textarea
+            value={list}
+            onChange={(e) => setList(e.target.value)}
+            placeholder={'one payload per line\nadmin\ntest\n0000'}
+            rows={4}
+            spellCheck={false}
+            className="block w-full rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500"
+          />
+        )}
+        {payloadMode === 'range' && (
+          <div className="flex flex-wrap items-end gap-2 text-xs">
+            <NumField label="from" value={from} onChange={setFrom} />
+            <NumField label="to" value={to} onChange={setTo} />
+            <NumField label="zero-pad width" value={pad} onChange={setPad} />
+            <span className="text-zinc-600">e.g. 0000–9999 with pad 4</span>
+          </div>
+        )}
+        {payloadMode === 'wordlist' &&
+          (wordlists.length === 0 ? (
+            <p className="text-xs text-zinc-500">
+              No wordlists installed — they ship in the Docker image (<span className="font-mono">/usr/share/wordlists</span>), not the
+              local dev backend. Use List or Range here.
+            </p>
+          ) : (
+            <select
+              value={wordlist}
+              onChange={(e) => setWordlist(e.target.value)}
+              className="block w-full rounded-lg border border-hair bg-ink-950 px-2 py-2 text-xs outline-none focus:border-accent-500"
+            >
+              <option value="">choose a wordlist…</option>
+              {wordlists.map((w) => (
+                <option key={w.path} value={w.path}>
+                  {w.name} ({w.sizeKb} KB)
+                </option>
+              ))}
+            </select>
+          ))}
+        {payloadMode === 'wordlist' && wordlists.length > 0 && (
+          <p className="text-[11px] text-zinc-600">Large lists are capped at the first 10,000 entries.</p>
+        )}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <NumField label="throttle ms / req" value={throttle} onChange={setThrottle} />
+          {running ? (
+            <Button variant="danger" onClick={cancel}>
+              <StopCircle size={15} /> Cancel
+            </Button>
+          ) : (
+            <Button variant="loud" onClick={start} disabled={busy}>
+              <Crosshair size={15} /> {busy ? 'Queuing…' : 'Start attack'}
+            </Button>
+          )}
+          {running && (
+            <span className="inline-flex items-center gap-1.5 text-amber-300">
+              <Spinner /> {job?.progress ?? 'running…'}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Results */}
+      {job?.status === 'error' && <p className="text-sm text-red-300">Attack failed: {job.error}</p>}
+      {result && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400">
+            <span>
+              <span className="font-semibold text-zinc-200">{result.sent}</span>/{result.total} sent
+            </span>
+            {result.baseline && (
+              <span>
+                baseline <span className="font-mono text-zinc-300">{result.baseline.status}</span> · {result.baseline.length} B
+              </span>
+            )}
+            {result.aborted && <Badge tone="amber">cancelled early</Badge>}
+            <span className="ml-auto inline-flex items-center gap-1">
+              sort
+              <select
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as typeof sortKey)}
+                className="rounded border border-hair bg-ink-950 px-1.5 py-0.5 text-[11px] outline-none"
+              >
+                <option value="order">order</option>
+                <option value="status">status</option>
+                <option value="length">length</option>
+                <option value="timeMs">time</option>
+              </select>
+            </span>
+          </div>
+
+          {result.interesting.length > 0 && (
+            <div className="rounded-lg border border-amber-900/40 bg-amber-950/15 p-2">
+              <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-amber-200">
+                <AlertTriangle size={13} className="text-amber-400" /> {result.interesting.length} response(s) deviate from the baseline —
+                look here first
+              </div>
+              <AttemptTable rows={result.interesting} highlight />
+            </div>
+          )}
+
+          <div>
+            <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-600">All attempts</div>
+            <AttemptTable rows={attempts} />
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function NumField({ label, value, onChange }: { label: string; value: string; onChange: (s: string) => void }) {
+  return (
+    <label className="inline-flex flex-col gap-0.5">
+      <span className="text-[10px] uppercase tracking-wide text-zinc-600">{label}</span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/[^\d]/g, ''))}
+        inputMode="numeric"
+        className="w-24 rounded-lg border border-hair bg-ink-950 px-2 py-1 font-mono text-xs outline-none focus:border-accent-500"
+      />
+    </label>
+  )
+}
+
+function AttemptTable({ rows, highlight = false }: { rows: IntruderAttempt[]; highlight?: boolean }) {
+  return (
+    <div className="max-h-72 overflow-auto rounded-lg border border-hair/60">
+      <table className="w-full text-left font-mono text-[11px]">
+        <thead className="sticky top-0 bg-ink-900 text-zinc-500">
+          <tr>
+            <th className="px-2 py-1 font-medium">payload</th>
+            <th className="px-2 py-1 font-medium">status</th>
+            <th className="px-2 py-1 font-medium">length</th>
+            <th className="px-2 py-1 font-medium">time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className={`border-t border-hair/40 ${highlight ? 'text-amber-100' : 'text-zinc-300'}`}>
+              <td className="px-2 py-1 break-all">{r.payload}</td>
+              <td className="px-2 py-1">
+                <Badge tone={statusTone(r.status)}>{r.error ? 'err' : r.status}</Badge>
+              </td>
+              <td className="px-2 py-1">{r.length}</td>
+              <td className="px-2 py-1 text-zinc-500">{r.timeMs}ms</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}

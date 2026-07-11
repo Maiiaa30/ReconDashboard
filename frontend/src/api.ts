@@ -153,6 +153,35 @@ export interface Job {
   updatedAt: string
 }
 
+// Replay (Repeater): the full response from a server-side send.
+export interface ReplayResponse {
+  status: number
+  statusText: string
+  headers: [string, string][]
+  body: string
+  bodyBytes: number
+  truncated: boolean
+  timeMs: number
+  finalUrl: string
+  redirects: { status: number; location: string }[]
+}
+
+export interface IntruderAttempt {
+  payload: string
+  status: number
+  length: number
+  timeMs: number
+  error?: string
+}
+export interface IntruderResult {
+  total: number
+  sent: number
+  aborted: boolean
+  attempts: IntruderAttempt[]
+  interesting: IntruderAttempt[]
+  baseline: { status: number; length: number } | null
+}
+
 export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
 
 export interface Finding {
@@ -492,6 +521,27 @@ export const api = {
     post<{ jobId: number }>(`/domains/${id}/scan/nuclei`, opts),
   ffuf: (id: number, opts: { target?: string; path?: string; wordlist?: string; scheme?: string; confirm?: boolean } = {}) =>
     post<{ jobId: number }>(`/domains/${id}/scan/ffuf`, opts),
+
+  // replay (Repeater): send one composed request server-side, gated to the domain's scope
+  replaySend: (bodyReq: {
+    domainId: number
+    method: string
+    url: string
+    headers?: Record<string, string>
+    body?: string
+    followRedirects?: boolean
+    confirm?: boolean
+  }) => post<{ response: ReplayResponse }>('/replay/send', bodyReq),
+  // intruder: iterate a payload set through a request template (gated LOUD job)
+  intruder: (
+    id: number,
+    bodyReq: {
+      template: { method: string; url: string; headers?: Record<string, string>; body?: string; followRedirects?: boolean }
+      payload: { mode: 'list' | 'range' | 'wordlist'; list?: string; from?: number; to?: number; pad?: number; wordlist?: string }
+      throttleMs?: number
+      confirm?: boolean
+    },
+  ) => post<{ jobId: number; count: number }>(`/domains/${id}/intruder`, bodyReq),
 
   // jobs
   jobs: () => get<{ jobs: Job[] }>('/jobs'),
