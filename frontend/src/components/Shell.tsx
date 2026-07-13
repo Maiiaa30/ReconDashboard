@@ -114,7 +114,23 @@ const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'methodology', 'subdomains', 'scree
 
 export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { domains, selectedId, selected, select } = useApp()
-  const [active, setActive] = useState<ModuleKey>('home')
+  // Persist the current page so a refresh stays put instead of jumping to Home.
+  const [active, setActive] = useState<ModuleKey>(() => {
+    try {
+      const saved = localStorage.getItem('activePage')
+      if (saved && MODULES.some((m) => m.key === saved)) return saved as ModuleKey
+    } catch {
+      /* storage unavailable */
+    }
+    return 'home'
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('activePage', active)
+    } catch {
+      /* storage unavailable — page just won't persist */
+    }
+  }, [active])
   const [navOpen, setNavOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   // Desktop-only: collapse the sidebar to an icon rail. Persisted so it sticks
