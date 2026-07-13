@@ -143,6 +143,7 @@ export interface Job {
   id: number
   type: string
   status: JobStatus
+  domainId: number | null
   params: unknown
   result: unknown
   error: string | null

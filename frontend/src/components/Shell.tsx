@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Home as HomeIcon, Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
   Activity, ScanSearch, ShieldCheck, Flag, StickyNote, PenTool, ScrollText,
@@ -7,9 +7,9 @@ import {
 import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
 import { JobNotifier } from './JobNotifier'
-import type { Me } from '../api'
+import type { Me, Job } from '../api'
 import { api } from '../api'
-import { useApp } from '../state'
+import { useApp, usePoll } from '../state'
 import { Domains } from '../pages/Domains'
 import { Intel } from '../pages/Intel'
 import { Methodology } from '../pages/Methodology'
@@ -117,6 +117,25 @@ type ModuleKey = (typeof MODULES)[number]['key']
 // Modules that operate on a selected domain show the domain picker.
 const DOMAIN_SCOPED: ModuleKey[] = ['intel', 'methodology', 'subdomains', 'screenshots', 'fuzzing', 'replay', 'traffic', 'exposure', 'ports', 'api', 'osint', 'leaks', 'origin', 'scans', 'tools', 'owasp', 'notes']
 
+// Map a job type to the nav module whose page shows its results, so a running /
+// just-finished job can flag that item in the sidebar.
+const JOB_MODULE: Record<string, ModuleKey> = {
+  subdomain_discovery: 'subdomains',
+  screenshot: 'screenshots',
+  exposure_scan: 'exposure',
+  osint_gather: 'osint',
+  origin_scan: 'origin',
+  leak_check: 'leaks',
+  api_discovery: 'api',
+  nmap_scan: 'scans',
+  nuclei_scan: 'scans',
+  ffuf_scan: 'fuzzing',
+  owasp_active: 'owasp',
+  tool_scan: 'tools',
+  intruder: 'replay',
+}
+const PENDING = new Set(['queued', 'running'])
+
 export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { domains, selectedId, selected, select } = useApp()
   // Persist the current page so a refresh stays put instead of jumping to Home.
@@ -155,6 +174,41 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     }
   }, [collapsed])
   const activeLabel = MODULES.find((m) => m.key === active)?.label ?? 'Recon Dashboard'
+
+  // Sidebar job status dots: yellow while a module's job runs, green once it
+  // finishes — cleared when the operator opens that page.
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [seen, setSeen] = useState<Record<string, number>>({})
+  usePoll(
+    () => {
+      api
+        .jobs()
+        .then((r) => setJobs(r.jobs))
+        .catch(() => {})
+      // Treat the page you're on as continuously seen, so a job that finishes
+      // while you're watching it doesn't later light up green.
+      setSeen((s) => ({ ...s, [active]: Date.now() }))
+    },
+    3500,
+    true,
+    active,
+  )
+
+  const navStatus = useMemo(() => {
+    const out: Partial<Record<ModuleKey, 'running' | 'ready'>> = {}
+    for (const j of jobs) {
+      const key = JOB_MODULE[j.type]
+      if (!key) continue
+      if (j.domainId != null && selectedId != null && j.domainId !== selectedId) continue // other target
+      if (PENDING.has(j.status)) {
+        out[key] = 'running'
+      } else if (j.status === 'done' && key !== active && out[key] !== 'running') {
+        const fin = j.finishedAt ? new Date(j.finishedAt).getTime() : 0
+        if (fin > (seen[key] ?? 0)) out[key] = 'ready'
+      }
+    }
+    return out
+  }, [jobs, seen, selectedId, active])
 
   // Global ⌘/Ctrl-K toggles the command palette.
   useEffect(() => {
@@ -272,6 +326,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               {section.items.map((m) => {
                 const Icon = m.icon
                 const isActive = active === m.key
+                const status = navStatus[m.key]
                 return (
                   <button
                     key={m.key}
@@ -279,8 +334,8 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
                       setActive(m.key)
                       setNavOpen(false)
                     }}
-                    title={m.label}
-                    className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition ${
+                    title={status ? `${m.label} — ${status === 'running' ? 'running…' : 'new results'}` : m.label}
+                    className={`relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition ${
                       collapsed ? 'md:justify-center md:px-0' : ''
                     } ${
                       isActive
@@ -290,6 +345,14 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
                   >
                     <Icon size={17} className={`shrink-0 ${isActive ? 'text-accent-400' : 'text-zinc-500'}`} />
                     <span className={collapsed ? 'md:hidden' : ''}>{m.label}</span>
+                    {status && (
+                      <span
+                        aria-hidden
+                        className={`h-2 w-2 shrink-0 rounded-full ${
+                          status === 'running' ? 'animate-pulse bg-amber-400' : 'bg-emerald-400'
+                        } ${collapsed ? 'md:absolute md:right-1 md:top-1 ml-auto' : 'ml-auto'}`}
+                      />
+                    )}
                   </button>
                 )
               })}
