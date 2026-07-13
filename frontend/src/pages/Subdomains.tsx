@@ -1,7 +1,9 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { Copy, Check } from 'lucide-react'
 import { api, type Subdomain } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Empty, ExportLinks, PageHeader } from '../components/ui'
+import { useToast } from '../components/Toast'
 
 type Tone = 'green' | 'blue' | 'amber' | 'red' | 'zinc'
 
@@ -29,6 +31,32 @@ function Field({ label, value, mono }: { label: string; value: ReactNode; mono?:
       <span className="text-xs uppercase tracking-wide text-zinc-600">{label}</span>
       <span className={`text-zinc-300 ${mono ? 'font-mono' : ''}`}>{value}</span>
     </div>
+  )
+}
+
+// One-click copy of a subdomain link (stops the row toggle; brief ✓ feedback).
+function CopyLink({ url }: { url: string }) {
+  const toast = useToast()
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      title={`Copy ${url}`}
+      aria-label="Copy link"
+      onClick={(e) => {
+        e.stopPropagation()
+        navigator.clipboard
+          .writeText(url)
+          .then(() => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1200)
+          })
+          .catch(() => toast.error('Copy failed'))
+      }}
+      className="rounded p-1 text-zinc-500 transition hover:bg-ink-700 hover:text-zinc-200"
+    >
+      {copied ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
+    </button>
   )
 }
 
@@ -175,6 +203,7 @@ export function Subdomains() {
                     )}
                     {!s.title && <span className="flex-1" />}
                     {s.isNew && <Badge tone="blue">new</Badge>}
+                    <CopyLink url={`${s.scheme ?? 'https'}://${s.host}`} />
                     <span className="text-xs text-zinc-600">{expanded ? '▾' : '▸'}</span>
                   </button>
 

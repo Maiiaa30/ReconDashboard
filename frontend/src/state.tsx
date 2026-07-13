@@ -17,6 +17,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<number | null>(null)
 
+  // Mirror `domains` in a ref so `select` can check membership without being
+  // re-created on every domains change.
+  const domainsRef = useRef<Domain[]>([])
+  useEffect(() => {
+    domainsRef.current = domains
+  }, [domains])
+
   const refreshDomains = useCallback(async () => {
     const { domains } = await api.domains()
     setDomains(domains)
@@ -28,10 +35,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Persist the selection server-side (per account) so it follows the operator
   // across browsers/devices, not just this browser. Fire-and-forget.
-  const select = useCallback((id: number | null) => {
-    setSelectedId(id)
-    api.setSelectedDomain(id).catch(() => {})
-  }, [])
+  const select = useCallback(
+    (id: number | null) => {
+      setSelectedId(id)
+      api.setSelectedDomain(id).catch(() => {})
+      // If the cached list doesn't know this id yet (e.g. the Domains overview
+      // is ahead of it, or it was created in another session), refresh so
+      // `selected` resolves to the domain instead of falling back to null.
+      if (id != null && !domainsRef.current.some((d) => d.id === id)) void refreshDomains()
+    },
+    [refreshDomains],
+  )
 
   useEffect(() => {
     // Load domains + the account's saved selection together; prefer the saved

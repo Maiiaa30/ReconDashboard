@@ -3,7 +3,7 @@ import {
   Network, Flag, Server, Cable, Bug, Clock, Plus, Search, Radar, Eye, Zap,
   type LucideIcon,
 } from 'lucide-react'
-import { api, ApiError, type DomainMode, type DomainOverview } from '../api'
+import { api, ApiError, type Domain, type DomainMode, type DomainOverview } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
 import { useToast } from '../components/Toast'
@@ -83,9 +83,10 @@ export function Domains() {
 
       {showAdd && (
         <AddDomainForm
-          onAdded={async () => {
+          onAdded={async (domain) => {
             setShowAdd(false)
             await refreshDomains()
+            select(domain.id) // make the just-added domain the active target
             load()
           }}
         />
@@ -487,7 +488,7 @@ function Stat({
   )
 }
 
-function AddDomainForm({ onAdded }: { onAdded: () => void }) {
+function AddDomainForm({ onAdded }: { onAdded: (domain: Domain) => void }) {
   const [host, setHost] = useState('')
   const [label, setLabel] = useState('')
   const [mode, setMode] = useState<DomainMode>('passive_only')
@@ -499,10 +500,10 @@ function AddDomainForm({ onAdded }: { onAdded: () => void }) {
     setError(null)
     setBusy(true)
     try {
-      await api.createDomain(host.trim(), mode, label.trim() || undefined)
+      const { domain } = await api.createDomain(host.trim(), mode, label.trim() || undefined)
       setHost('')
       setLabel('')
-      onAdded()
+      onAdded(domain)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'failed to add domain')
     } finally {

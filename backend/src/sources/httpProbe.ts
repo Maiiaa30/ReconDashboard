@@ -1,6 +1,7 @@
 import { resolveDns } from './dns'
 import { assertPublicHost } from './guard'
 import { isInternalIp } from '../util/validate'
+import { BROWSER_UA } from '../util/http'
 
 // Lightweight HTTP probe (httpx-style): one GET to learn status, page title, and
 // server header for a host. Tries https then http. Capped body read + tight
@@ -59,7 +60,14 @@ async function fetchOnce(startUrl: string): Promise<FetchInfo | null> {
         method: 'GET',
         redirect: 'manual',
         signal: controller.signal,
-        headers: { 'User-Agent': 'recon-dashboard/0.1 (+probe)' },
+        // Look like a real browser — a bot-ish UA gets challenged (Cloudflare
+        // "Just a moment…" 403/503) by WAF-fronted hosts, which made every
+        // subdomain look dead. This is still a single, standard GET.
+        headers: {
+          'User-Agent': BROWSER_UA,
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
       })
 
       // Redirect: re-loop so the next hop is guarded too.
