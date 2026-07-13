@@ -190,7 +190,8 @@ export interface Capture {
   url: string
   host: string
   headers: [string, string][]
-  body: string | null
+  body: string | null // null in list responses — lazy-loaded via api.capture(id)
+  hasBody?: boolean // present in list responses; whether a body exists to fetch
   source: string
   createdAt: string
 }
@@ -592,6 +593,7 @@ export const api = {
     return get<{ captures: Capture[] }>(`/capture${qs ? `?${qs}` : ''}`)
   },
   captureStatus: () => get<{ enabled: boolean; extensionSeenAt: number | null }>('/capture/status'),
+  capture: (id: number) => get<{ capture: Capture }>(`/capture/${id}`),
   deleteCapture: (id: number) => del<{ deleted: number }>(`/capture/${id}`),
   clearCaptures: (domainId: number) => del<{ cleared: number }>(`/capture?domainId=${domainId}`),
 

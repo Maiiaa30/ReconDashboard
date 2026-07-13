@@ -713,31 +713,46 @@ function NumField({ label, value, onChange }: { label: string; value: string; on
   )
 }
 
+const ATTEMPT_PAGE = 500
 function AttemptTable({ rows, highlight = false }: { rows: IntruderAttempt[]; highlight?: boolean }) {
+  // Cap the DOM: a 10k-payload run would otherwise commit 10k <tr> at once and
+  // jank the tab. Render a page at a time; deviating rows are surfaced separately.
+  const [limit, setLimit] = useState(ATTEMPT_PAGE)
+  const shown = rows.slice(0, limit)
   return (
-    <div className="max-h-72 overflow-auto rounded-lg border border-hair/60">
-      <table className="w-full text-left font-mono text-[11px]">
-        <thead className="sticky top-0 bg-ink-900 text-zinc-500">
-          <tr>
-            <th className="px-2 py-1 font-medium">payload</th>
-            <th className="px-2 py-1 font-medium">status</th>
-            <th className="px-2 py-1 font-medium">length</th>
-            <th className="px-2 py-1 font-medium">time</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} className={`border-t border-hair/40 ${highlight ? 'text-amber-100' : 'text-zinc-300'}`}>
-              <td className="px-2 py-1 break-all">{r.payload}</td>
-              <td className="px-2 py-1">
-                <Badge tone={statusTone(r.status)}>{r.error ? 'err' : r.status}</Badge>
-              </td>
-              <td className="px-2 py-1">{r.length}</td>
-              <td className="px-2 py-1 text-zinc-500">{r.timeMs}ms</td>
+    <div>
+      <div className="max-h-72 overflow-auto rounded-lg border border-hair/60">
+        <table className="w-full text-left font-mono text-[11px]">
+          <thead className="sticky top-0 bg-ink-900 text-zinc-500">
+            <tr>
+              <th className="px-2 py-1 font-medium">payload</th>
+              <th className="px-2 py-1 font-medium">status</th>
+              <th className="px-2 py-1 font-medium">length</th>
+              <th className="px-2 py-1 font-medium">time</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {shown.map((r, i) => (
+              <tr key={i} className={`border-t border-hair/40 ${highlight ? 'text-amber-100' : 'text-zinc-300'}`}>
+                <td className="px-2 py-1 break-all">{r.payload}</td>
+                <td className="px-2 py-1">
+                  <Badge tone={statusTone(r.status)}>{r.error ? 'err' : r.status}</Badge>
+                </td>
+                <td className="px-2 py-1">{r.length}</td>
+                <td className="px-2 py-1 text-zinc-500">{r.timeMs}ms</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > limit && (
+        <button
+          onClick={() => setLimit((l) => l + ATTEMPT_PAGE * 4)}
+          className="mt-1 text-[11px] text-zinc-500 hover:text-zinc-300"
+        >
+          showing {limit} of {rows.length} — show more
+        </button>
+      )}
     </div>
   )
 }

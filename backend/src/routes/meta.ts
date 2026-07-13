@@ -8,6 +8,9 @@ import { toolExists } from '../util/exec'
 // Lightweight capability/status endpoint so the UI can adapt (e.g. show which
 // active scanners are installed, the scorer in use, scheduler state).
 let toolCache: Record<string, boolean> | null = null
+// Wordlists only change when the image is rebuilt (which restarts this process),
+// so scan the dir once instead of on every /meta/status call (~8 pages hit it).
+let wordlistCache: ReturnType<typeof listWordlists> | null = null
 
 const WORDLIST_DIR = '/usr/share/wordlists'
 
@@ -66,7 +69,7 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
       llm: { enabled: config.llm.enabled, model: config.llm.enabled ? config.llm.model : null },
       leaks: { enabled: config.leaks.enabled, provider: config.leaks.enabled ? config.leaks.provider : null },
       tools: toolCache,
-      wordlists: listWordlists(),
+      wordlists: (wordlistCache ??= listWordlists()),
     }
   })
 }

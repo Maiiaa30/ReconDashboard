@@ -1,4 +1,4 @@
-import { desc, eq, lt } from 'drizzle-orm'
+import { desc, eq, lt, sql } from 'drizzle-orm'
 import { db } from '../db/index'
 import { capturedRequests } from '../db/schema'
 import { safeJsonParse } from '../util/json'
@@ -39,16 +39,34 @@ function mapRow(r: typeof capturedRequests.$inferSelect) {
   return { ...r, headers: safeJsonParse<[string, string][]>(r.headers, []) }
 }
 
+// List WITHOUT the (up-to-512KB) body — the Traffic page polls this every ~2s,
+// so shipping every body each cycle is wasteful. `hasBody` tells the UI there's
+// a body to lazy-load via getCapture(id) on expand / send-to-replay.
 export function listCaptures(opts: { domainId?: number; limit?: number } = {}) {
   const limit = Math.min(Math.max(opts.limit ?? 200, 1), 1000)
   const rows = db
-    .select()
+    .select({
+      id: capturedRequests.id,
+      domainId: capturedRequests.domainId,
+      method: capturedRequests.method,
+      url: capturedRequests.url,
+      host: capturedRequests.host,
+      headers: capturedRequests.headers,
+      source: capturedRequests.source,
+      createdAt: capturedRequests.createdAt,
+      hasBody: sql<number>`(${capturedRequests.body} is not null and length(${capturedRequests.body}) > 0)`,
+    })
     .from(capturedRequests)
     .where(opts.domainId != null ? eq(capturedRequests.domainId, opts.domainId) : undefined)
     .orderBy(desc(capturedRequests.id))
     .limit(limit)
     .all()
-  return rows.map(mapRow)
+  return rows.map((r) => ({
+    ...r,
+    headers: safeJsonParse<[string, string][]>(r.headers, []),
+    hasBody: !!r.hasBody,
+    body: null as string | null,
+  }))
 }
 
 export function getCapture(id: number) {

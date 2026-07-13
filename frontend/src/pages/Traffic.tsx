@@ -58,7 +58,7 @@ function analyze(c: Capture): { tags: { label: string; tone: Tone }[]; interesti
     tags.push({ label: `${params} param${params > 1 ? 's' : ''}`, tone: 'blue' })
     interesting = true
   }
-  if (c.body) {
+  if (c.hasBody || c.body) {
     const ct = (header(c, 'content-type') || '').toLowerCase()
     const label = ct.includes('json')
       ? 'json'
@@ -123,8 +123,17 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
     selected?.id,
   )
 
-  function sendToReplay(c: Capture) {
-    setPendingReplay({ method: c.method, url: c.url, headers: c.headers, body: c.body })
+  async function sendToReplay(c: Capture) {
+    // The list omits the body — fetch the full capture so Replay gets it.
+    let body = c.body ?? null
+    if (c.hasBody && body == null) {
+      try {
+        body = (await api.capture(c.id)).capture.body
+      } catch {
+        /* fall back to no body */
+      }
+    }
+    setPendingReplay({ method: c.method, url: c.url, headers: c.headers, body })
     navigate('replay')
   }
 
@@ -223,7 +232,26 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
 
 function CaptureRow({ c, onSend, onDelete }: { c: Capture; onSend: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false)
+  const [body, setBody] = useState<string | null>(c.body)
+  const [bodyLoading, setBodyLoading] = useState(false)
   const { tags, interesting, authed } = useMemo(() => analyze(c), [c])
+
+  async function toggle() {
+    const next = !open
+    setOpen(next)
+    // Body is omitted from the list — fetch it the first time the row expands.
+    if (next && c.hasBody && body == null && !bodyLoading) {
+      setBodyLoading(true)
+      try {
+        setBody((await api.capture(c.id)).capture.body)
+      } catch {
+        /* leave body null */
+      } finally {
+        setBodyLoading(false)
+      }
+    }
+  }
+
   return (
     <Card className={interesting ? 'border-l-2 border-l-accent-500' : ''}>
       <div className="flex flex-wrap items-center gap-2">
@@ -251,22 +279,22 @@ function CaptureRow({ c, onSend, onDelete }: { c: Capture; onSend: () => void; o
         </button>
       </div>
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         className="mt-1.5 inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300"
       >
         <ChevronRight size={12} className={open ? 'rotate-90 transition' : 'transition'} />
-        {c.headers.length} header(s){c.body ? ' · has body' : ''}
+        {c.headers.length} header(s){c.hasBody || c.body ? ' · has body' : ''}
       </button>
       {open && (
         <div className="mt-2 space-y-2">
           <pre className="max-h-40 overflow-auto rounded-lg border border-hair/60 bg-ink-900/50 p-2 font-mono text-[11px] text-zinc-300">
             {c.headers.map(([k, v]) => `${k}: ${v}`).join('\n') || '(no headers captured)'}
           </pre>
-          {c.body && (
+          {(c.hasBody || body) && (
             <div>
               <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-600">Body</div>
               <pre className="max-h-40 overflow-auto rounded-lg border border-hair/60 bg-ink-900/50 p-2 font-mono text-[11px] text-zinc-300 whitespace-pre-wrap break-all">
-                {c.body}
+                {bodyLoading ? 'loading…' : (body ?? '(body unavailable)')}
               </pre>
             </div>
           )}

@@ -3,7 +3,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { config } from '../config'
 import { getDomain, listDomains } from '../domains/store'
 import { hostBelongsToDomain } from '../util/validate'
-import { insertCapture, listCaptures, clearCaptures, deleteCapture } from '../capture/store'
+import { insertCapture, listCaptures, getCapture, clearCaptures, deleteCapture } from '../capture/store'
 import { actorName, writeAudit } from '../audit/store'
 
 // Browser-extension capture ingest + read.
@@ -124,6 +124,13 @@ export const captureRoutes: FastifyPluginAsync = async (app) => {
     const domainId = request.query.domainId != null && Number.isFinite(Number(request.query.domainId)) ? Number(request.query.domainId) : undefined
     const limit = request.query.limit != null && Number.isFinite(Number(request.query.limit)) ? Number(request.query.limit) : undefined
     return { captures: listCaptures({ domainId, limit }) }
+  })
+
+  // Full single capture incl. its body (the list omits bodies for speed).
+  app.get<{ Params: { id: string } }>('/api/capture/:id', async (request, reply) => {
+    const c = getCapture(Number(request.params.id))
+    if (!c) return reply.code(404).send({ error: 'capture not found' })
+    return { capture: c }
   })
 
   // Delete a single captured request.
