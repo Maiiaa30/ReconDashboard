@@ -11,8 +11,12 @@ let toolCache: Record<string, boolean> | null = null
 
 const WORDLIST_DIR = '/usr/share/wordlists'
 
-// Discover installed wordlists so the Fuzzing UI can offer a real picker.
-function listWordlists(): { path: string; name: string; sizeKb: number }[] {
+// Names that hold fuzzing VALUES (Intruder payloads) vs content-discovery paths.
+const PAYLOAD_RE = /(user|pass|cred|sqli|xss|lfi|inject|command|number|auth)/i
+
+// Discover installed wordlists so the Fuzzing/Intruder UIs can offer a real
+// picker, tagged so the Intruder can group payload lists apart from path lists.
+function listWordlists(): { path: string; name: string; sizeKb: number; category: 'payload' | 'content' }[] {
   try {
     return readdirSync(WORDLIST_DIR)
       .filter((f) => f.endsWith('.txt'))
@@ -24,7 +28,7 @@ function listWordlists(): { path: string; name: string; sizeKb: number }[] {
         } catch {
           /* ignore */
         }
-        return { path, name: f, sizeKb }
+        return { path, name: f, sizeKb, category: (PAYLOAD_RE.test(f) ? 'payload' : 'content') as 'payload' | 'content' }
       })
       .sort((a, b) => a.sizeKb - b.sizeKb)
   } catch {

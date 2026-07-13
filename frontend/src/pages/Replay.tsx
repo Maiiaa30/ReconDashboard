@@ -613,11 +613,19 @@ function IntruderPanel({
               className="block w-full rounded-lg border border-hair bg-ink-950 px-2 py-2 text-xs outline-none focus:border-accent-500"
             >
               <option value="">choose a wordlist…</option>
-              {wordlists.map((w) => (
-                <option key={w.path} value={w.path}>
-                  {w.name} ({w.sizeKb} KB)
-                </option>
-              ))}
+              {(['payload', 'content'] as const).map((cat) => {
+                const items = wordlists.filter((w) => (w.category ?? 'content') === cat)
+                if (!items.length) return null
+                return (
+                  <optgroup key={cat} label={cat === 'payload' ? 'Payloads (values)' : 'Content discovery (paths)'}>
+                    {items.map((w) => (
+                      <option key={w.path} value={w.path}>
+                        {w.name} ({w.sizeKb} KB)
+                      </option>
+                    ))}
+                  </optgroup>
+                )
+              })}
             </select>
           ))}
         {payloadMode === 'wordlist' && wordlists.length > 0 && (

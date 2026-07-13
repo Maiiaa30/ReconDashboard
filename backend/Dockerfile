@@ -69,6 +69,21 @@ RUN mkdir -p /usr/share/wordlists; \
       printf 'admin\nlogin\napi\nrobots.txt\n.git/HEAD\nbackup\ntest\n.env\nadmin.php\n' > /usr/share/wordlists/common.txt; \
     fi
 
+# Payload lists for the Replay Intruder — fuzzing VALUES (usernames, passwords,
+# injection payloads, numbers), as opposed to the content-discovery/path lists
+# above. Best-effort downloads (a moved URL just skips that list).
+RUN SLP="https://raw.githubusercontent.com/danielmiessler/SecLists/master"; \
+    curl -fsSL -o /usr/share/wordlists/usernames-top.txt       "$SLP/Usernames/top-usernames-shortlist.txt"                  || true; \
+    curl -fsSL -o /usr/share/wordlists/passwords-top.txt       "$SLP/Passwords/Common-Credentials/top-passwords-shortlist.txt" || true; \
+    curl -fsSL -o /usr/share/wordlists/passwords-500-worst.txt "$SLP/Passwords/Common-Credentials/500-worst-passwords.txt"   || true; \
+    curl -fsSL -o /usr/share/wordlists/sqli.txt                "$SLP/Fuzzing/Databases/SQLi/Generic-SQLi.txt"                || true; \
+    curl -fsSL -o /usr/share/wordlists/sqli-auth-bypass.txt    "$SLP/Fuzzing/Databases/SQLi/sqli.auth.bypass.txt"           || true; \
+    curl -fsSL -o /usr/share/wordlists/xss.txt                 "$SLP/Fuzzing/XSS/robot-friendly/XSS-Jhaddix.txt"            || true; \
+    curl -fsSL -o /usr/share/wordlists/lfi.txt                 "$SLP/Fuzzing/LFI/LFI-Jhaddix.txt"                           || true; \
+    curl -fsSL -o /usr/share/wordlists/command-injection.txt   "$SLP/Fuzzing/command-injection-commix.txt"                  || true; \
+    seq 0 9999    > /usr/share/wordlists/numbers-0-9999.txt; \
+    seq -w 0 9999 > /usr/share/wordlists/numbers-0000-9999.txt
+
 WORKDIR /app
 
 # Install dependencies first for better layer caching.

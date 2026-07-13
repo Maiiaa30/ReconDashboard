@@ -254,6 +254,7 @@ export interface Wordlist {
   path: string
   name: string
   sizeKb: number
+  category?: 'payload' | 'content'
 }
 
 export interface AttackPath {
