@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Repeat, ChevronRight, Trash2, Search, Lock } from 'lucide-react'
+import { Repeat, ChevronRight, Trash2, Search, Lock, AlertTriangle } from 'lucide-react'
 import { api, type Capture } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, SkeletonList } from '../components/ui'
@@ -87,12 +87,23 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
   const [captures, setCaptures] = useState<Capture[]>([])
   const [loaded, setLoaded] = useState(false)
   const [query, setQuery] = useState('')
+  const [status, setStatus] = useState<{ enabled: boolean; extensionSeenAt: number | null } | null>(null)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return captures
     return captures.filter((c) => `${c.method} ${c.host} ${c.url}`.toLowerCase().includes(q))
   }, [captures, query])
+
+  // Warn if capture can't work: disabled on the server, or no recent sign of the
+  // extension (it polls /targets every ~60s while enabled).
+  const extAlert = useMemo(() => {
+    if (!status) return null
+    if (!status.enabled) return 'Capture is disabled on the server — set CAPTURE_TOKEN in the dashboard .env and recreate the backend.'
+    if (!status.extensionSeenAt || Date.now() - status.extensionSeenAt > 90_000)
+      return 'Capture extension not detected. Install it, turn it on, and point it at this dashboard (see extension/README.md).'
+    return null
+  }, [status])
 
   usePoll(
     () => {
@@ -102,6 +113,10 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
         .then((r) => setCaptures(r.captures))
         .catch(() => {})
         .finally(() => setLoaded(true))
+      api
+        .captureStatus()
+        .then(setStatus)
+        .catch(() => {})
     },
     2000, // poll briskly so captures appear ~live as you browse
     !!selected,
@@ -155,6 +170,13 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
           ) : undefined
         }
       />
+
+      {extAlert && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-900/50 bg-amber-950/20 p-3 text-sm text-amber-200">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-400" />
+          <span>{extAlert}</span>
+        </div>
+      )}
 
       {!loaded ? (
         <SkeletonList rows={5} />

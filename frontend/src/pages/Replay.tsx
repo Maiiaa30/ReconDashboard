@@ -101,7 +101,7 @@ export function Replay() {
   }
 
   return (
-    <div>
+    <div className="flex min-h-[calc(100dvh-7rem)] flex-col">
       <PageHeader
         title="Replay"
         subtitle={`${selected.host} — compose, send and fuzz requests (server-side, scoped to this target)`}
@@ -113,7 +113,7 @@ export function Replay() {
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2 lg:grid-rows-1">
         <RequestEditor
           mode={mode}
           method={method}
@@ -192,7 +192,7 @@ function RequestEditor(props: {
 }) {
   const bodyless = props.method === 'GET' || props.method === 'HEAD'
   return (
-    <Card>
+    <Card className="flex h-full min-h-0 flex-col">
       <div className="mb-2 flex items-center gap-2">
         <select
           value={props.method}
@@ -226,7 +226,7 @@ function RequestEditor(props: {
         placeholder={'Cookie: session=…\nAuthorization: Bearer …\nContent-Type: application/json'}
         rows={5}
         spellCheck={false}
-        className="mb-2 block w-full rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500"
+        className="mb-2 block min-h-0 w-full flex-1 resize-none rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500"
       />
       <label className="mb-1 block text-[10px] uppercase tracking-wide text-zinc-600">
         Body {bodyless && <span className="text-zinc-600">(ignored for {props.method})</span>}
@@ -238,7 +238,7 @@ function RequestEditor(props: {
         rows={6}
         spellCheck={false}
         disabled={bodyless}
-        className="block w-full rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500 disabled:opacity-50"
+        className="block min-h-0 w-full flex-1 resize-none rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500 disabled:opacity-50"
       />
     </Card>
   )
@@ -324,7 +324,7 @@ function RepeaterPanel({
   }
 
   return (
-    <Card>
+    <Card className="flex h-full min-h-0 flex-col">
       <div className="mb-3 flex items-center gap-2">
         <Button variant="loud" onClick={send} disabled={busy}>
           <Send size={15} /> {busy ? 'Sending…' : 'Send'}
@@ -345,11 +345,11 @@ function RepeaterPanel({
       </div>
 
       {!resp ? (
-        <div className="rounded-lg border border-dashed border-hair bg-ink-900/50 p-6 text-sm text-zinc-500">
+        <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-hair bg-ink-900/50 p-6 text-sm text-zinc-500">
           Compose a request on the left and hit Send — the response appears here.
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
           {resp.redirects.length > 0 && (
             <div className="text-xs text-zinc-500">
               followed {resp.redirects.length} redirect(s) → <span className="font-mono text-zinc-400 break-all">{resp.finalUrl}</span>
@@ -367,7 +367,7 @@ function RepeaterPanel({
               {resp.headers.map(([k, v]) => `${k}: ${v}`).join('\n')}
             </pre>
           )}
-          <div>
+          <div className="flex min-h-0 flex-1 flex-col">
             <div className="mb-1 flex flex-wrap items-center gap-2">
               <div className="inline-flex rounded-lg border border-hair bg-ink-950 p-0.5 text-xs">
                 <button
@@ -400,18 +400,15 @@ function RepeaterPanel({
             </div>
             {view === 'body' ? (
               /* Rendered as inert text — never as HTML — so a hostile response body can't execute here. */
-              <pre className="max-h-[28rem] overflow-auto rounded-lg border border-hair/60 bg-ink-900/50 p-3 font-mono text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap break-all">
+              <pre className="min-h-0 flex-1 overflow-auto rounded-lg border border-hair/60 bg-ink-900/50 p-3 font-mono text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap break-all">
                 {resp.body || '(empty body)'}
               </pre>
             ) : (
-              /* Big, drag-to-resize preview. The iframe sandbox NEVER includes
-                 allow-same-origin, so even with allow-scripts the page runs in an
-                 opaque origin and cannot read this app's cookies/DOM. Keyed by
-                 runScripts so toggling remounts the frame with the new sandbox. */
-              <div
-                className="resize-y overflow-auto rounded-lg border border-hair/60 bg-white"
-                style={{ height: '70vh', minHeight: '22rem' }}
-              >
+              /* Fills the panel. The iframe sandbox NEVER includes allow-same-origin,
+                 so even with allow-scripts the page runs in an opaque origin and
+                 cannot read this app's cookies/DOM. Keyed by runScripts so toggling
+                 remounts the frame with the new sandbox. */
+              <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-hair/60 bg-white">
                 <iframe
                   key={runScripts ? 'js' : 'nojs'}
                   title="response preview"
@@ -571,7 +568,7 @@ function IntruderPanel({
   }, [result, sortKey])
 
   return (
-    <Card>
+    <Card className="flex h-full min-h-0 flex-col overflow-auto">
       {/* Payload config */}
       <div className="mb-3 space-y-2">
         <div className="inline-flex rounded-lg border border-hair bg-ink-950 p-0.5 text-xs">

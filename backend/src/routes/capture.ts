@@ -15,6 +15,11 @@ import { actorName, writeAudit } from '../audit/store'
 // session-authed (normal dashboard use).
 const INGEST_RATE = { max: 600, timeWindow: '1 minute' } // a busy browsing session bursts
 
+// Liveness: the extension polls /api/capture/targets (and POSTs captures) while
+// enabled, so the last time we saw a valid token is a good "extension is running"
+// signal. In-memory is fine — a restart just re-learns it within a poll cycle.
+let lastExtensionSeen = 0
+
 // Constant-time token compare (avoids leaking the token via response timing).
 function tokenMatches(provided: string, expected: string): boolean {
   if (!expected) return false
@@ -64,6 +69,7 @@ export const captureRoutes: FastifyPluginAsync = async (app) => {
   }>('/api/capture', { schema: ingestSchema, config: { rateLimit: INGEST_RATE } }, async (request, reply) => {
     const authErr = checkCaptureAuth(request.headers['x-capture-token'])
     if (authErr) return reply.code(authErr.code).send({ error: authErr.error })
+    lastExtensionSeen = Date.now()
 
     const b = request.body
     let host: string
@@ -102,8 +108,16 @@ export const captureRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/capture/targets', async (request, reply) => {
     const authErr = checkCaptureAuth(request.headers['x-capture-token'])
     if (authErr) return reply.code(authErr.code).send({ error: authErr.error })
+    lastExtensionSeen = Date.now()
     return { hosts: listDomains().map((d) => d.host) }
   })
+
+  // Dashboard-side status (session-authed): is capture enabled on the server, and
+  // when did we last hear from the extension? Powers the Traffic "not detected" hint.
+  app.get('/api/capture/status', async () => ({
+    enabled: !!config.captureToken,
+    extensionSeenAt: lastExtensionSeen || null,
+  }))
 
   // List captured requests for a domain (dashboard read — session-authed).
   app.get<{ Querystring: { domainId?: string; limit?: string } }>('/api/capture', async (request) => {
