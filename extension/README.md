@@ -41,8 +41,8 @@ next session. The same folder works for both browsers.)
 ### Then, in either browser
 
 4. Click the extension's icon to open the popup and fill in:
-   - **Dashboard URL** — how you reach the dashboard, e.g. `http://100.86.63.107:5173`
-     (or `http://localhost:5173` locally).
+   - **Dashboard URL** — how you reach the dashboard, e.g. `http://localhost:5173`
+     locally, or whatever host/IP you use to open it.
    - **Capture token** — the same value as `CAPTURE_TOKEN`.
    - Tick **Capture enabled**, then **Save & test**. It should say
      *"Connected — capturing N target host(s)."*

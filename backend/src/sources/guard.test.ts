@@ -30,9 +30,9 @@ describe('assertPublicHost (SSRF guard)', () => {
   })
 
   it('blocks CGNAT / Tailscale range (100.64.0.0/10)', async () => {
-    // The dashboard itself sits on a tailnet IP in this range — an engagement
-    // target pointing here must never be connected to.
-    mockDns.mockResolvedValue(dns(['100.86.63.107']))
+    // A tailnet/CGNAT address in this range — an engagement target pointing here
+    // must never be connected to (self-hosted dashboards often live on a tailnet).
+    mockDns.mockResolvedValue(dns(['100.100.100.100']))
     await expect(assertPublicHost('sneaky.example.com')).rejects.toBeInstanceOf(SsrfBlockedError)
   })
 
