@@ -76,12 +76,17 @@ const NAV_SECTIONS: { title: string; items: { key: string; label: string; icon: 
     items: [
       { key: 'scans', label: 'Scans', icon: ScanSearch },
       { key: 'fuzzing', label: 'Fuzzing', icon: Crosshair },
-      { key: 'replay', label: 'Replay', icon: Repeat },
-      { key: 'traffic', label: 'Traffic', icon: Radio },
       { key: 'tools', label: 'Tools', icon: Wrench },
       { key: 'owasp', label: 'OWASP', icon: ShieldCheck },
       { key: 'origin', label: 'WAF / Origin', icon: ShieldAlert },
       { key: 'llm', label: 'LLM Security', icon: Bot },
+    ],
+  },
+  {
+    title: 'Capture & Replay',
+    items: [
+      { key: 'traffic', label: 'Traffic', icon: Radio },
+      { key: 'replay', label: 'Replay', icon: Repeat },
     ],
   },
   {
