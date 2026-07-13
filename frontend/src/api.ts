@@ -482,6 +482,8 @@ export const api = {
     },
   ) => patch<{ domain: Domain }>(`/domains/${id}`, patchBody),
   deleteDomain: (id: number) => del<{ ok: true }>(`/domains/${id}`),
+  // Clear a domain's recon data (findings/subdomains/jobs/captures/…) but keep the domain.
+  purgeDomainData: (id: number) => del<{ ok: true }>(`/domains/${id}/data`),
 
   // OWASP testing
   owaspCatalog: () => get<{ catalog: OwaspCategory[]; profileKeys: OwaspProfileKey[] }>('/owasp/catalog'),

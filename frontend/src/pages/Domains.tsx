@@ -248,6 +248,23 @@ function DomainCard({
     }
   }
 
+  async function clearData() {
+    const ok = await confirm({
+      title: 'Clear all data?',
+      message: `Delete all recon data for ${d.host} — findings, subdomains, jobs, captured traffic, replay history, screenshots — but keep the target and its settings. This can't be undone.`,
+      confirmLabel: 'Clear data',
+      tone: 'danger',
+    })
+    if (!ok) return
+    try {
+      await api.purgeDomainData(d.id)
+      toast.success(`Cleared all data for ${d.host}.`)
+      await onChanged()
+    } catch (err) {
+      toast.error(`Failed to clear data: ${err instanceof Error ? err.message : 'error'}`)
+    }
+  }
+
   const isBusy = (kind: string) => busyAction === `${d.id}:${kind}`
 
   async function setMonitor(hours: number) {
@@ -434,6 +451,9 @@ function DomainCard({
             </Button>
             <Button variant={selected ? 'default' : 'ghost'} onClick={onSelect}>
               {selected ? '✓ Target' : 'Select'}
+            </Button>
+            <Button variant="ghost" onClick={clearData} title="Delete all recon data but keep the target">
+              Clear data
             </Button>
             <Button variant="danger" onClick={remove}>
               Delete

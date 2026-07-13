@@ -2,12 +2,14 @@ import type { FastifyPluginAsync } from 'fastify'
 import {
   createDomain,
   deleteDomain,
+  purgeDomainData,
   DomainValidationError,
   getDomain,
   listDomains,
   updateDomain,
   type DomainMode,
 } from '../domains/store'
+import { actorName, writeAudit } from '../audit/store'
 import { enqueueJob } from '../jobs/queue'
 import { acknowledgeNew, listSubdomains } from '../subdomains/store'
 import { domainOverviews } from '../domains/overview'
@@ -134,6 +136,18 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
     const id = Number(request.params.id)
     if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
     await deleteDomain(id)
+    return reply.send({ ok: true })
+  })
+
+  // Clear all recon data for a domain but KEEP the domain (a reset): findings,
+  // subdomains, jobs, CVEs, methodology progress, snapshots, captured traffic,
+  // replay history and screenshots. Notes/drawings + the domain config stay.
+  app.delete<{ Params: { id: string } }>('/api/domains/:id/data', async (request, reply) => {
+    const id = Number(request.params.id)
+    const domain = getDomain(id)
+    if (!domain) return reply.code(404).send({ error: 'domain not found' })
+    await purgeDomainData(id)
+    writeAudit({ actor: actorName(request.session.userId), action: 'domain:purge-data', domainId: id, target: domain.host })
     return reply.send({ ok: true })
   })
 

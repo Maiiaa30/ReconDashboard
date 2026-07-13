@@ -1,7 +1,17 @@
 import { rm } from 'node:fs/promises'
 import { desc, eq } from 'drizzle-orm'
 import { db } from '../db/index'
-import { domains } from '../db/schema'
+import {
+  domains,
+  findings,
+  subdomains,
+  jobs,
+  assetCves,
+  skillStepState,
+  reportSnapshots,
+  capturedRequests,
+  replayHistory,
+} from '../db/schema'
 import { isValidDomain, normalizeDomain } from '../util/validate'
 import { screenshotDirFor } from '../util/screenshotPaths'
 import { invalidateDomainOverviews } from './overview'
@@ -97,11 +107,30 @@ export function markMonitored(id: number, when: Date = new Date()): void {
   db.update(domains).set({ lastMonitoredAt: when }).where(eq(domains.id, id)).run()
 }
 
+// Delete every domain-scoped recon record for a domain WITHOUT removing the
+// domain itself — a reset. Keeps the domain row + its config, the operator's
+// notes/drawings, and the audit ledger. Explicit per-table deletes (not just FK
+// cascade) so tables without a cascade FK — subdomains, jobs, asset_cves,
+// skill_step_state — are cleared too.
+export async function purgeDomainData(id: number): Promise<void> {
+  db.transaction((tx) => {
+    tx.delete(findings).where(eq(findings.domainId, id)).run()
+    tx.delete(subdomains).where(eq(subdomains.domainId, id)).run()
+    tx.delete(jobs).where(eq(jobs.domainId, id)).run()
+    tx.delete(assetCves).where(eq(assetCves.domainId, id)).run()
+    tx.delete(skillStepState).where(eq(skillStepState.domainId, id)).run()
+    tx.delete(reportSnapshots).where(eq(reportSnapshots.domainId, id)).run()
+    tx.delete(capturedRequests).where(eq(capturedRequests.domainId, id)).run()
+    tx.delete(replayHistory).where(eq(replayHistory.domainId, id)).run()
+  })
+  invalidateDomainOverviews()
+  await rm(screenshotDirFor(id), { recursive: true, force: true }).catch(() => {})
+}
+
 export async function deleteDomain(id: number): Promise<void> {
+  await purgeDomainData(id) // also clears the tables the domain FK doesn't cascade
   db.delete(domains).where(eq(domains.id, id)).run()
   invalidateDomainOverviews()
-  // Remove orphaned screenshot files (the FK cascade only drops DB rows).
-  await rm(screenshotDirFor(id), { recursive: true, force: true }).catch(() => {})
 }
 
 export function requireActiveAuthorized(id: number): void {
