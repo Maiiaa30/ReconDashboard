@@ -255,8 +255,50 @@ export const drawings = sqliteTable('drawings', {
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
 })
 
+// Requests captured by the browser extension for a target, awaiting replay/review.
+// Passive record only — the operator explicitly re-sends via the Replay tool.
+export const capturedRequests = sqliteTable(
+  'captured_requests',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id').references(() => domains.id, { onDelete: 'cascade' }),
+    method: text('method').notNull(),
+    url: text('url').notNull(),
+    host: text('host').notNull(),
+    headers: text('headers'), // JSON: [ [name, value], … ] (order preserved)
+    body: text('body'),
+    source: text('source').notNull().default('extension'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [index('captured_domain_idx').on(t.domainId), index('captured_created_idx').on(t.createdAt)],
+)
+
+// Repeater history: one row per request sent from the Replay tool, with its
+// response, so the operator can revisit/re-send past requests (Caido-style).
+export const replayHistory = sqliteTable(
+  'replay_history',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id').references(() => domains.id, { onDelete: 'cascade' }),
+    method: text('method').notNull(),
+    url: text('url').notNull(),
+    reqHeaders: text('req_headers'), // JSON [ [name, value], … ]
+    reqBody: text('req_body'),
+    status: integer('status'),
+    statusText: text('status_text'),
+    timeMs: integer('time_ms'),
+    respBytes: integer('resp_bytes'),
+    respHeaders: text('resp_headers'), // JSON [ [name, value], … ]
+    respBody: text('resp_body'), // capped
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [index('replay_history_domain_idx').on(t.domainId)],
+)
+
 export type User = typeof users.$inferSelect
 export type Domain = typeof domains.$inferSelect
+export type CapturedRequest = typeof capturedRequests.$inferSelect
+export type ReplayHistoryRow = typeof replayHistory.$inferSelect
 export type Subdomain = typeof subdomains.$inferSelect
 export type Job = typeof jobs.$inferSelect
 export type AuditEntry = typeof auditLog.$inferSelect

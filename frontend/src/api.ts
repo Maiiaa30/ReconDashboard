@@ -182,6 +182,38 @@ export interface IntruderResult {
   baseline: { status: number; length: number } | null
 }
 
+// A request captured by the browser extension, awaiting replay/review.
+export interface Capture {
+  id: number
+  domainId: number | null
+  method: string
+  url: string
+  host: string
+  headers: [string, string][]
+  body: string | null
+  source: string
+  createdAt: string
+}
+
+// Repeater history entry (list form — no response body).
+export interface ReplayHistoryItem {
+  id: number
+  method: string
+  url: string
+  reqHeaders: [string, string][]
+  reqBody: string | null
+  status: number | null
+  statusText: string | null
+  timeMs: number | null
+  respBytes: number | null
+  createdAt: string
+}
+// Full entry (with the stored response) — fetched when a history row is opened.
+export interface ReplayHistoryDetail extends ReplayHistoryItem {
+  respHeaders: [string, string][]
+  respBody: string | null
+}
+
 export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
 
 export interface Finding {
@@ -532,6 +564,11 @@ export const api = {
     followRedirects?: boolean
     confirm?: boolean
   }) => post<{ response: ReplayResponse }>('/replay/send', bodyReq),
+  // repeater history
+  replayHistory: (domainId: number, limit?: number) =>
+    get<{ history: ReplayHistoryItem[] }>(`/replay/history?domainId=${domainId}${limit ? `&limit=${limit}` : ''}`),
+  replayHistoryDetail: (id: number) => get<{ entry: ReplayHistoryDetail }>(`/replay/history/${id}`),
+  clearReplayHistory: (domainId: number) => del<{ cleared: number }>(`/replay/history?domainId=${domainId}`),
   // intruder: iterate a payload set through a request template (gated LOUD job)
   intruder: (
     id: number,
@@ -542,6 +579,16 @@ export const api = {
       confirm?: boolean
     },
   ) => post<{ jobId: number; count: number }>(`/domains/${id}/intruder`, bodyReq),
+
+  // captured traffic (from the browser extension)
+  captures: (domainId?: number, limit?: number) => {
+    const p = new URLSearchParams()
+    if (domainId != null) p.set('domainId', String(domainId))
+    if (limit) p.set('limit', String(limit))
+    const qs = p.toString()
+    return get<{ captures: Capture[] }>(`/capture${qs ? `?${qs}` : ''}`)
+  },
+  clearCaptures: (domainId: number) => del<{ cleared: number }>(`/capture?domainId=${domainId}`),
 
   // jobs
   jobs: () => get<{ jobs: Job[] }>('/jobs'),

@@ -32,6 +32,7 @@ import { homeRoutes } from './routes/home'
 import { metaRoutes } from './routes/meta'
 import { leakRoutes } from './routes/leaks'
 import { replayRoutes } from './routes/replay'
+import { captureRoutes } from './routes/capture'
 
 async function main() {
   const app = Fastify({
@@ -117,6 +118,7 @@ async function main() {
   await app.register(metaRoutes)
   await app.register(leakRoutes)
   await app.register(replayRoutes)
+  await app.register(captureRoutes)
 
   // Background processing.
   registerJobHandlers()

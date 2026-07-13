@@ -28,6 +28,7 @@ describe('authGuard', () => {
     for (const [method, url] of [
       ['GET', '/api/health'],
       ['POST', '/api/auth/login'],
+      ['POST', '/api/capture'], // extension ingest — self-authenticates via CAPTURE_TOKEN
     ] as const) {
       const reply = mkReply()
       await authGuard(mkReq(method, url), reply)
@@ -58,6 +59,12 @@ describe('authGuard', () => {
     // /api/auth/login is public only for POST; a GET must still require auth.
     const reply = mkReply()
     await authGuard(mkReq('GET', '/api/auth/login'), reply)
+    expect(reply.code).toHaveBeenCalledWith(401)
+  })
+
+  it('keeps GET /api/capture (the read route) session-protected — only POST ingest is public', async () => {
+    const reply = mkReply()
+    await authGuard(mkReq('GET', '/api/capture'), reply)
     expect(reply.code).toHaveBeenCalledWith(401)
   })
 

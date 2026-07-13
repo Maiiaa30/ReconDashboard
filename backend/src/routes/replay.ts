@@ -4,6 +4,7 @@ import { getDomain } from '../domains/store'
 import { assertDomainActive, assertHostInScope, assertScanAllowed, ScanPolicyError } from '../domains/scanPolicy'
 import { sendRawRequest, ReplayError, type ReplayRequest } from '../replay/send'
 import { expandPayloads, MAX_PAYLOADS, PAYLOAD_MARKER } from '../replay/intruder'
+import { insertReplayHistory, listReplayHistory, getReplayHistory, clearReplayHistory } from '../replay/history'
 import { enqueueJob } from '../jobs/queue'
 import { SsrfBlockedError } from '../sources/guard'
 import { actorName, writeAudit } from '../audit/store'
@@ -109,6 +110,24 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
 
     try {
       const response = await sendRawRequest(req)
+      // Record in the Repeater history (best-effort — never fail the send on it).
+      try {
+        insertReplayHistory({
+          domainId: domain.id,
+          method: req.method,
+          url: req.url,
+          reqHeaders: Object.entries(req.headers ?? {}),
+          reqBody: req.body ?? null,
+          status: response.status,
+          statusText: response.statusText,
+          timeMs: response.timeMs,
+          respBytes: response.bodyBytes,
+          respHeaders: response.headers,
+          respBody: response.body,
+        })
+      } catch {
+        /* history write is non-critical */
+      }
       return { response }
     } catch (err) {
       if (err instanceof SsrfBlockedError) return reply.code(400).send({ error: err.message, code: 'out_of_scope' })
@@ -199,5 +218,28 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
       }
       throw err
     }
+  })
+
+  // Repeater history: list (lightweight — no response body), full entry (with
+  // response body), and clear. Session-authed like the rest of the dashboard.
+  app.get<{ Querystring: { domainId?: string; limit?: string } }>('/api/replay/history', async (request, reply) => {
+    const domainId = Number(request.query.domainId)
+    if (!Number.isFinite(domainId)) return reply.code(400).send({ error: 'domainId required' })
+    const limit = request.query.limit != null && Number.isFinite(Number(request.query.limit)) ? Number(request.query.limit) : undefined
+    return { history: listReplayHistory(domainId, limit) }
+  })
+
+  app.get<{ Params: { id: string } }>('/api/replay/history/:id', async (request, reply) => {
+    const entry = getReplayHistory(Number(request.params.id))
+    if (!entry) return reply.code(404).send({ error: 'history entry not found' })
+    return { entry }
+  })
+
+  app.delete<{ Querystring: { domainId?: string } }>('/api/replay/history', async (request, reply) => {
+    const domainId = Number(request.query.domainId)
+    if (!Number.isFinite(domainId)) return reply.code(400).send({ error: 'domainId required' })
+    const cleared = clearReplayHistory(domainId)
+    writeAudit({ actor: actorName(request.session.userId), action: 'replay:history:clear', domainId, detail: { cleared } })
+    return { cleared }
   })
 }

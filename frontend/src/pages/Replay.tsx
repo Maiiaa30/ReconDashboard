@@ -1,10 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Send, Crosshair, Repeat, ChevronRight, AlertTriangle, Clock, Ruler, StopCircle } from 'lucide-react'
-import { api, ApiError, type ReplayResponse, type IntruderResult, type IntruderAttempt, type Job, type Wordlist } from '../api'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Send, Crosshair, Repeat, ChevronRight, AlertTriangle, Clock, Ruler, StopCircle, History } from 'lucide-react'
+import { api, ApiError, type ReplayResponse, type IntruderResult, type IntruderAttempt, type Job, type Wordlist, type ReplayHistoryItem } from '../api'
 import { useApp } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, Spinner } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/Confirm'
+import { takePendingReplay } from '../lib/replayHandoff'
+import { timeAgo } from '../lib/format'
+
+export type BuiltReq = { method: string; url: string; headers: [string, string][]; body?: string | null }
+
+function shortUrl(u: string): string {
+  try {
+    const x = new URL(u)
+    return x.pathname + x.search
+  } catch {
+    return u
+  }
+}
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const
 const PAYLOAD_MARKER = '{{PAYLOAD}}'
@@ -44,14 +57,34 @@ export function Replay() {
   const [bodyText, setBodyText] = useState('')
   const [followRedirects, setFollowRedirects] = useState(false)
 
+  // Load a request (from the Traffic handoff or a history entry) into the editor.
+  const applyRequest = useCallback((r: BuiltReq) => {
+    if ((METHODS as readonly string[]).includes(r.method)) setMethod(r.method as (typeof METHODS)[number])
+    setUrl(r.url)
+    setHeadersText(r.headers.map(([k, v]) => `${k}: ${v}`).join('\n'))
+    setBodyText(typeof r.body === 'string' ? r.body : '')
+  }, [])
+
   // Prefill the URL from the selected target the first time (and when switching to
   // a target while the box is still empty/pointing at the old host).
   const lastHost = useRef<string | null>(null)
   useEffect(() => {
     if (!selected) return
-    if (!url || url === `https://${lastHost.current}/`) setUrl(`https://${selected.host}/`)
+    const prevDefault = `https://${lastHost.current}/`
+    // Functional update reads the CURRENT url, not a stale closure — so it won't
+    // clobber a URL just set by the "Send to Replay" handoff (and stays correct
+    // under React StrictMode's double-invoked effects).
+    setUrl((cur) => (!cur || cur === prevDefault ? `https://${selected.host}/` : cur))
     lastHost.current = selected.host
   }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Consume a request handed over from the Traffic page ("Send to Replay").
+  useEffect(() => {
+    const p = takePendingReplay()
+    if (!p) return
+    setMode('repeater')
+    applyRequest({ method: p.method, url: p.url, headers: p.headers, body: p.body })
+  }, [applyRequest])
 
   if (!selected) return <Empty>Select a domain to compose and replay requests against it.</Empty>
 
@@ -99,6 +132,7 @@ export function Replay() {
             domainId={selected.id}
             passive={passive}
             confirmActive={confirmActive}
+            applyRequest={applyRequest}
             build={() => ({
               method,
               url,
@@ -215,12 +249,14 @@ function RepeaterPanel({
   domainId,
   passive,
   confirmActive,
+  applyRequest,
   build,
   toast,
 }: {
   domainId: number
   passive: boolean
   confirmActive: (title: string, what: string) => Promise<boolean>
+  applyRequest: (r: BuiltReq) => void
   build: () => BuiltRequest
   toast: ReturnType<typeof useToast>
 }) {
@@ -229,6 +265,15 @@ function RepeaterPanel({
   const [showHeaders, setShowHeaders] = useState(false)
   const [view, setView] = useState<'body' | 'preview'>('body')
   const [runScripts, setRunScripts] = useState(false)
+  const [history, setHistory] = useState<ReplayHistoryItem[]>([])
+
+  const loadHistory = useCallback(() => {
+    api
+      .replayHistory(domainId, 100)
+      .then((r) => setHistory(r.history))
+      .catch(() => {})
+  }, [domainId])
+  useEffect(loadHistory, [loadHistory])
 
   async function send() {
     if (busy) return
@@ -239,10 +284,42 @@ function RepeaterPanel({
     try {
       const { response } = await api.replaySend({ domainId, ...req, confirm: passive })
       setResp(response)
+      loadHistory() // the send was recorded server-side — refresh the list
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Request failed.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  // Open a past request: restore it into the editor and show its stored response.
+  async function openHistory(h: ReplayHistoryItem) {
+    applyRequest({ method: h.method, url: h.url, headers: h.reqHeaders, body: h.reqBody })
+    try {
+      const { entry } = await api.replayHistoryDetail(h.id)
+      setResp({
+        status: entry.status ?? 0,
+        statusText: entry.statusText ?? '',
+        headers: entry.respHeaders ?? [],
+        body: entry.respBody ?? '',
+        bodyBytes: entry.respBytes ?? 0,
+        truncated: false,
+        timeMs: entry.timeMs ?? 0,
+        finalUrl: entry.url,
+        redirects: [],
+      })
+      setView('body')
+    } catch {
+      /* detail fetch failed — the request is still restored */
+    }
+  }
+
+  async function clearHistory() {
+    try {
+      await api.clearReplayHistory(domainId)
+      setHistory([])
+    } catch {
+      toast.error('Failed to clear history.')
     }
   }
 
@@ -344,6 +421,41 @@ function RepeaterPanel({
                 />
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="mt-3 border-t border-hair/50 pt-2">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-zinc-500">
+              <History size={12} /> History ({history.length})
+            </span>
+            <button onClick={clearHistory} className="text-[11px] text-zinc-500 transition hover:text-red-300">
+              clear
+            </button>
+          </div>
+          <div className="max-h-56 space-y-0.5 overflow-auto">
+            {history.map((h) => (
+              <button
+                key={h.id}
+                onClick={() => openHistory(h)}
+                className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left font-mono text-[11px] transition hover:bg-ink-800"
+                title={h.url}
+              >
+                <span className="w-11 shrink-0 text-zinc-400">{h.method}</span>
+                <span className="min-w-0 flex-1 truncate text-zinc-300">{shortUrl(h.url)}</span>
+                {h.status != null && (
+                  <span
+                    className={`shrink-0 ${statusTone(h.status) === 'green' ? 'text-green-300' : statusTone(h.status) === 'amber' ? 'text-amber-300' : statusTone(h.status) === 'blue' ? 'text-sky-300' : statusTone(h.status) === 'red' ? 'text-red-300' : 'text-zinc-400'}`}
+                  >
+                    {h.status}
+                  </span>
+                )}
+                <span className="w-14 shrink-0 text-right text-zinc-600">{h.timeMs != null ? `${h.timeMs}ms` : ''}</span>
+                <span className="w-14 shrink-0 text-right text-zinc-600">{timeAgo(new Date(h.createdAt).getTime())}</span>
+              </button>
+            ))}
           </div>
         </div>
       )}

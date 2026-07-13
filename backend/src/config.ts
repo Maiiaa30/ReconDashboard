@@ -66,6 +66,13 @@ export const config = {
   // requires the passphrase to be supplied in the request.
   backupPassphrase: process.env.BACKUP_PASSPHRASE?.trim() || '',
 
+  // Shared secret the browser-capture extension presents to POST /api/capture.
+  // The dashboard is tailnet-only and the ingest route can't use the session
+  // cookie (the extension is a different origin + sameSite=strict), so it
+  // authenticates with this token instead. Empty => capture ingest DISABLED
+  // (the route 503s), so capture is off unless you deliberately set a token.
+  captureToken: process.env.CAPTURE_TOKEN?.trim() || '',
+
   // Optional LLM for DRAFTING report narrative only (never scoring — scores stay
   // deterministic). Provider-agnostic: any OpenAI-compatible /chat/completions
   // endpoint. Default OFF; point LLM_BASE_URL at Groq / Gemini / a local Ollama.
