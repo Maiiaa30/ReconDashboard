@@ -192,7 +192,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           collapsed ? 'md:w-16' : 'md:w-56'
         } ${navOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
-        <div className={`flex items-center gap-2.5 px-4 py-4 ${collapsed ? 'md:justify-center md:px-0' : ''}`}>
+        <div className={`flex items-center gap-2.5 px-4 py-4 ${collapsed ? 'md:flex-col md:gap-3 md:px-0' : ''}`}>
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-500 shadow-sm shadow-accent-500/30">
             <RadarLogo size={18} className="text-white" />
           </span>
@@ -212,10 +212,20 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               </div>
             )}
           </div>
+          {/* Desktop collapse/expand toggle — lives at the top of the sidebar. */}
+          <button
+            onClick={() => setCollapsed((v) => !v)}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="hidden shrink-0 rounded-lg p-1.5 text-zinc-500 transition hover:bg-ink-800 hover:text-zinc-200 md:block"
+          >
+            {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
+          </button>
+          {/* Mobile drawer close. */}
           <button
             onClick={() => setNavOpen(false)}
             aria-label="Close menu"
-            className="text-zinc-500 transition hover:text-zinc-200 md:hidden"
+            className="shrink-0 text-zinc-500 transition hover:text-zinc-200 md:hidden"
           >
             <X size={18} />
           </button>
@@ -264,35 +274,20 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               })}
             </div>
           ))}
+          {/* Log out lives at the end of the scrolling nav — no fixed bottom bar. */}
+          <div className="mt-1 border-t border-hair/40 pt-1">
+            <button
+              onClick={logout}
+              title="Log out"
+              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-zinc-400 transition hover:bg-ink-800 hover:text-zinc-200 ${
+                collapsed ? 'md:justify-center md:px-0' : ''
+              }`}
+            >
+              <LogOut size={17} className="shrink-0 text-zinc-500" />
+              <span className={collapsed ? 'md:hidden' : ''}>Log out</span>
+            </button>
+          </div>
         </nav>
-        <div className="border-t border-hair p-2">
-          {/* Collapse toggle — desktop only; the mobile drawer uses the X instead. */}
-          <button
-            onClick={() => setCollapsed((v) => !v)}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className={`hidden w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-zinc-400 transition hover:bg-ink-800 hover:text-zinc-200 md:flex ${
-              collapsed ? 'md:justify-center md:px-0' : ''
-            }`}
-          >
-            {collapsed ? (
-              <ChevronsRight size={17} className="shrink-0 text-zinc-500" />
-            ) : (
-              <ChevronsLeft size={17} className="shrink-0 text-zinc-500" />
-            )}
-            <span className={collapsed ? 'md:hidden' : ''}>Collapse</span>
-          </button>
-          <button
-            onClick={logout}
-            title="Log out"
-            className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-zinc-400 hover:bg-ink-800 hover:text-zinc-200 ${
-              collapsed ? 'md:justify-center md:px-0' : ''
-            }`}
-          >
-            <LogOut size={17} className="shrink-0 text-zinc-500" />
-            <span className={collapsed ? 'md:hidden' : ''}>Log out</span>
-          </button>
-        </div>
       </aside>
 
       <main className="min-w-0 flex-1">
