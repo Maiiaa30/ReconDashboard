@@ -63,12 +63,18 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
         counts.graphql++
       }
       const js = result.js
-      if (js.endpoints.length || js.secrets.length || js.params.length) {
+      if (js.endpoints.length || js.secrets.length || js.params.length || js.frameworks?.length || js.env?.length) {
         await addScoredFinding({
           domainId,
           type: 'api',
           data: { kind: 'js', host, ...js },
-          tags: ['api', 'js-endpoints', ...(js.secrets.length ? ['secret-in-js'] : [])],
+          tags: [
+            'api',
+            'js-endpoints',
+            ...(js.secrets.length ? ['secret-in-js'] : []),
+            ...(js.frameworks?.length ? ['spa'] : []),
+            ...(js.env?.length ? ['env-config'] : []),
+          ],
         })
         counts.jsEndpoints += js.endpoints.length
       }

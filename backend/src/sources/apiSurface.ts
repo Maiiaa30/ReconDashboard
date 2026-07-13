@@ -78,6 +78,25 @@ export interface JsFindings {
   params: string[]
   secrets: { pattern: string; sample: string; file: string }[]
   fromCorpus?: number // how many endpoints came from the passive URL corpus (not JS)
+  // Frontend/SPA recon: the stack + config a React/Vue/… app exposes client-side.
+  frameworks?: string[]
+  routes?: string[]
+  env?: { key: string; value: string | null }[]
+}
+
+// Detect the frontend framework from the homepage HTML (strong markers only).
+function detectFrameworkFromHtml(html: string): string[] {
+  const out: string[] = []
+  if (/<script[^>]+id=["']__NEXT_DATA__["']/i.test(html) || /\/_next\//.test(html)) out.push('Next.js')
+  if (/window\.__NUXT__|\/_nuxt\/|id=["']__nuxt["']/i.test(html)) out.push('Nuxt')
+  const ng = html.match(/ng-version=["']([^"']+)["']/i)
+  if (ng) out.push(`Angular ${ng[1]}`)
+  else if (/<app-root/i.test(html)) out.push('Angular')
+  if (/__sveltekit|\/_app\/immutable\//i.test(html)) out.push('SvelteKit')
+  if (/id=["']___gatsby["']|\/page-data\//i.test(html)) out.push('Gatsby')
+  if (/window\.__remixContext|__remixManifest/i.test(html)) out.push('Remix')
+  if (/data-reactroot|id=["']root["']/i.test(html) && !out.includes('Next.js')) out.push('React')
+  return out
 }
 
 export interface ApiSurfaceResult {
@@ -142,7 +161,7 @@ const INTROSPECTION_QUERY = JSON.stringify({
 // <link rel="modulepreload"/"preload" href> (modern bundlers — Next/Vite — load
 // their main chunks via modulepreload, which the app's API calls live in). Uses
 // a browser UA so CDN/bot gates don't hide the real page. https first, then http.
-async function homepageJsUrls(host: string): Promise<string[]> {
+async function homepageJs(host: string): Promise<{ jsUrls: string[]; html: string | null }> {
   const urls = new Set<string>()
   for (const scheme of ['https', 'http'] as const) {
     const base = `${scheme}://${host}/`
@@ -160,9 +179,9 @@ async function homepageJsUrls(host: string): Promise<string[]> {
         /* skip unparseable url */
       }
     }
-    if (urls.size) break
+    return { jsUrls: [...urls], html: res.body }
   }
-  return [...urls]
+  return { jsUrls: [...urls], html: null }
 }
 
 // Pull spec URLs referenced inside a Swagger-UI / ReDoc HTML page.
@@ -325,10 +344,11 @@ export function apiPathsFromCorpus(host: string, knownUrls: string[]): { endpoin
 // endpoints (relative paths AND in-scope absolute URLs like api.target.com/…),
 // params and leaked secrets — surfaces an API even when no spec is published.
 async function mineJs(host: string, extraJsUrls: string[], knownUrls: string[] = []): Promise<JsFindings> {
-  const jsUrls = [...new Set([...(await homepageJsUrls(host)), ...extraJsUrls])]
+  const home = await homepageJs(host)
+  const jsUrls = [...new Set([...home.jsUrls, ...extraJsUrls])]
   const raw: JsReconResult = jsUrls.length
     ? await jsRecon(jsUrls)
-    : { filesScanned: 0, endpoints: [], urls: [], params: [], secrets: [] }
+    : { filesScanned: 0, endpoints: [], urls: [], params: [], secrets: [], frameworks: [], routes: [], env: [] }
 
   const relative = raw.endpoints.filter(isApiEndpoint)
 
@@ -357,7 +377,21 @@ async function mineJs(host: string, extraJsUrls: string[], knownUrls: string[] =
 
   const endpoints = [...new Set([...relative, ...absolute, ...corpus.endpoints])].slice(0, MAX_ENDPOINTS)
   const params = [...new Set([...raw.params, ...corpus.params])].slice(0, 100)
-  return { filesScanned: raw.filesScanned, endpoints, params, secrets: raw.secrets, fromCorpus: corpus.endpoints.length }
+  // Framework = homepage-HTML markers ∪ bundle signatures. Dedup by base name so
+  // "Angular 17" and "Angular" don't both show.
+  const frameworks = [...new Set([...(home.html ? detectFrameworkFromHtml(home.html) : []), ...raw.frameworks])].filter(
+    (f, _i, arr) => !arr.some((o) => o !== f && o.startsWith(f + ' ')),
+  )
+  return {
+    filesScanned: raw.filesScanned,
+    endpoints,
+    params,
+    secrets: raw.secrets,
+    fromCorpus: corpus.endpoints.length,
+    frameworks,
+    routes: raw.routes,
+    env: raw.env,
+  }
 }
 
 export async function discoverApiSurface(
