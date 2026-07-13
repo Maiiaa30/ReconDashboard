@@ -66,6 +66,14 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, Number.isFinite(n) ? n : lo))
 }
 
+// Remove credential-bearing headers (used when a redirect crosses to a new host).
+function stripCredentialHeaders(h: Record<string, string>): void {
+  for (const k of Object.keys(h)) {
+    const lk = k.toLowerCase()
+    if (lk === 'cookie' || lk === 'authorization' || lk === 'proxy-authorization') delete h[k]
+  }
+}
+
 function sanitizeHeaders(headers: Record<string, string> = {}): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [k, v] of Object.entries(headers)) {
@@ -203,11 +211,17 @@ export async function sendRawRequest(req: ReplayRequest, opts: { signal?: AbortS
       const loc = res.headers.get('location')
       if (loc) {
         redirects.push({ status: res.status, location: loc })
+        let next: URL
         try {
-          current = new URL(loc, current).toString()
+          next = new URL(loc, current)
         } catch {
           throw new ReplayError(`redirect to invalid url: ${loc}`, 502)
         }
+        // Don't carry credentials across a host change (as browsers do) — a
+        // 302 from an in-scope host to an attacker's host must not re-send the
+        // operator's Cookie/Authorization.
+        if (next.host !== u.host) stripCredentialHeaders(headers)
+        current = next.toString()
         continue
       }
     }

@@ -21,6 +21,13 @@ if (SESSION_SECRET.length < 32) {
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME?.trim() ?? ''
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? ''
 
+// The capture ingest token is the sole authority for the extension endpoints, so
+// a weak value lets anyone who guesses it enumerate targets + inject captures.
+const CAPTURE_TOKEN = process.env.CAPTURE_TOKEN?.trim() || ''
+if (CAPTURE_TOKEN && CAPTURE_TOKEN.length < 16) {
+  console.warn('⚠ CAPTURE_TOKEN is short (<16 chars). Use a long random value (e.g. `openssl rand -base64 24`).')
+}
+
 export const config = {
   nodeEnv: NODE_ENV,
   isProd,
@@ -71,7 +78,7 @@ export const config = {
   // cookie (the extension is a different origin + sameSite=strict), so it
   // authenticates with this token instead. Empty => capture ingest DISABLED
   // (the route 503s), so capture is off unless you deliberately set a token.
-  captureToken: process.env.CAPTURE_TOKEN?.trim() || '',
+  captureToken: CAPTURE_TOKEN,
 
   // Optional LLM for DRAFTING report narrative only (never scoring — scores stay
   // deterministic). Provider-agnostic: any OpenAI-compatible /chat/completions

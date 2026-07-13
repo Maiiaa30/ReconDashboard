@@ -70,8 +70,29 @@ describe('isInternalIp (SSRF guard)', () => {
       expect(isInternalIp(ip), ip).toBe(true)
     }
   })
+  it('flags IPv4-mapped v6 in the compressed HEX form the URL parser emits', () => {
+    // new URL('http://[::ffff:127.0.0.1]/').hostname === '[::ffff:7f00:1]'
+    for (const ip of [
+      '::ffff:7f00:1', // 127.0.0.1
+      '::ffff:a00:1', // 10.0.0.1
+      '::ffff:c0a8:1', // 192.168.0.1
+      '::ffff:a9fe:a9fe', // 169.254.169.254 (cloud metadata)
+      '64:ff9b::7f00:1', // NAT64 loopback
+    ]) {
+      expect(isInternalIp(ip), ip).toBe(true)
+    }
+  })
   it('does NOT flag public addresses', () => {
-    for (const ip of ['8.8.8.8', '1.1.1.1', '172.15.0.1', '172.32.0.1', '100.63.0.1', '100.128.0.1', '2606:4700:4700::1111']) {
+    for (const ip of [
+      '8.8.8.8',
+      '1.1.1.1',
+      '172.15.0.1',
+      '172.32.0.1',
+      '100.63.0.1',
+      '100.128.0.1',
+      '2606:4700:4700::1111',
+      '::ffff:808:808', // 8.8.8.8 mapped — must stay public
+    ]) {
       expect(isInternalIp(ip), ip).toBe(false)
     }
   })
