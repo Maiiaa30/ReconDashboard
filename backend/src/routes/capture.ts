@@ -3,7 +3,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { config } from '../config'
 import { getDomain, listDomains } from '../domains/store'
 import { hostBelongsToDomain } from '../util/validate'
-import { insertCapture, listCaptures, clearCaptures } from '../capture/store'
+import { insertCapture, listCaptures, clearCaptures, deleteCapture } from '../capture/store'
 import { actorName, writeAudit } from '../audit/store'
 
 // Browser-extension capture ingest + read.
@@ -21,6 +21,13 @@ function tokenMatches(provided: string, expected: string): boolean {
   const a = Buffer.from(provided)
   const b = Buffer.from(expected)
   return a.length === b.length && timingSafeEqual(a, b)
+}
+
+// Shared auth for the extension-facing routes. Returns an error tuple or null.
+function checkCaptureAuth(headerToken: unknown): { code: number; error: string } | null {
+  if (!config.captureToken) return { code: 503, error: 'capture is disabled (set CAPTURE_TOKEN to enable)' }
+  if (!tokenMatches(String(headerToken ?? ''), config.captureToken)) return { code: 401, error: 'invalid capture token' }
+  return null
 }
 
 // Match a captured host to a tracked domain (longest apex wins), so capture is
@@ -55,13 +62,8 @@ export const captureRoutes: FastifyPluginAsync = async (app) => {
   app.post<{
     Body: { url: string; method?: string; headers?: [string, string][]; body?: string | null; domainId?: number }
   }>('/api/capture', { schema: ingestSchema, config: { rateLimit: INGEST_RATE } }, async (request, reply) => {
-    if (!config.captureToken) {
-      return reply.code(503).send({ error: 'capture ingest is disabled (set CAPTURE_TOKEN to enable)' })
-    }
-    const provided = String(request.headers['x-capture-token'] ?? '')
-    if (!tokenMatches(provided, config.captureToken)) {
-      return reply.code(401).send({ error: 'invalid capture token' })
-    }
+    const authErr = checkCaptureAuth(request.headers['x-capture-token'])
+    if (authErr) return reply.code(authErr.code).send({ error: authErr.error })
 
     const b = request.body
     let host: string
@@ -95,11 +97,28 @@ export const captureRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(202).send({ stored: true, id })
   })
 
+  // The extension polls this (token-authed) to learn which hosts to capture, so
+  // it only ships tracked-domain traffic and leaves everything else private.
+  app.get('/api/capture/targets', async (request, reply) => {
+    const authErr = checkCaptureAuth(request.headers['x-capture-token'])
+    if (authErr) return reply.code(authErr.code).send({ error: authErr.error })
+    return { hosts: listDomains().map((d) => d.host) }
+  })
+
   // List captured requests for a domain (dashboard read — session-authed).
   app.get<{ Querystring: { domainId?: string; limit?: string } }>('/api/capture', async (request) => {
     const domainId = request.query.domainId != null && Number.isFinite(Number(request.query.domainId)) ? Number(request.query.domainId) : undefined
     const limit = request.query.limit != null && Number.isFinite(Number(request.query.limit)) ? Number(request.query.limit) : undefined
     return { captures: listCaptures({ domainId, limit }) }
+  })
+
+  // Delete a single captured request.
+  app.delete<{ Params: { id: string } }>('/api/capture/:id', async (request, reply) => {
+    const id = Number(request.params.id)
+    if (!Number.isFinite(id)) return reply.code(400).send({ error: 'invalid id' })
+    const deleted = deleteCapture(id)
+    if (!deleted) return reply.code(404).send({ error: 'capture not found' })
+    return { deleted }
   })
 
   // Clear a domain's captured history.

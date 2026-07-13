@@ -29,6 +29,7 @@ describe('authGuard', () => {
       ['GET', '/api/health'],
       ['POST', '/api/auth/login'],
       ['POST', '/api/capture'], // extension ingest — self-authenticates via CAPTURE_TOKEN
+      ['GET', '/api/capture/targets'], // extension polls for tracked hosts — token-authed
     ] as const) {
       const reply = mkReply()
       await authGuard(mkReq(method, url), reply)

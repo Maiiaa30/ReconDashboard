@@ -588,6 +588,7 @@ export const api = {
     const qs = p.toString()
     return get<{ captures: Capture[] }>(`/capture${qs ? `?${qs}` : ''}`)
   },
+  deleteCapture: (id: number) => del<{ deleted: number }>(`/capture/${id}`),
   clearCaptures: (domainId: number) => del<{ cleared: number }>(`/capture?domainId=${domainId}`),
 
   // jobs

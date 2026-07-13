@@ -56,6 +56,11 @@ export function getCapture(id: number) {
   return r ? mapRow(r) : undefined
 }
 
+// Delete a single captured request.
+export function deleteCapture(id: number): number {
+  return db.delete(capturedRequests).where(eq(capturedRequests.id, id)).run().changes
+}
+
 // Clear a domain's captured history (operator housekeeping).
 export function clearCaptures(domainId: number): number {
   const res = db.delete(capturedRequests).where(eq(capturedRequests.domainId, domainId)).run()

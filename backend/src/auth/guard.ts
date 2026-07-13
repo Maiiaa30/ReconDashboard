@@ -5,7 +5,12 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 // (different origin), so it self-authenticates with the CAPTURE_TOKEN shared
 // secret inside the handler (and 503s if no token is configured). It is NOT an
 // open endpoint — the token check is the auth.
-const PUBLIC = new Set(['GET /api/health', 'POST /api/auth/login', 'POST /api/capture'])
+const PUBLIC = new Set([
+  'GET /api/health',
+  'POST /api/auth/login',
+  'POST /api/capture',
+  'GET /api/capture/targets', // extension polls this; token-authed in the handler
+])
 
 // onRequest guard: DEFAULT-DENY. Every request requires a logged-in session
 // unless its METHOD + path is on the explicit public allowlist — this does not

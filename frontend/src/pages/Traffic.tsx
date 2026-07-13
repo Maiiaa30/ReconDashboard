@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Repeat, ChevronRight, Trash2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Repeat, ChevronRight, Trash2, Search, Lock } from 'lucide-react'
 import { api, type Capture } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, SkeletonList } from '../components/ui'
@@ -25,12 +25,74 @@ function shortUrl(u: string): string {
   }
 }
 
+// Paths that tend to be worth a closer look on an engagement.
+const SENSITIVE_RE =
+  /(login|logout|signin|sign-in|auth|oauth|sso|token|jwt|password|passwd|pwd|reset|otp|2fa|mfa|verify|admin|account|payment|checkout|order|invoice|upload|import|export|graphql|wp-json|wp-admin|wp-login|session|secret|api[-_/]?key|debug|actuator)/i
+
+type Tone = 'amber' | 'blue' | 'purple' | 'green' | 'red' | 'zinc'
+function header(c: Capture, name: string): string | undefined {
+  return c.headers.find(([k]) => k.toLowerCase() === name)?.[1]
+}
+
+// Derive at-a-glance signals so the eye lands on the requests worth testing:
+// state-changing methods, query params (injection surface), request bodies,
+// and sensitive-looking paths. `interesting` drives the row highlight.
+function analyze(c: Capture): { tags: { label: string; tone: Tone }[]; interesting: boolean; authed: boolean } {
+  const tags: { label: string; tone: Tone }[] = []
+  let interesting = false
+  const method = c.method.toUpperCase()
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    tags.push({ label: 'write', tone: 'amber' })
+    interesting = true
+  }
+  let params = 0
+  let path = c.url
+  try {
+    const u = new URL(c.url)
+    params = [...u.searchParams].length
+    path = u.pathname + u.search
+  } catch {
+    /* keep raw */
+  }
+  if (params) {
+    tags.push({ label: `${params} param${params > 1 ? 's' : ''}`, tone: 'blue' })
+    interesting = true
+  }
+  if (c.body) {
+    const ct = (header(c, 'content-type') || '').toLowerCase()
+    const label = ct.includes('json')
+      ? 'json'
+      : ct.includes('form-data')
+        ? 'multipart'
+        : ct.includes('urlencoded')
+          ? 'form'
+          : ct.includes('graphql')
+            ? 'graphql'
+            : 'body'
+    tags.push({ label, tone: 'green' })
+    interesting = true
+  }
+  if (SENSITIVE_RE.test(path)) {
+    tags.push({ label: 'sensitive', tone: 'red' })
+    interesting = true
+  }
+  const authed = !!(header(c, 'authorization') || header(c, 'cookie'))
+  return { tags, interesting, authed }
+}
+
 export function Traffic({ navigate }: { navigate: (page: string, domainId?: number) => void }) {
   const { selected } = useApp()
   const toast = useToast()
   const ask = useConfirm()
   const [captures, setCaptures] = useState<Capture[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [query, setQuery] = useState('')
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return captures
+    return captures.filter((c) => `${c.method} ${c.host} ${c.url}`.toLowerCase().includes(q))
+  }, [captures, query])
 
   usePoll(
     () => {
@@ -41,7 +103,7 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
         .catch(() => {})
         .finally(() => setLoaded(true))
     },
-    4000,
+    2000, // poll briskly so captures appear ~live as you browse
     !!selected,
     selected?.id,
   )
@@ -66,6 +128,15 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
       setCaptures([])
     } catch {
       toast.error('Failed to clear.')
+    }
+  }
+
+  async function deleteOne(id: number) {
+    try {
+      await api.deleteCapture(id)
+      setCaptures((prev) => prev.filter((c) => c.id !== id))
+    } catch {
+      toast.error('Failed to delete request.')
     }
   }
 
@@ -100,29 +171,62 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
         </Empty>
       ) : (
         <div className="space-y-2">
-          {captures.map((c) => (
-            <CaptureRow key={c.id} c={c} onSend={() => sendToReplay(c)} />
-          ))}
+          <div className="relative">
+            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter by method, host or URL…"
+              spellCheck={false}
+              className="w-full rounded-lg border border-hair bg-ink-950 py-2 pl-8 pr-3 font-mono text-xs outline-none focus:border-accent-500"
+            />
+            {query && (
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-zinc-600">
+                {filtered.length}/{captures.length}
+              </span>
+            )}
+          </div>
+          {filtered.length === 0 ? (
+            <Empty>No captured requests match “{query}”.</Empty>
+          ) : (
+            filtered.map((c) => (
+              <CaptureRow key={c.id} c={c} onSend={() => sendToReplay(c)} onDelete={() => deleteOne(c.id)} />
+            ))
+          )}
         </div>
       )}
     </div>
   )
 }
 
-function CaptureRow({ c, onSend }: { c: Capture; onSend: () => void }) {
+function CaptureRow({ c, onSend, onDelete }: { c: Capture; onSend: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false)
+  const { tags, interesting, authed } = useMemo(() => analyze(c), [c])
   return (
-    <Card>
+    <Card className={interesting ? 'border-l-2 border-l-accent-500' : ''}>
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={METHOD_TONE[c.method] ?? 'zinc'}>{c.method}</Badge>
         <span className="font-mono text-xs text-zinc-500">{c.host}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-sm text-zinc-200" title={c.url}>
           {shortUrl(c.url)}
         </span>
+        {authed && <Lock size={12} className="text-zinc-500" aria-label="sends Cookie/Authorization" />}
+        {tags.map((t, i) => (
+          <Badge key={i} tone={t.tone}>
+            {t.label}
+          </Badge>
+        ))}
         <span className="text-[11px] text-zinc-600">{timeAgo(new Date(c.createdAt).getTime())}</span>
         <Button variant="ghost" onClick={onSend}>
           <Repeat size={14} /> Send to Replay
         </Button>
+        <button
+          onClick={onDelete}
+          title="Delete this request"
+          className="rounded p-1.5 text-zinc-500 transition hover:bg-red-950/40 hover:text-red-300"
+        >
+          <Trash2 size={14} />
+        </button>
       </div>
       <button
         onClick={() => setOpen((v) => !v)}
