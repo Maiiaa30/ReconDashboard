@@ -97,17 +97,32 @@ See [`extension/README.md`](./extension/README.md) for the one-time setup.
 
 ## 🏗️ Architecture
 
-```
-┌────────────────────────┐        ┌──────────────────────────────┐
-│  React + Vite SPA       │  REST  │  Fastify + TypeScript API     │
-│  (Tailwind, dark UI)    │ ─────► │  ├─ auth (argon2 + TOTP)      │
-└────────────────────────┘        │  ├─ jobs table + worker loop  │
-                                   │  └─ recon CLI tools (execFile)│
-                                   └──────────────┬───────────────┘
-                                                  │
-                                          ┌───────▼────────┐
-                                          │  SQLite (Drizzle)│
-                                          └──────────────────┘
+```mermaid
+flowchart LR
+    subgraph client["🖥️  Client"]
+        SPA["React + Vite SPA<br/>(Tailwind · dark UI)"]
+        EXT["Capture extension<br/>(optional)"]
+    end
+
+    subgraph server["⚙️  Fastify API — behind Tailscale"]
+        direction TB
+        AUTH["Auth<br/>argon2 · TOTP · sessions"]
+        ROUTES["REST routes<br/>default-deny guard"]
+        WORKER["Job worker<br/>passive + loud lanes"]
+        NET["SSRF-guarded HTTP<br/>recon CLIs · execFile"]
+    end
+
+    DB[("SQLite<br/>Drizzle ORM")]
+    OUT["🎯  Authorized targets<br/>+ 3rd-party APIs"]
+
+    SPA -- "REST / session cookie" --> ROUTES
+    EXT -- "CAPTURE_TOKEN" --> ROUTES
+    AUTH -.- ROUTES
+    ROUTES --> WORKER
+    ROUTES <--> DB
+    WORKER <--> DB
+    WORKER --> NET
+    NET --> OUT
 ```
 
 - **Frontend** — React + Vite + TypeScript + Tailwind (single SPA, PWA-friendly)
