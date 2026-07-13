@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        width: 300px;
+        margin: 0;
+        padding: 14px;
+        background: #0b0b0f;
+        color: #e4e4e7;
+        font: 13px/1.4 system-ui, sans-serif;
+      }
+      h1 { margin: 0 0 10px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: #52525b; }
+      .dot.on { background: #22c55e; }
+      label { display: block; margin: 8px 0 2px; font-size: 11px; color: #a1a1aa; }
+      input[type='text'], input[type='password'] {
+        width: 100%; box-sizing: border-box; padding: 6px 8px;
+        background: #16161c; border: 1px solid #27272a; border-radius: 6px; color: #e4e4e7; font: inherit;
+      }
+      .row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+      .row label { margin: 0; font-size: 13px; color: #e4e4e7; }
+      button {
+        margin-top: 12px; width: 100%; padding: 7px; border: 0; border-radius: 6px;
+        background: #6366f1; color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+      }
+      button:hover { background: #818cf8; }
+      #status { margin-top: 10px; font-size: 11px; color: #a1a1aa; min-height: 14px; }
+      .hint { margin-top: 10px; font-size: 10px; color: #71717a; line-height: 1.5; }
+      code { color: #a5b4fc; }
+    </style>
+  </head>
+  <body>
+    <h1><span id="dot" class="dot"></span> Recon Capture</h1>
+    <label for="url">Dashboard URL</label>
+    <input id="url" type="text" placeholder="http://100.86.63.107:5173" autocomplete="off" spellcheck="false" />
+    <label for="token">Capture token</label>
+    <input id="token" type="password" placeholder="CAPTURE_TOKEN" autocomplete="off" />
+    <div class="row">
+      <input id="enabled" type="checkbox" />
+      <label for="enabled">Capture enabled</label>
+    </div>
+    <div class="row">
+      <input id="assets" type="checkbox" />
+      <label for="assets">Capture static assets (images, fonts, CSS, JS)</label>
+    </div>
+    <button id="save">Save &amp; test</button>
+    <div id="status"></div>
+    <div class="hint">
+      Captures requests only, and only to hosts in your tracked domains — everything else stays private. Set the same value as
+      <code>CAPTURE_TOKEN</code> in the dashboard's <code>.env</code>.
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>
