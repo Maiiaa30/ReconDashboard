@@ -42,6 +42,7 @@
 - 🚨 **Continuous monitoring** — per-domain auto-recon on a schedule, subdomain diffing, a new-CVE-on-known-asset watch, and instant **Discord alerts** the moment a new subdomain appears.
 - 🎯 **Gated active scanning** — `nmap`, `nuclei`, `ffuf`, `sqlmap` and friends, locked behind `active_authorized`, an engagement scope (allow/deny) and an authorization window — never fired at an unauthorized target.
 - 🧠 **Intelligence & triage** — deterministic rules-based scoring, **attack-path correlation** rendered as a network graph, an optional AI advisor, and **immutable engagement report snapshots**.
+- 🧰 **Request workbench** — a server-side **Repeater** (compose/replay any request, decoded body + sandboxed rendered preview + per-target history) and **Intruder** (payload fuzzing over lists, number ranges and curated wordlists, flagging responses that deviate from the baseline), fed by an optional **browser capture extension** that streams your in-scope traffic into a **Traffic** view for one-click replay.
 - 🕵️ **People & LLM security** — passive people/account **OSINT** pivots, domain **breach-exposure** lookups, and an **OWASP-Top-10-for-LLMs** red-team testing reference.
 - ⌨️ **Operator-first UX** — grouped navigation with a **collapsible sidebar**, a **Ctrl-K command palette**, **toast + desktop notifications when a scan/tool starts and finishes**, in-app **confirmation dialogs** (no native browser popups), skeleton loaders, a mobile-friendly drawer, Markdown notes (push to Discord) and an auto-saved Excalidraw canvas.
 - 🔐 **Built to be private** — single hardened login with optional TOTP 2FA, meant to live behind Tailscale, encrypted database backups you control, and CI-tested security rails.
@@ -50,7 +51,7 @@
 
 ## 🧩 Modules
 
-The sidebar is grouped into **Overview · Recon · OSINT & Leaks · Offensive · Workspace · System**.
+The sidebar is grouped into **Overview · Recon · OSINT & Leaks · Offensive · Capture & Replay · Workspace · System**.
 
 | Module | What it does | Mode |
 | --- | --- | :---: |
@@ -72,10 +73,25 @@ The sidebar is grouped into **Overview · Recon · OSINT & Leaks · Offensive ·
 | **Tools** | `katana` · `naabu` · `dalfox` · `sslscan` · `sqlmap` · WordPress enum · 403/401 bypass · HTTP-method audit · exposed-datastore probes — **gated** | 🔴 active |
 | **OWASP** | In-process HTTP checks (headers, exposed `.env`/`.git`, reflected XSS, open redirect, CORS, TRACE, listings) + JS endpoint/secret extraction + nuclei pass, target-aware | 🔴 active |
 | **Fuzzing** | `ffuf` content discovery with target + wordlist pickers | 🔴 active |
+| **Traffic** | HTTP **requests captured by the browser extension** for your tracked targets (requests only, in-scope hosts only), searchable and tagged with at-a-glance interest signals (write · params · body-type · sensitive path · auth). One click sends any request to **Replay**; a banner warns if the extension isn't checking in | 🟢 passive capture |
+| **Replay** | A server-side **Repeater** — compose/edit and re-send any request (gzip/br/zstd-decoded, inert **Body** view + **sandboxed rendered Preview**), with per-target **history** you can re-open; and **Intruder** — iterate a `{{PAYLOAD}}` marker over a payload **list**, a zero-padded **number range**, or a curated **wordlist**, flagging responses that deviate from the baseline | 🔴 active |
 | **LLM Security** | Reference — **OWASP Top 10 for LLMs**, a searchable red-team **payload library**, and per-model testing methodology (Gemini / Llama / GPT / Claude / …) | 📖 reference |
 | **Findings** | Scored & deduped with "why this score" + CVE detail, triage lifecycle, bulk triage, CSV/JSON + Markdown/HTML reports, **immutable report snapshots** | — |
 | **Notes / Canvas** | Markdown notes (push to Discord) · Excalidraw board auto-saved to the DB | — |
 | **Logs / Audit / Settings** | Live activity log with job control · append-only **audit ledger** · 2FA enrollment · system status · encrypted backup & restore | — |
+
+Each tracked target can also be **reset** — a per-domain *Clear data* wipes its recon records (findings, subdomains, jobs, captures, history, screenshots) while keeping the target and your notes.
+
+---
+
+## 🧲 Browser capture extension
+
+An optional Manifest V3 extension (in [`extension/`](./extension), Chrome + Firefox 121+) passively captures the **requests** you make while browsing a tracked target and streams them to the dashboard's **Traffic** view, ready to open in **Replay**.
+
+- **Requests only, in-scope only** — it captures method/URL/headers/body (never response bodies), and only for hosts that belong to a tracked domain; everything else you browse is never sent. Static assets (images/fonts/CSS/JS) are filtered out by default.
+- **Authenticated, not open** — it authenticates with a `CAPTURE_TOKEN` shared secret; the ingest endpoint is **disabled** unless you set that token, and the dashboard warns when the extension hasn't checked in.
+
+See [`extension/README.md`](./extension/README.md) for the one-time setup.
 
 ---
 
@@ -130,7 +146,8 @@ These are enforced in code, not just documented:
 - 🧵 No shell command strings are built from user input — subprocesses use `execFile` / `spawn` with **explicit argument arrays**.
 - ✅ Every domain/host input is validated against a **strict allowlist regex** before use.
 - 🚧 Active/loud modules require per-domain `active_authorized` (a passive domain needs an explicit per-run confirmation), and every active target must belong to the authorized domain.
-- 🛡️ Outbound HTTP checks refuse targets resolving to internal/private/loopback IPs (**SSRF defense**), and follow redirects with a re-resolve on every hop.
+- 🛡️ Outbound HTTP — including the operator-driven **Repeater/Intruder** — refuses targets resolving to internal/private/loopback/CGNAT IPs (**SSRF defense**), blocks literal internal IPs and `localhost` outright, and re-resolves on every redirect hop; response bodies are size-capped and decompression is output-bounded.
+- 🧲 The capture ingest is **default-disabled**, gated by a `CAPTURE_TOKEN` (constant-time compare), scope-limited to tracked hosts, and rate-limited; the read/clear routes stay session-authed.
 - 🧪 The security rails — auth default-deny, active-scan gating, the SSRF guard and finding dedup — are covered by **unit tests run in CI on every push** (`cd backend && npm test`).
 - 🔑 No secrets in code — everything sensitive comes from `.env`.
 
