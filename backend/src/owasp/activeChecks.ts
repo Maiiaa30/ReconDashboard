@@ -2,6 +2,7 @@ import { resolveDns } from '../sources/dns'
 import { guardedFetchRaw } from '../sources/guard'
 import { isInternalIp } from '../util/validate'
 import { analyzeCsp, analyzeHsts } from './csp'
+import { corsVerdict } from './cors'
 
 // Direct, HTTP-based OWASP active checks — the engine that makes the OWASP tab
 // useful without leaning entirely on nuclei. Each check sends benign probes a
@@ -62,6 +63,7 @@ const uniqCap = (arr: (string | undefined)[], n: number): string[] =>
 
 // Resolved, validated context passed to each check.
 interface Ctx {
+  host: string // the validated target host (for origin-confusion CORS probes)
   headers: Record<string, string>
   xssParams: string[]
   xssPayloads: string[]
@@ -267,27 +269,51 @@ async function checkOpenRedirect(baseUrl: string, ctx: Ctx): Promise<ActiveFindi
 }
 
 async function checkCors(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
-  const evil = 'https://evil.example.org'
-  const res = await fetchRaw(baseUrl, { headers: { ...ctx.headers, Origin: evil }, signal: ctx.signal })
-  if (!res) return []
-  const acao = res.headers.get('access-control-allow-origin')
-  const acac = res.headers.get('access-control-allow-credentials')
-  if (acao === evil || acao === '*') {
-    const withCreds = acac === 'true'
-    return [{
+  // Four probe classes: an arbitrary external origin, the `null` origin (sent by
+  // sandboxed iframes / file:// / some redirects — a reflected null trusts them
+  // all), and two origin-confusion strings a naive prefix/substring allowlist
+  // would wrongly trust (the target host as a subdomain of an attacker domain,
+  // and an attacker domain that merely CONTAINS the target host).
+  const probes: { origin: string; kind: string }[] = [
+    { origin: 'https://evil.example.org', kind: 'arbitrary external origin' },
+    { origin: 'null', kind: 'null origin' },
+    { origin: `https://${ctx.host}.evil.example.org`, kind: 'origin prefix confusion' },
+    { origin: `https://evil-${ctx.host}`, kind: 'origin substring confusion' },
+  ]
+  const out: ActiveFinding[] = []
+  const seen = new Set<string>()
+  for (const p of probes) {
+    if (ctx.signal?.aborted) break
+    const res = await fetchRaw(baseUrl, { headers: { ...ctx.headers, Origin: p.origin }, signal: ctx.signal })
+    if (!res) continue
+    const acao = res.headers.get('access-control-allow-origin')
+    const acac = res.headers.get('access-control-allow-credentials')
+    const v = corsVerdict(p.origin, acao, acac)
+    if (!v) continue
+    // A wildcard reflects on every probe; collapse identical verdicts so one
+    // misconfig isn't reported four times.
+    const key = `${v.reflected}:${v.withCreds}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({
       category: 'A05',
-      name: withCreds ? 'CORS misconfiguration (reflects origin + credentials)' : 'Permissive CORS policy',
-      severity: withCreds ? 'high' : 'low',
+      name:
+        v.reflected === 'wildcard'
+          ? 'Permissive CORS policy (wildcard origin)'
+          : v.withCreds
+            ? `CORS reflects ${p.kind} with credentials`
+            : `CORS reflects ${p.kind}`,
+      severity: v.severity,
       url: baseUrl,
-      evidence: `Access-Control-Allow-Origin: ${acao}${withCreds ? ' with Allow-Credentials: true' : ''}`,
+      evidence: `Origin: ${p.origin} → Access-Control-Allow-Origin: ${acao}${v.withCreds ? ' + Allow-Credentials: true' : ''}`,
       repro: {
-        request: `GET ${baseUrl}  (Origin: ${evil})`,
+        request: `GET ${baseUrl}  (Origin: ${p.origin})`,
         responseStatus: res.status,
-        headersSnippet: `Access-Control-Allow-Origin: ${acao}${withCreds ? '\nAccess-Control-Allow-Credentials: true' : ''}`,
+        headersSnippet: `Access-Control-Allow-Origin: ${acao}${v.withCreds ? '\nAccess-Control-Allow-Credentials: true' : ''}`,
       },
-    }]
+    })
   }
-  return []
+  return out
 }
 
 async function checkTrace(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
@@ -334,6 +360,7 @@ export async function runActiveChecks(
   const customRedirect = (opts.redirectParams ?? []).filter((p) => SAFE_PARAM.test(p))
 
   const ctx: Ctx = {
+    host,
     headers,
     xssParams: uniqCap([...XSS_PARAMS, ...discovered, ...customXssParams], 25),
     xssPayloads: uniqCap(opts.xssPayloads ?? [], 6),
