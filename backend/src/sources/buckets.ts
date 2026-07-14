@@ -42,12 +42,15 @@ function classify(status: number): BucketState | null {
   return null // NoSuchBucket variants, redirects, provider errors → ignore
 }
 
-async function head(url: string): Promise<number | null> {
+// Fetch just the status of a candidate bucket URL. Uses GET (not HEAD): the
+// Azure endpoint below is a `?comp=list` container-listing, which is GET-only,
+// and S3/GCS answer GET the same as HEAD for existence. The body is cancelled
+// immediately, so this stays a status-only probe (no body download).
+async function probeStatus(url: string): Promise<number | null> {
   const c = new AbortController()
   const t = setTimeout(() => c.abort(), TIMEOUT_MS)
   try {
     const res = await fetch(url, { method: 'GET', redirect: 'manual', signal: c.signal, headers: { 'User-Agent': 'recon-dashboard/0.1' } })
-    // Drain a tiny bit then bail — we only need the status.
     await res.body?.cancel().catch(() => {})
     return res.status
   } catch {
@@ -72,7 +75,7 @@ export async function enumerateBuckets(domain: string, seeds: string[] = []): Pr
     targets,
     12,
     async (t) => {
-      const status = await head(t.url)
+      const status = await probeStatus(t.url)
       if (status == null) return null
       const state = classify(status)
       if (!state || state === 'absent') return null

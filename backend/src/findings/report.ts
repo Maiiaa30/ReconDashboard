@@ -102,8 +102,12 @@ function gather(id: number): ReportModel | null {
   const subs = listSubdomains(id)
   const live = subs.filter((s) => s.httpStatus != null)
 
-  const noise = findings.filter((f) => (f as any).status === 'false_positive' || (f as any).status === 'ignored')
-  const reportable = findings.filter((f) => !noise.includes(f))
+  // Set (not array + .includes) so the reportable filter is O(n), not O(n²) on a
+  // large finding set.
+  const noise = new Set(
+    findings.filter((f) => (f as any).status === 'false_positive' || (f as any).status === 'ignored'),
+  )
+  const reportable = findings.filter((f) => !noise.has(f))
   const score = (f: Row) => f.score ?? 0
   const high = reportable.filter((f) => score(f) >= 70)
   const medium = reportable.filter((f) => score(f) >= 40 && score(f) < 70)
@@ -128,7 +132,7 @@ function gather(id: number): ReportModel | null {
     subsTotal: subs.length,
     live,
     reportable,
-    noiseCount: noise.length,
+    noiseCount: noise.size,
     high,
     medium,
     low,

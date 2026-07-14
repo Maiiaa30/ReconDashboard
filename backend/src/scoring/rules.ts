@@ -114,7 +114,9 @@ function scoreExposure(data: any): ScoreResult {
     tags.add('has-cve')
     tags.add(`cves:${vulns.length}`)
     reasons.push(`${vulns.length} known CVE(s) match the detected software (+${Math.min(45, vulns.length * 10)})`)
-    const maxCvss = Math.max(0, ...cves.map((c) => Number(c?.cvss_v3 ?? c?.cvss ?? 0)))
+    // reduce, not Math.max(...spread): a pathological CVE list would blow the
+    // call stack when spread as arguments.
+    const maxCvss = cves.reduce((m, c) => Math.max(m, Number(c?.cvss_v3 ?? c?.cvss ?? 0)), 0)
     if (maxCvss >= 9) {
       tags.add('cvss:critical')
       score += 20
