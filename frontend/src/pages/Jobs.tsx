@@ -27,6 +27,17 @@ const JOB_META: Record<string, { label: string; icon: LucideIcon }> = {
 }
 const jobMeta = (type: string) => JOB_META[type] ?? { label: type, icon: Activity }
 
+// Row label for a job. Tool scans append which tool ran (e.g. "Tool | sqlmap")
+// so the log isn't a wall of identical "Tool" rows.
+function jobLabel(j: Job): string {
+  const base = jobMeta(j.type).label
+  if (j.type === 'tool_scan') {
+    const p = (j.params ?? {}) as Record<string, unknown>
+    if (typeof p.tool === 'string' && p.tool) return `${base} | ${p.tool}`
+  }
+  return base
+}
+
 function duration(job: Job): string {
   if (!job.startedAt) return '—'
   const end = job.finishedAt ? new Date(job.finishedAt).getTime() : Date.now()
@@ -230,7 +241,7 @@ export function Jobs() {
                       <td className="px-3 py-2">
                         <span className="flex items-center gap-2 text-zinc-200">
                           <Icon size={15} className={running ? 'animate-pulse text-amber-400' : 'text-zinc-500'} />
-                          {meta.label}
+                          {jobLabel(j)}
                         </span>
                       </td>
                       <td className="px-3 py-2 font-mono text-xs text-zinc-400 break-all">{jobTarget(j)}</td>
