@@ -4,7 +4,18 @@ import { db } from '../db/index'
 import { users } from '../db/schema'
 import { getOperator, getOperatorById } from './seed'
 import { hashPassword, verifyPassword } from './passwords'
-import { totpAuthUrl, verifyTotp } from './totp'
+import { checkTotpStep, totpAuthUrl } from './totp'
+
+// Verify a TOTP token AND consume its time-step: reject a code whose step was
+// already accepted, so a captured code can't be replayed within its ~30s window
+// (audit §3 #4). `op` must be the current DB row (carries lastTotpStep).
+function consumeTotp(op: { id: number; totpSecret: string; lastTotpStep: number | null }, token: string): boolean {
+  const step = checkTotpStep(token, op.totpSecret)
+  if (step == null) return false
+  if (op.lastTotpStep != null && step <= op.lastTotpStep) return false // replay
+  db.update(users).set({ lastTotpStep: step, updatedAt: new Date() }).where(eq(users.id, op.id)).run()
+  return true
+}
 
 interface LoginBody {
   username?: string
@@ -39,7 +50,18 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     {
       schema: loginSchema,
       config: {
-        rateLimit: { max: 5, timeWindow: '1 minute' },
+        rateLimit: {
+          max: 5,
+          timeWindow: '1 minute',
+          // Run at preHandler (after body parse) and key on IP+username: behind a
+          // single upstream (the tailnet proxy) every login would otherwise share
+          // one IP bucket, and this also throttles a per-account brute force.
+          hook: 'preHandler',
+          keyGenerator: (req) =>
+            `${req.ip}:${String((req.body as { username?: string } | undefined)?.username ?? '')
+              .toLowerCase()
+              .slice(0, 64)}`,
+        },
       },
     },
     async (request, reply) => {
@@ -62,7 +84,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       if (!passwordOk) return fail()
 
       if (op.totpEnabled) {
-        if (!token || !verifyTotp(token, op.totpSecret)) return fail()
+        if (!token || !consumeTotp(op, token)) return fail()
       }
 
       // Rotate the session id at the moment of authentication so a pre-login
@@ -130,7 +152,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     async (request, reply) => {
       const op = getOperatorById(request.session.userId!)
       if (!op) return reply.code(401).send({ error: 'unauthorized' })
-      if (!verifyTotp(request.body.token, op.totpSecret)) {
+      if (!consumeTotp(op, request.body.token)) {
         return reply.code(400).send({ error: 'invalid code' })
       }
       db.update(users).set({ totpEnabled: true, updatedAt: new Date() }).where(eq(users.id, op.id)).run()
@@ -145,7 +167,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       const op = getOperatorById(request.session.userId!)
       if (!op) return reply.code(401).send({ error: 'unauthorized' })
       // Require a valid current code to turn 2FA off.
-      if (!verifyTotp(request.body.token, op.totpSecret)) {
+      if (!consumeTotp(op, request.body.token)) {
         return reply.code(400).send({ error: 'invalid code' })
       }
       db.update(users).set({ totpEnabled: false, updatedAt: new Date() }).where(eq(users.id, op.id)).run()

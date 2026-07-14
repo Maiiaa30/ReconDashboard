@@ -17,6 +17,10 @@ export const users = sqliteTable('users', {
   // TOTP secret is generated at seed time; 2FA stays disabled until enabled.
   totpSecret: text('totp_secret').notNull(),
   totpEnabled: integer('totp_enabled', { mode: 'boolean' }).notNull().default(false),
+  // Highest TOTP time-step already accepted. A token is rejected if its step is
+  // <= this, so a captured code can't be replayed within its ~30s window
+  // (otplib.verify alone has no used-token memory — audit §3 #4).
+  lastTotpStep: integer('last_totp_step'),
   // Persisted per-operator UI state so the selected target follows the account
   // across browsers/devices (not just this browser's localStorage).
   selectedDomainId: integer('selected_domain_id'),
