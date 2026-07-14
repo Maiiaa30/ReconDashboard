@@ -74,6 +74,10 @@ export const scanRoutes: FastifyPluginAsync = async (app) => {
     scheme: body.scheme === 'http' ? 'http' : 'https',
     path: typeof body.path === 'string' ? body.path : 'FUZZ',
     wordlist: typeof body.wordlist === 'string' ? body.wordlist : undefined,
+    vhost: body.vhost === true,
+    recursion: body.recursion === true,
+    recursionDepth: typeof body.recursionDepth === 'number' ? body.recursionDepth : undefined,
+    autoWordlist: body.autoWordlist === true,
   }))
 
   // Parameter discovery (Arjun-style): find honored-but-undocumented query params.

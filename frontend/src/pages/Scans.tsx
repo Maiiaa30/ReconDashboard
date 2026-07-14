@@ -63,6 +63,9 @@ export function Scans() {
   const [ffufScheme, setFfufScheme] = useState<Scheme>('https')
   const [ffufResult, setFfufResult] = useState<ScanResult>(emptyResult)
   const [ffufBusy, setFfufBusy] = useState(false)
+  const [ffufRecursion, setFfufRecursion] = useState(false)
+  const [ffufVhost, setFfufVhost] = useState(false)
+  const [ffufAutoWl, setFfufAutoWl] = useState(false)
 
   const [paramPath, setParamPath] = useState('/')
   const [paramScheme, setParamScheme] = useState<Scheme>('https')
@@ -377,13 +380,37 @@ export function Scans() {
             </label>
             <Button
               variant="loud"
-              disabled={!ffufInstalled || ffufBusy || !target || !path.includes('FUZZ')}
-              onClick={() => run('ffuf', setFfufBusy, setFfufResult, (confirm) => api.ffuf(selected.id, { target, path: path || 'FUZZ', wordlist: wordlist || undefined, scheme: ffufScheme, confirm }))}
+              disabled={!ffufInstalled || ffufBusy || !target || (!ffufVhost && !path.includes('FUZZ'))}
+              onClick={() =>
+                run('ffuf', setFfufBusy, setFfufResult, (confirm) =>
+                  api.ffuf(selected.id, {
+                    target,
+                    path: path || 'FUZZ',
+                    wordlist: wordlist || undefined,
+                    scheme: ffufScheme,
+                    vhost: ffufVhost,
+                    recursion: ffufRecursion,
+                    autoWordlist: ffufAutoWl && !wordlist,
+                    confirm,
+                  }),
+                )
+              }
             >
               {runLabel(ffufBusy, 'ffuf')}
             </Button>
           </div>
-          <p className="mt-2 text-xs text-zinc-500">Path must contain FUZZ.</p>
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400">
+            <label className="inline-flex items-center gap-1.5">
+              <input type="checkbox" checked={ffufRecursion} onChange={(e) => setFfufRecursion(e.target.checked)} disabled={ffufVhost} className="h-3.5 w-3.5 accent-accent-500" /> recursive (depth 2, auto-calibrated)
+            </label>
+            <label className="inline-flex items-center gap-1.5">
+              <input type="checkbox" checked={ffufVhost} onChange={(e) => setFfufVhost(e.target.checked)} className="h-3.5 w-3.5 accent-accent-500" /> vhost fuzz (FUZZ.{selected.host})
+            </label>
+            <label className="inline-flex items-center gap-1.5">
+              <input type="checkbox" checked={ffufAutoWl} onChange={(e) => setFfufAutoWl(e.target.checked)} disabled={!!wordlist} className="h-3.5 w-3.5 accent-accent-500" /> auto-pick wordlist by fingerprint
+            </label>
+          </div>
+          <p className="mt-2 text-xs text-zinc-500">{ffufVhost ? 'Vhost mode fuzzes the Host header — path is ignored.' : 'Path must contain FUZZ.'}</p>
           <ResultLine result={ffufResult} />
         </Card>
 

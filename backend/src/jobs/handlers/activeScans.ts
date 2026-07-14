@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { readFile, rm } from 'node:fs/promises'
+import { access, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { XMLParser } from 'fast-xml-parser'
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
+import { fingerprintHost } from '../../sources/fingerprint'
 import { assertPublicHost } from '../../sources/guard'
 import { run, toolExists } from '../../util/exec'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
@@ -235,6 +236,33 @@ export async function nucleiHandler({ params, log, signal, progress }: JobContex
 
 // --- ffuf --------------------------------------------------------------------
 
+const WORDLIST_DIR = '/usr/share/wordlists/'
+
+async function fileExists(p: string): Promise<boolean> {
+  try {
+    await access(p)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Fingerprint-aware wordlist: point API/SPA/framework stacks at the API list, else
+// a quick content-discovery list. Only ever returns an allowlisted path under the
+// wordlist jail (never operator free-text), falling back to common.txt.
+async function pickWordlistByFingerprint(host: string): Promise<string> {
+  const fallback = WORDLIST_DIR + 'common.txt'
+  try {
+    const fp = await fingerprintHost(host)
+    const hay = `${(fp.technologies ?? []).join(' ')} ${fp.server ?? ''} ${fp.poweredBy ?? ''}`.toLowerCase()
+    const apiish = /react|next|nuxt|vue|angular|svelte|express|fastapi|django|flask|rails|graphql|\bapi\b|node|spring|laravel|\.net|asp/.test(hay)
+    const candidate = WORDLIST_DIR + (apiish ? 'api-endpoints.txt' : 'quick-hits.txt')
+    return (await fileExists(candidate)) ? candidate : fallback
+  } catch {
+    return fallback
+  }
+}
+
 export async function ffufHandler({ params, log, signal, progress }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
@@ -249,26 +277,45 @@ export async function ffufHandler({ params, log, signal, progress }: JobContext)
   if (!(await toolExists('ffuf'))) {
     return { available: false, note: 'ffuf binary not installed' }
   }
-  progress(`fuzzing ${target} with ffuf`)
 
   const scheme = params.scheme === 'http' ? 'http' : 'https'
-  const path = String(params.path ?? 'FUZZ')
-  if (!FFUF_PATH_RE.test(path)) throw new Error(`invalid ffuf path (must match safe charset and contain FUZZ): ${path}`)
-  const url = `${scheme}://${target}/${path}`
+  const vhost = params.vhost === true
+  const recursion = params.recursion === true
+  const recursionDepth = Math.max(1, Math.min(3, Number(params.recursionDepth) || 2))
 
-  const wordlist = String(params.wordlist ?? '/usr/share/wordlists/common.txt')
+  // Wordlist precedence: explicit (jailed) > fingerprint auto-pick > default.
+  let wordlist = typeof params.wordlist === 'string' && params.wordlist ? params.wordlist : ''
+  if (!wordlist && params.autoWordlist === true) {
+    wordlist = await pickWordlistByFingerprint(target)
+  }
+  if (!wordlist) wordlist = WORDLIST_DIR + 'common.txt'
   // Constrain to the wordlists dir and forbid traversal — prevents using ffuf as
   // an arbitrary-file-read primitive (e.g. /etc/../etc/shadow).
-  if (
-    !/^\/[A-Za-z0-9._/-]+$/.test(wordlist) ||
-    wordlist.includes('..') ||
-    !wordlist.startsWith('/usr/share/wordlists/')
-  ) {
+  if (!/^\/[A-Za-z0-9._/-]+$/.test(wordlist) || wordlist.includes('..') || !wordlist.startsWith(WORDLIST_DIR)) {
     throw new Error('wordlist must be an absolute path under /usr/share/wordlists/ with no ".."')
   }
 
   const outFile = join(tmpdir(), `ffuf-${randomUUID()}.json`)
-  const args = ['-u', url, '-w', wordlist, '-of', 'json', '-o', outFile, '-mc', '200,204,301,302,307,401,403', '-s']
+  let args: string[]
+  if (vhost) {
+    // Virtual-host fuzzing: FUZZ the Host header against the resolved target, with
+    // auto-calibrated size filtering (-ac) so the wildcard/default vhost response
+    // is filtered out and only genuinely different vhosts surface.
+    const url = `${scheme}://${target}/`
+    args = ['-u', url, '-w', wordlist, '-H', `Host: FUZZ.${domain.host}`, '-of', 'json', '-o', outFile, '-ac', '-mc', 'all', '-fc', '404', '-s']
+    progress(`vhost-fuzzing ${domain.host} via ${target}`)
+  } else {
+    const path = String(params.path ?? 'FUZZ')
+    if (!FFUF_PATH_RE.test(path)) throw new Error(`invalid ffuf path (must match safe charset and contain FUZZ): ${path}`)
+    const url = `${scheme}://${target}/${path}`
+    args = ['-u', url, '-w', wordlist, '-of', 'json', '-o', outFile, '-mc', '200,204,301,302,307,401,403', '-s']
+    if (recursion) {
+      // Auto-calibrate (-ac) BEFORE recursing — otherwise a catch-all 200 makes the
+      // recursion tree explode. Depth capped at 3.
+      args.push('-ac', '-recursion', '-recursion-depth', String(recursionDepth))
+    }
+    progress(`fuzzing ${target} with ffuf${recursion ? ` (recursive, depth ${recursionDepth})` : ''}`)
+  }
 
   try {
     try {
@@ -291,15 +338,23 @@ export async function ffufHandler({ params, log, signal, progress }: JobContext)
       return { available: true, aborted: true, target, hits: results.length }
     }
     for (const r of results.slice(0, 500)) {
+      const fuzz = r.input?.FUZZ ?? r.host
       await addScoredFinding({
         domainId,
         type: 'ffuf',
-        data: { target, url: r.url, status: r.status, length: r.length, words: r.words },
-        tags: ['ffuf', 'active'],
+        data: {
+          target,
+          url: r.url,
+          status: r.status,
+          length: r.length,
+          words: r.words,
+          ...(vhost ? { vhost: fuzz ? `${fuzz}.${domain.host}` : r.host, mode: 'vhost' } : {}),
+        },
+        tags: ['ffuf', 'active', ...(vhost ? ['vhost'] : []), ...(recursion ? ['recursive'] : [])],
       })
     }
-    log.info({ target, hits: results.length }, 'ffuf scan complete')
-    return { available: true, target, hits: results.length }
+    log.info({ target, mode: vhost ? 'vhost' : recursion ? 'recursive' : 'path', hits: results.length }, 'ffuf scan complete')
+    return { available: true, target, hits: results.length, mode: vhost ? 'vhost' : recursion ? 'recursive' : 'path' }
   } finally {
     await rm(outFile, { force: true }).catch(() => {})
   }

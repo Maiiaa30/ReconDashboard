@@ -606,8 +606,10 @@ export const api = {
     }>(`/domains/${id}/scan/nmap-sweep`, opts),
   nuclei: (id: number, opts: { target?: string; severity?: string; tags?: string; scheme?: string; confirm?: boolean } = {}) =>
     post<{ jobId: number }>(`/domains/${id}/scan/nuclei`, opts),
-  ffuf: (id: number, opts: { target?: string; path?: string; wordlist?: string; scheme?: string; confirm?: boolean } = {}) =>
-    post<{ jobId: number }>(`/domains/${id}/scan/ffuf`, opts),
+  ffuf: (
+    id: number,
+    opts: { target?: string; path?: string; wordlist?: string; scheme?: string; vhost?: boolean; recursion?: boolean; recursionDepth?: number; autoWordlist?: boolean; confirm?: boolean } = {},
+  ) => post<{ jobId: number }>(`/domains/${id}/scan/ffuf`, opts),
   paramDiscovery: (id: number, opts: { target?: string; scheme?: string; path?: string; confirm?: boolean } = {}) =>
     post<{ jobId: number }>(`/domains/${id}/param-discovery`, opts),
   // Verify a passively-observed CVE by running its nuclei template (loud, gated).
