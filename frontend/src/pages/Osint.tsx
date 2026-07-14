@@ -3,6 +3,7 @@ import type { Finding, Job } from '../api'
 import { api } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
+import { safeHttpUrl } from '../lib/url'
 
 interface MxRecord {
   exchange: string
@@ -321,7 +322,7 @@ function UrlscanCard({ us }: { us: UrlscanData | ErrorField | undefined }) {
                 <div key={`${p.url}-${i}`} className="flex items-center gap-2">
                   <span className="break-all font-mono text-zinc-300">{p.url}</span>
                   {p.screenshot && (
-                    <a href={p.screenshot} target="_blank" rel="noreferrer" className="shrink-0 text-sky-400 hover:underline">
+                    <a href={safeHttpUrl(p.screenshot)} target="_blank" rel="noreferrer" className="shrink-0 text-sky-400 hover:underline">
                       shot ↗
                     </a>
                   )}

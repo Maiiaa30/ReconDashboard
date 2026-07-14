@@ -5,6 +5,7 @@ import { useApp } from '../state'
 import { Badge, Button, Empty, ExportLinks, PageHeader, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { RISK_SCORE_CLASS, riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
+import { safeHttpUrl } from '../lib/url'
 
 const STATUSES: FindingStatus[] = ['open', 'confirmed', 'false_positive', 'resolved', 'ignored']
 const STATUS_LABEL: Record<FindingStatus, string> = {
@@ -648,7 +649,7 @@ function FindingDetail({ f, onUpdate }: { f: Finding; onUpdate: (id: number, pat
               <Detail
                 label="Open"
                 value={
-                  <a href={`${d.scheme}://${d.host}`} target="_blank" rel="noreferrer" className="text-sky-400 hover:underline">
+                  <a href={safeHttpUrl(`${d.scheme}://${d.host}`)} target="_blank" rel="noreferrer" className="text-sky-400 hover:underline">
                     {d.scheme}://{d.host} ↗
                   </a>
                 }

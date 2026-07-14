@@ -5,6 +5,7 @@ import { useApp, usePoll } from '../state'
 import { Badge, Button, Empty, ExportLinks, PageHeader } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { copyText } from '../lib/clipboard'
+import { safeHttpUrl } from '../lib/url'
 
 type Tone = 'green' | 'blue' | 'amber' | 'red' | 'zinc'
 
@@ -220,7 +221,7 @@ export function Subdomains() {
                         <div className="col-span-2 flex flex-col gap-0.5 sm:col-span-3">
                           <span className="text-xs uppercase tracking-wide text-zinc-600">Open</span>
                           <a
-                            href={`${s.scheme}://${s.host}`}
+                            href={safeHttpUrl(`${s.scheme}://${s.host}`)}
                             target="_blank"
                             rel="noreferrer"
                             className="font-mono text-sky-400 hover:text-sky-300 hover:underline"

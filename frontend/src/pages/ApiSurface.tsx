@@ -7,6 +7,7 @@ import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/Confirm'
 import { timeAgo } from '../lib/format'
 import { setPendingReplay, type PendingReplay } from '../lib/replayHandoff'
+import { safeHttpUrl } from '../lib/url'
 
 interface SpecParam {
   name: string
@@ -548,7 +549,7 @@ function SpecCard({
         {score != null && <span className="ml-auto text-xs text-zinc-500">score {score}</span>}
       </div>
       <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400">
-        <a href={d.specUrl} target="_blank" rel="noreferrer" className="font-mono text-sky-400 hover:underline break-all">
+        <a href={safeHttpUrl(d.specUrl)} target="_blank" rel="noreferrer" className="font-mono text-sky-400 hover:underline break-all">
           {d.specUrl} ↗
         </a>
         <span className="ml-auto">{d.operationCount ?? endpoints.length} operations</span>

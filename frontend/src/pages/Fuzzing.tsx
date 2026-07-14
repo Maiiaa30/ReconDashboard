@@ -5,6 +5,7 @@ import { useApp, useHosts, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
 import { useConfirm } from '../components/Confirm'
 import { timeAgo } from '../lib/format'
+import { safeHttpUrl } from '../lib/url'
 
 function statusTone(status: number): 'green' | 'amber' | 'red' | 'blue' | 'zinc' {
   if (status >= 200 && status < 300) return 'green'
@@ -306,7 +307,7 @@ export function Fuzzing() {
                   </td>
                   <td className="px-3 py-2 font-mono text-xs text-zinc-200 break-all">
                     {h.data?.url ? (
-                      <a href={h.data.url} target="_blank" rel="noreferrer" className="hover:underline">
+                      <a href={safeHttpUrl(h.data.url)} target="_blank" rel="noreferrer" className="hover:underline">
                         {h.data.url}
                       </a>
                     ) : (

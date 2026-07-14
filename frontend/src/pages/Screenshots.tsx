@@ -3,6 +3,7 @@ import { api, type MetaStatus, type ScreenshotEntry } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Empty, PageHeader } from '../components/ui'
 import { timeAgo } from '../lib/format'
+import { safeHttpUrl } from '../lib/url'
 
 function statusTone(status: number | null): 'green' | 'blue' | 'amber' | 'red' | 'zinc' {
   if (status == null) return 'zinc'
@@ -139,7 +140,7 @@ export function Screenshots() {
             <span className="font-mono text-zinc-200">{lightbox.host}</span>
             {lightbox.scheme && (
               <a
-                href={`${lightbox.scheme}://${lightbox.host}`}
+                href={safeHttpUrl(`${lightbox.scheme}://${lightbox.host}`)}
                 target="_blank"
                 rel="noreferrer"
                 onClick={(e) => e.stopPropagation()}

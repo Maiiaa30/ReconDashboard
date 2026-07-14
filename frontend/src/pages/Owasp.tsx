@@ -5,6 +5,7 @@ import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
 import { useConfirm } from '../components/Confirm'
 import { timeAgo } from '../lib/format'
+import { safeHttpUrl } from '../lib/url'
 
 // Map a nuclei severity string to a Badge tone, so high/critical reads red.
 function severityTone(severity: unknown): 'zinc' | 'green' | 'amber' | 'red' | 'blue' {
@@ -480,7 +481,7 @@ export function Owasp() {
                 )}
                 {link && (
                   <a
-                    href={String(link)}
+                    href={safeHttpUrl(String(link))}
                     target="_blank"
                     rel="noreferrer"
                     className="mt-1 block break-all font-mono text-xs text-sky-400 hover:underline"
