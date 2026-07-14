@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, Camera, Sparkles, AlertTriangle } from 'lucide-react'
-import { api, type Finding, type FindingStatus, type ReportSnapshot, type TriageSuggestion } from '../api'
+import { api, ApiError, type Finding, type FindingStatus, type ReportSnapshot, type TriageSuggestion } from '../api'
 import { useApp } from '../state'
 import { Badge, Button, Card, Empty, ExportLinks, PageHeader, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
+import { useConfirm } from '../components/Confirm'
 import { RISK_SCORE_CLASS, riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
 import { safeHttpUrl } from '../lib/url'
 
@@ -30,7 +31,7 @@ const STATUS_FILTERS = ['active', 'all', ...STATUSES] as const
 type StatusFilter = (typeof STATUS_FILTERS)[number]
 const STATUS_FILTER_LABEL: Record<StatusFilter, string> = { active: 'Active', all: 'All', ...STATUS_LABEL }
 
-const TYPE_OPTIONS = ['', 'new_subdomain', 'exposure', 'osint', 'origin', 'api', 'nmap', 'nuclei', 'ffuf'] as const
+const TYPE_OPTIONS = ['', 'new_subdomain', 'exposure', 'osint', 'origin', 'api', 'nmap', 'nuclei', 'ffuf', 'cve_new'] as const
 
 // "New since" presets — filters to findings first discovered within the window
 // (createdAt is the frozen first-seen timestamp, so re-scans of unchanged
@@ -58,6 +59,7 @@ const TYPE_LABEL: Record<string, string> = {
   nmap: 'nmap',
   nuclei: 'nuclei',
   ffuf: 'ffuf',
+  cve_new: 'new CVE',
 }
 
 // Left-border + score colors by risk level — the at-a-glance signal.
@@ -759,6 +761,79 @@ function NoteEditor({ f, onUpdate }: { f: Finding; onUpdate: (id: number, patch:
   )
 }
 
+// Verify a passively-observed CVE by running its nuclei template (loud, gated).
+// Surfaces the last verification outcome and, since the scan is loud, confirms
+// first on a passive domain — the server enforces the same gate regardless.
+function CveVerifyButton({ f }: { f: Finding }) {
+  const { domains } = useApp()
+  const ask = useConfirm()
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const d = (f.data ?? {}) as Record<string, any>
+  const cveId: string | undefined = typeof d.cveId === 'string' ? d.cveId : undefined
+  const verified = d.verified as { result?: string; at?: string; matchedAt?: string } | undefined
+  const domain = domains.find((x) => x.id === f.domainId)
+  const active = domain?.mode === 'active_authorized'
+  // A scannable hostname (an IP-only asset can't be verified until it has one).
+  const hostnames: string[] = Array.isArray(d.hostnames) ? d.hostnames : []
+  const target = hostnames.find((h) => /[a-z]/i.test(h)) ?? (typeof d.host === 'string' && /[a-z]/i.test(d.host) ? d.host : undefined)
+
+  if (!cveId || f.domainId == null) return null
+
+  async function run() {
+    if (f.domainId == null || !cveId) return
+    if (!target) {
+      toast.error('No scannable hostname for this CVE (IP-only asset).')
+      return
+    }
+    if (!active) {
+      const ok = await ask({
+        title: 'Verify this CVE?',
+        message: `Running the nuclei template for ${cveId} against ${target} is a LOUD, active scan. Only proceed if you are authorized to actively test this target.`,
+        confirmLabel: 'Run anyway',
+        tone: 'danger',
+      })
+      if (!ok) return
+    }
+    setBusy(true)
+    try {
+      await api.verifyCve(f.domainId, {
+        cveId,
+        target,
+        ip: typeof d.ip === 'string' ? d.ip : undefined,
+        kev: d.kev === true,
+        confirm: !active,
+      })
+      toast.success(`Verifying ${cveId} — watch Logs for the result.`)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'failed to enqueue verification')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const verdictTone =
+    verified?.result === 'confirmed' ? 'red' : verified?.result === 'no_template' ? 'amber' : verified?.result ? 'zinc' : 'zinc'
+  const verdictLabel =
+    verified?.result === 'confirmed'
+      ? 'Confirmed exploitable'
+      : verified?.result === 'not_reproduced'
+        ? 'Not reproduced (presence-only)'
+        : verified?.result === 'no_template'
+          ? 'No nuclei template'
+          : null
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2">
+      <Button variant="loud" className="px-2 py-1 text-xs" disabled={busy} onClick={run}>
+        {busy ? 'Queuing…' : active ? 'Verify with nuclei' : 'Verify with nuclei (confirm)'}
+      </Button>
+      {verdictLabel && <Badge tone={verdictTone as any}>{verdictLabel}</Badge>}
+      {!target && <span className="text-xs text-zinc-500">no scannable hostname</span>}
+    </div>
+  )
+}
+
 function FindingDetail({ f, onUpdate }: { f: Finding; onUpdate: (id: number, patch: { status?: FindingStatus; note?: string | null }) => void }) {
   const d = f.data ?? {}
   return (
@@ -814,6 +889,24 @@ function FindingDetail({ f, onUpdate }: { f: Finding; onUpdate: (id: number, pat
             <Detail label="Severity" value={d.severity} />
             <Detail label="Matched" value={d.matched ? <span className="font-mono">{d.matched}</span> : null} />
             <Detail label="URL" value={d.url ? <span className="font-mono">{d.url}</span> : null} />
+          </>
+        )}
+        {f.type === 'cve_new' && (
+          <>
+            <Detail label="Asset" value={<span className="font-mono">{d.host} ({d.ip})</span>} />
+            <Detail
+              label="CVE"
+              value={
+                d.cveId ? (
+                  <a href={safeHttpUrl(`https://nvd.nist.gov/vuln/detail/${d.cveId}`)} target="_blank" rel="noreferrer" className="font-mono text-sky-400 hover:underline">
+                    {d.cveId} ↗
+                  </a>
+                ) : null
+              }
+            />
+            <Detail label="CVSS" value={d.cvss != null ? `${d.cvss}` : null} />
+            {d.kev && <Detail label="KEV" value={<span className="text-red-400">Known exploited in the wild</span>} />}
+            <CveVerifyButton f={f} />
           </>
         )}
       </div>

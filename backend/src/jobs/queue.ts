@@ -17,6 +17,7 @@ export type JobType =
   | 'api_discovery'
   | 'intruder'
   | 'code_leak'
+  | 'cve_verify'
 
 // Loud/active job types we deliberately do NOT auto-resume after a crash: a scan
 // interrupted mid-run would silently re-fire against the target on the next boot,
@@ -29,6 +30,7 @@ const LOUD_TYPES: ReadonlySet<JobType> = new Set([
   'tool_scan',
   'origin_scan',
   'intruder',
+  'cve_verify',
 ])
 
 // After this many claims a job is dead-lettered instead of re-queued, so a job

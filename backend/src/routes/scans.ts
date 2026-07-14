@@ -4,6 +4,13 @@ import { getDomain } from '../domains/store'
 import { listSubdomains } from '../subdomains/store'
 import { enqueueJob, hasPendingJob, type JobType } from '../jobs/queue'
 import { actorName, writeAudit } from '../audit/store'
+import { isValidIp } from '../util/validate'
+
+// A passively-observed CVE (cve_new) can be re-verified sparingly: running the
+// PoC template is loud and some CVE templates are intrusive RCE checks, so a long
+// cooldown keeps a click-happy operator from hammering a target.
+const CVE_VERIFY_COOLDOWN_MS = 6 * 60 * 60 * 1000
+const CVE_ID_RE = /^CVE-\d{4}-\d{4,10}$/i
 
 // ACTIVE / LOUD scans. All gating (mode/confirm, target-belongs, authorization
 // window, engagement scope, pending guard, cooldown) lives in assertScanAllowed;
@@ -68,6 +75,49 @@ export const scanRoutes: FastifyPluginAsync = async (app) => {
     path: typeof body.path === 'string' ? body.path : 'FUZZ',
     wordlist: typeof body.wordlist === 'string' ? body.wordlist : undefined,
   }))
+
+  // CVE verification: run the matching nuclei template against `target` to
+  // confirm a passively-observed cve_new finding. Gated like any loud scan, with
+  // a long cooldown. `ip` (optional) lets the handler upgrade the exact cve_new
+  // finding in place (keyed cvenew:${ip}:${cveId}); target must be a hostname the
+  // gate accepts (an IP-only asset can't be verified until it has a scannable host).
+  app.post<{ Params: { id: string }; Body: Record<string, unknown> }>(
+    '/api/domains/:id/verify-cve',
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      const cveId = String(request.body?.cveId ?? '').toUpperCase()
+      if (!CVE_ID_RE.test(cveId)) return reply.code(400).send({ error: 'invalid CVE id', code: 'invalid_cve' })
+      const ip = typeof request.body?.ip === 'string' && isValidIp(request.body.ip) ? request.body.ip : undefined
+      try {
+        const { domain, target } = await assertScanAllowed({
+          domainId: id,
+          target: request.body?.target as string | undefined,
+          confirm: request.body?.confirm === true,
+          jobType: 'cve_verify',
+          cooldownMs: CVE_VERIFY_COOLDOWN_MS,
+        })
+        const scheme = request.body?.scheme === 'http' ? 'http' : 'https'
+        const kev = request.body?.kev === true
+        const jobId = enqueueJob('cve_verify', { domainId: id, target, cveId, ip, kev, scheme })
+        writeAudit({
+          actor: actorName(request.session.userId),
+          action: 'enqueue:cve_verify',
+          domainId: id,
+          target,
+          mode: domain.mode,
+          jobId,
+          detail: { cveId, ip },
+        })
+        return reply.code(202).send({ jobId })
+      } catch (err) {
+        if (err instanceof ScanPolicyError) {
+          if (err.retryAfterSec) reply.header('Retry-After', String(err.retryAfterSec))
+          return reply.code(err.status).send({ error: err.message, code: err.code })
+        }
+        throw err
+      }
+    },
+  )
 
   // Attack-surface nmap sweep: fan out one nmap job per LIVE host of the domain
   // (apex + discovered subdomains that resolved to an IP or answered HTTP),

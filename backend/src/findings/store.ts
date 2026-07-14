@@ -172,6 +172,48 @@ export function getFinding(id: number) {
   return r ? mapRow(r, safeJsonParse<unknown>(r.data, null)) : undefined
 }
 
+// Locate a single finding by its stable dedupe key (e.g. the cve_verify job
+// upgrading the cve_new finding it just confirmed, keyed cvenew:${ip}:${cveId}).
+export function findingByKey(domainId: number | null, type: FindingType, key: string) {
+  const r = db
+    .select()
+    .from(findings)
+    .where(
+      and(
+        domainId == null ? isNull(findings.domainId) : eq(findings.domainId, domainId),
+        eq(findings.type, type),
+        eq(findings.dedupeKey, key),
+      ),
+    )
+    .limit(1)
+    .all()[0]
+  return r ? mapRow(r, safeJsonParse<unknown>(r.data, null)) : undefined
+}
+
+// Record the outcome of a CVE-verification run onto the originating finding.
+// A CONFIRMED hit upgrades the finding in place — status:'confirmed' plus a
+// deterministic score floor (95, or 100 for a KEV) so a proven-exploitable CVE
+// outranks presence-only signal — and merges data.verified with the PoC evidence.
+// A negative (not_reproduced / no_template) only annotates data.verified and
+// NEVER downgrades status/score: banners lie both ways, so "didn't reproduce"
+// is not "safe". Returns false if the finding is gone.
+export function recordCveVerification(
+  id: number,
+  verified: Record<string, unknown>,
+  opts: { confirm?: boolean; score?: number } = {},
+): boolean {
+  const row = db.select().from(findings).where(eq(findings.id, id)).limit(1).all()[0]
+  if (!row) return false
+  const data = safeJsonParse<Record<string, unknown>>(row.data, {}) ?? {}
+  if (typeof data !== 'object' || Array.isArray(data)) return false
+  data.verified = verified
+  const set: Record<string, unknown> = { data: JSON.stringify(data) }
+  if (opts.confirm) set.status = 'confirmed'
+  if (opts.score != null) set.score = opts.score
+  db.update(findings).set(set).where(eq(findings.id, id)).run()
+  return true
+}
+
 // Operator-attached evidence lives as an array on the finding's data.evidence
 // (merged, never clobbered). The report renders these alongside any auto-captured
 // data.repro. Bounded so a finding's JSON can't balloon.

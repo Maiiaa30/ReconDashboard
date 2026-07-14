@@ -593,6 +593,11 @@ export const api = {
     post<{ jobId: number }>(`/domains/${id}/scan/nuclei`, opts),
   ffuf: (id: number, opts: { target?: string; path?: string; wordlist?: string; scheme?: string; confirm?: boolean } = {}) =>
     post<{ jobId: number }>(`/domains/${id}/scan/ffuf`, opts),
+  // Verify a passively-observed CVE by running its nuclei template (loud, gated).
+  verifyCve: (
+    id: number,
+    opts: { cveId: string; target?: string; ip?: string; kev?: boolean; scheme?: string; confirm?: boolean },
+  ) => post<{ jobId: number }>(`/domains/${id}/verify-cve`, opts),
 
   // replay (Repeater): send one composed request server-side, gated to the domain's scope
   replaySend: (bodyReq: {
