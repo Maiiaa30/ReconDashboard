@@ -34,6 +34,7 @@ import { metaRoutes } from './routes/meta'
 import { leakRoutes } from './routes/leaks'
 import { replayRoutes } from './routes/replay'
 import { captureRoutes } from './routes/capture'
+import { payloadRoutes } from './routes/payloads'
 
 // Build and fully configure the app (migrations, seed, plugins, guard, routes)
 // WITHOUT listening or starting background workers — so an integration test can
@@ -123,6 +124,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(leakRoutes)
   await app.register(replayRoutes)
   await app.register(captureRoutes)
+  await app.register(payloadRoutes)
 
   return app
 }

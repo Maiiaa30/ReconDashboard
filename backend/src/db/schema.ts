@@ -316,7 +316,24 @@ export const replayHistory = sqliteTable(
   (t) => [index('replay_history_domain_idx').on(t.domainId)],
 )
 
+// Operator-defined payload sets for the Intruder/Repeater (custom fuzz lists).
+// Built-in sets ship in code (replay/payloads/builtins.ts); this table holds only
+// the user's own lists — DB-backed, so no filesystem path-traversal surface.
+export const payloadSets = sqliteTable(
+  'payload_sets',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull(),
+    category: text('category'), // free-form group label (xss, sqli, custom, …)
+    payloads: text('payloads').notNull(), // JSON string[]
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [unique('payload_sets_name_uq').on(t.name)],
+)
+
 export type User = typeof users.$inferSelect
+export type PayloadSet = typeof payloadSets.$inferSelect
 export type Domain = typeof domains.$inferSelect
 export type CapturedRequest = typeof capturedRequests.$inferSelect
 export type ReplayHistoryRow = typeof replayHistory.$inferSelect

@@ -8,6 +8,7 @@ import { useConfirm } from '../components/Confirm'
 import { AttachToFinding } from '../components/AttachToFinding'
 import { takePendingReplay } from '../lib/replayHandoff'
 import { timeAgo } from '../lib/format'
+import { copyText } from '../lib/clipboard'
 
 export type BuiltReq = { method: string; url: string; headers: [string, string][]; body?: string | null }
 
@@ -695,14 +696,22 @@ function IntruderPanel({
           ))}
         </div>
         {payloadMode === 'list' && (
-          <textarea
-            value={list}
-            onChange={(e) => setList(e.target.value)}
-            placeholder={'one payload per line\nadmin\ntest\n0000'}
-            rows={4}
-            spellCheck={false}
-            className="block w-full rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500"
-          />
+          <>
+            <PayloadLibrary
+              currentList={list}
+              onLoad={(payloads) => setList((prev) => (prev.trim() ? `${prev.replace(/\n+$/, '')}\n${payloads.join('\n')}` : payloads.join('\n')))}
+              toast={toast}
+            />
+            <textarea
+              value={list}
+              onChange={(e) => setList(e.target.value)}
+              placeholder={'one payload per line\nadmin\ntest\n0000'}
+              rows={4}
+              spellCheck={false}
+              className="block w-full rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500"
+            />
+            <EncoderBar toast={toast} />
+          </>
         )}
         {payloadMode === 'range' && (
           <div className="flex flex-wrap items-end gap-2 text-xs">
@@ -864,6 +873,182 @@ function AttemptTable({ rows, highlight = false }: { rows: IntruderAttempt[]; hi
         >
           showing {limit} of {rows.length} — show more
         </button>
+      )}
+    </div>
+  )
+}
+
+// --- Payload library ---------------------------------------------------------
+type PayloadData = Awaited<ReturnType<typeof api.payloads>>
+
+// Pick a built-in or saved payload set and load it into the Intruder list, or
+// save the current list as a new reusable set.
+function PayloadLibrary({
+  currentList,
+  onLoad,
+  toast,
+}: {
+  currentList: string
+  onLoad: (payloads: string[]) => void
+  toast: ReturnType<typeof useToast>
+}) {
+  const [data, setData] = useState<PayloadData | null>(null)
+  const [pick, setPick] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(() => {
+    api.payloads().then(setData).catch(() => {})
+  }, [])
+  useEffect(() => load(), [load])
+
+  function loadSet(key: string) {
+    setPick(key)
+    if (!data || !key) return
+    const [kind, id] = key.split(':')
+    const set = kind === 'b' ? data.builtins.find((s) => s.id === id) : data.custom.find((s) => String(s.id) === id)
+    if (set) {
+      onLoad(set.payloads)
+      toast.success(`Loaded ${set.payloads.length} payloads from "${set.name}".`)
+    }
+  }
+
+  async function saveCurrent() {
+    const payloads = currentList.split('\n').map((l) => l.trim()).filter(Boolean)
+    if (!payloads.length) return toast.error('Nothing to save — the list is empty.')
+    const name = window.prompt('Save current list as a payload set named:')
+    if (!name) return
+    setSaving(true)
+    try {
+      await api.createPayloadSet({ name: name.trim(), category: 'custom', payloads })
+      toast.success(`Saved "${name}" (${payloads.length} payloads).`)
+      load()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Could not save set.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <select
+        value={pick}
+        onChange={(e) => loadSet(e.target.value)}
+        className="rounded-lg border border-hair bg-ink-950 px-2 py-1.5 outline-none focus:border-accent-500"
+      >
+        <option value="">＋ Load from library…</option>
+        <optgroup label="Built-in">
+          {data?.builtins.map((s) => (
+            <option key={s.id} value={`b:${s.id}`}>
+              {s.name} ({s.payloads.length})
+            </option>
+          ))}
+        </optgroup>
+        {data && data.custom.length > 0 && (
+          <optgroup label="Saved">
+            {data.custom.map((s) => (
+              <option key={s.id} value={`c:${s.id}`}>
+                {s.name} ({s.payloads.length})
+              </option>
+            ))}
+          </optgroup>
+        )}
+      </select>
+      <button onClick={saveCurrent} disabled={saving} className="rounded-lg border border-hair px-2 py-1.5 text-zinc-400 hover:text-zinc-200 disabled:opacity-50">
+        Save list as set
+      </button>
+    </div>
+  )
+}
+
+// --- Encoder bar -------------------------------------------------------------
+// Build an encoder chain and preview the encoded form live (server-side transform
+// via /api/payloads/encode — no egress). A pure convenience for crafting payloads.
+function EncoderBar({ toast }: { toast: ReturnType<typeof useToast> }) {
+  const [open, setOpen] = useState(false)
+  const [input, setInput] = useState('')
+  const [chain, setChain] = useState<string[]>([])
+  const [output, setOutput] = useState('')
+  const [transforms, setTransforms] = useState<string[]>([])
+
+  useEffect(() => {
+    if (open && transforms.length === 0) api.payloads().then((d) => setTransforms(d.transforms)).catch(() => {})
+  }, [open, transforms.length])
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    if (!input || chain.length === 0) {
+      setOutput('')
+      return
+    }
+    api
+      .encodePayload(input, chain)
+      .then((r) => !cancelled && setOutput(r.output))
+      .catch(() => !cancelled && setOutput(''))
+    return () => {
+      cancelled = true
+    }
+  }, [open, input, chain])
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="text-[11px] text-zinc-500 hover:text-zinc-300">
+        ▸ encoder
+      </button>
+    )
+  }
+
+  return (
+    <div className="space-y-1.5 rounded-lg border border-hair bg-ink-900/50 p-2 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="uppercase tracking-wide text-zinc-500">Encoder chain</span>
+        <button onClick={() => setOpen(false)} className="text-zinc-500 hover:text-zinc-300">
+          ▾ hide
+        </button>
+      </div>
+      <input
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        placeholder="text to encode"
+        className="block w-full rounded border border-hair bg-ink-950 px-2 py-1 font-mono outline-none focus:border-accent-500"
+      />
+      <div className="flex flex-wrap gap-1">
+        {transforms.map((t) => (
+          <button
+            key={t}
+            onClick={() => setChain((c) => [...c, t])}
+            className="rounded border border-hair px-1.5 py-0.5 text-[10px] text-zinc-400 hover:text-accent-fg"
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      {chain.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-zinc-500">chain:</span>
+          {chain.map((t, i) => (
+            <Badge key={i} tone="zinc">
+              {t}
+            </Badge>
+          ))}
+          <button onClick={() => setChain([])} className="text-zinc-500 hover:text-zinc-300">
+            clear
+          </button>
+        </div>
+      )}
+      {output && (
+        <div className="flex items-start gap-2">
+          <code className="min-w-0 flex-1 break-all rounded bg-ink-950 px-2 py-1 font-mono text-accent-fg">{output}</code>
+          <button
+            onClick={() => {
+              copyText(output).then((ok) => ok && toast.success('Copied.'))
+            }}
+            className="shrink-0 rounded border border-hair px-1.5 py-1 text-zinc-400 hover:text-zinc-200"
+          >
+            copy
+          </button>
+        </div>
       )}
     </div>
   )

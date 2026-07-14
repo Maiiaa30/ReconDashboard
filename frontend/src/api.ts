@@ -625,6 +625,19 @@ export const api = {
     },
   ) => post<{ jobId: number; count: number }>(`/domains/${id}/intruder`, bodyReq),
 
+  // payload library + encoders (session-authed, not scan-gated)
+  payloads: () =>
+    get<{
+      builtins: { id: string; name: string; category: string; payloads: string[] }[]
+      grepPhrases: { id: string; name: string; phrases: string[] }[]
+      custom: { id: number; name: string; category: string | null; payloads: string[] }[]
+      transforms: string[]
+    }>('/payloads'),
+  createPayloadSet: (bodyReq: { name: string; category?: string; payloads: string[] }) =>
+    post<{ set: { id: number; name: string; category: string | null; payloads: string[] } }>('/payloads', bodyReq),
+  deletePayloadSet: (id: number) => del<{ ok: true }>(`/payloads/${id}`),
+  encodePayload: (input: string, chain: string[]) => post<{ output: string }>('/payloads/encode', { input, chain }),
+
   // captured traffic (from the browser extension)
   captures: (domainId?: number, limit?: number) => {
     const p = new URLSearchParams()
