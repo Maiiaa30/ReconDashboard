@@ -1,4 +1,4 @@
-import Fastify, { type FastifyError, type FastifyReply, type FastifyRequest } from 'fastify'
+import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import fastifyCookie from '@fastify/cookie'
 import fastifySession from '@fastify/session'
 import fastifyRateLimit from '@fastify/rate-limit'
@@ -35,9 +35,12 @@ import { leakRoutes } from './routes/leaks'
 import { replayRoutes } from './routes/replay'
 import { captureRoutes } from './routes/capture'
 
-async function main() {
+// Build and fully configure the app (migrations, seed, plugins, guard, routes)
+// WITHOUT listening or starting background workers — so an integration test can
+// import it and drive it with app.inject(). main() adds the background + listen.
+export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: true,
+    logger: !process.env.VITEST, // quiet during tests
     // Backups can be a few MB; allow a generous JSON/body limit.
     bodyLimit: 16 * 1024 * 1024,
   })
@@ -121,7 +124,12 @@ async function main() {
   await app.register(replayRoutes)
   await app.register(captureRoutes)
 
-  // Background processing.
+  return app
+}
+
+// Background processing (worker, scheduler, pruners). Not started in tests, which
+// only build the app to drive it with app.inject().
+function startBackground(app: FastifyInstance): void {
   registerJobHandlers()
   startWorker(app.log)
   startScheduler(app.log)
@@ -130,12 +138,20 @@ async function main() {
   // audit_log is intentionally left unpruned — it is append-only legal cover; an
   // archive-then-prune policy is an open operator decision, not done here.
   startJobsPruner(config.jobsRetentionDays)
+}
 
+async function main(): Promise<void> {
+  const app = await buildApp()
+  startBackground(app)
   await app.listen({ port: config.port, host: config.host })
   app.log.info(`backend listening on ${config.host}:${config.port}`)
 }
 
-main().catch((err) => {
-  console.error(err)
-  process.exit(1)
-})
+// Only auto-start when run as the entrypoint — importing buildApp (e.g. from a
+// test) must not trigger listen() or the background workers.
+if (!process.env.VITEST) {
+  main().catch((err) => {
+    console.error(err)
+    process.exit(1)
+  })
+}
