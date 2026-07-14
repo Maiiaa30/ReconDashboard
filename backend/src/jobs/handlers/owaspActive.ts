@@ -53,7 +53,7 @@ export function knownUrlsFor(domainId: number): string[] {
 // XSS, open redirect, CORS, TRACE, directory listing) that don't depend on
 // nuclei. Authorization (active_authorized OR confirm) is enforced at the route
 // before enqueue; here we re-check the target belongs to the domain.
-export async function owaspActiveHandler({ params, log, progress }: JobContext) {
+export async function owaspActiveHandler({ params, log, progress, signal }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
@@ -115,6 +115,7 @@ export async function owaspActiveHandler({ params, log, progress }: JobContext) 
     sensitivePaths: cfg.sensitivePaths,
     authHeader: cfg.authHeader,
     discoveredParams: [...new Set([...discoveredParamsFor(domainId), ...jsParams])],
+    signal,
   }
 
   progress(`running active checks on ${target}`)

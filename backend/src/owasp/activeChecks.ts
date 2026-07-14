@@ -46,6 +46,7 @@ export interface OwaspChecksOptions {
   sensitivePaths?: string[] // custom paths to probe (reported on 200)
   authHeader?: string // "Name: value" — sent on every request
   discoveredParams?: string[] // real query params seen for this target
+  signal?: AbortSignal // job cancel/timeout — stops probing mid-loop
 }
 
 const TIMEOUT_MS = 8_000
@@ -65,6 +66,7 @@ interface Ctx {
   xssPayloads: string[]
   redirectParams: string[]
   customPaths: string[]
+  signal?: AbortSignal // forwarded to every probe so a cancelled job stops
 }
 
 interface RawResponse {
@@ -81,7 +83,7 @@ interface RawResponse {
 // lint rule enforces that so this guard can't be silently dropped again.
 async function fetchRaw(
   url: string,
-  opts: { method?: string; headers?: Record<string, string>; follow?: boolean } = {},
+  opts: { method?: string; headers?: Record<string, string>; follow?: boolean; signal?: AbortSignal } = {},
 ): Promise<RawResponse | null> {
   const res = await guardedFetchRaw(url, {
     method: opts.method ?? 'GET',
@@ -89,6 +91,7 @@ async function fetchRaw(
     timeoutMs: TIMEOUT_MS,
     maxBytes: MAX_BODY,
     follow: opts.follow ?? false,
+    signal: opts.signal,
   })
   return res ? { status: res.status, headers: res.headers, body: res.body } : null
 }
@@ -131,7 +134,8 @@ const SENSITIVE_FILES: { path: string; signatures: RegExp[]; name: string; sever
 async function checkSensitiveFiles(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
   const out: ActiveFinding[] = []
   for (const f of SENSITIVE_FILES) {
-    const res = await fetchRaw(baseUrl + f.path, { headers: ctx.headers })
+    if (ctx.signal?.aborted) return out
+    const res = await fetchRaw(baseUrl + f.path, { headers: ctx.headers, signal: ctx.signal })
     if (res && res.status === 200 && f.signatures.some((re) => re.test(res.body))) {
       out.push({
         category: 'A02',
@@ -145,7 +149,8 @@ async function checkSensitiveFiles(baseUrl: string, ctx: Ctx): Promise<ActiveFin
   }
   // Operator-supplied custom paths — reported on any 200 (verify manually).
   for (const p of ctx.customPaths) {
-    const res = await fetchRaw(baseUrl + p, { headers: ctx.headers })
+    if (ctx.signal?.aborted) return out
+    const res = await fetchRaw(baseUrl + p, { headers: ctx.headers, signal: ctx.signal })
     if (res && res.status === 200) {
       out.push({
         category: 'A02',
@@ -168,8 +173,9 @@ async function checkReflectedXss(baseUrl: string, ctx: Ctx): Promise<ActiveFindi
   // 1) Parameter coverage with the marker payload — tests the real params the
   //    target uses (discovered + defaults + custom).
   for (const param of ctx.xssParams) {
+    if (ctx.signal?.aborted) return out
     const url = `${baseUrl}?${param}=${encodeURIComponent(DEFAULT_XSS.inject)}`
-    const res = await fetchRaw(url, { follow: true, headers: ctx.headers })
+    const res = await fetchRaw(url, { follow: true, headers: ctx.headers, signal: ctx.signal })
     if (res && res.body.includes(DEFAULT_XSS.needle)) {
       out.push({
         category: 'A03',
@@ -184,8 +190,9 @@ async function checkReflectedXss(baseUrl: string, ctx: Ctx): Promise<ActiveFindi
   }
   // 2) Custom payloads (operator's bypass attempts) reflected on a common param.
   for (const p of ctx.xssPayloads) {
+    if (ctx.signal?.aborted) return out
     const url = `${baseUrl}?q=${encodeURIComponent(p)}`
-    const res = await fetchRaw(url, { follow: true, headers: ctx.headers })
+    const res = await fetchRaw(url, { follow: true, headers: ctx.headers, signal: ctx.signal })
     if (res && res.body.includes(p)) {
       out.push({
         category: 'A03',
@@ -205,9 +212,10 @@ const REDIRECT_PARAMS = ['url', 'next', 'redirect', 'return', 'dest', 'r', 'u', 
 async function checkOpenRedirect(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
   const evil = 'https://example.org/owasp-redirect-probe'
   for (const param of ctx.redirectParams) {
+    if (ctx.signal?.aborted) return []
     const url = `${baseUrl}?${param}=${encodeURIComponent(evil)}`
     // follow:false — we INSPECT the Location header, we do not chase it.
-    const res = await fetchRaw(url, { headers: ctx.headers })
+    const res = await fetchRaw(url, { headers: ctx.headers, signal: ctx.signal })
     if (res && res.status >= 300 && res.status < 400) {
       const loc = res.headers.get('location') ?? ''
       if (/^https?:\/\/(www\.)?example\.org/i.test(loc) || loc.startsWith('//example.org')) {
@@ -227,7 +235,7 @@ async function checkOpenRedirect(baseUrl: string, ctx: Ctx): Promise<ActiveFindi
 
 async function checkCors(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
   const evil = 'https://evil.example.org'
-  const res = await fetchRaw(baseUrl, { headers: { ...ctx.headers, Origin: evil } })
+  const res = await fetchRaw(baseUrl, { headers: { ...ctx.headers, Origin: evil }, signal: ctx.signal })
   if (!res) return []
   const acao = res.headers.get('access-control-allow-origin')
   const acac = res.headers.get('access-control-allow-credentials')
@@ -250,7 +258,7 @@ async function checkCors(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
 }
 
 async function checkTrace(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
-  const res = await fetchRaw(baseUrl, { method: 'TRACE', headers: ctx.headers })
+  const res = await fetchRaw(baseUrl, { method: 'TRACE', headers: ctx.headers, signal: ctx.signal })
   if (res && res.status === 200 && /TRACE\s|X-Recon-Probe/i.test(res.body)) {
     return [{ category: 'A05', name: 'HTTP TRACE method enabled (XST)', severity: 'low', url: baseUrl, evidence: 'TRACE returned 200 and echoed the request' }]
   }
@@ -261,7 +269,8 @@ const LISTING_DIRS = ['/uploads/', '/files/', '/backup/', '/images/', '/assets/'
 
 async function checkDirListing(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
   for (const dir of LISTING_DIRS) {
-    const res = await fetchRaw(baseUrl + dir, { headers: ctx.headers })
+    if (ctx.signal?.aborted) return []
+    const res = await fetchRaw(baseUrl + dir, { headers: ctx.headers, signal: ctx.signal })
     if (res && res.status === 200 && /<title>Index of \/|Directory listing for/i.test(res.body)) {
       return [{ category: 'A05', name: 'Directory listing enabled', severity: 'low', url: baseUrl + dir, evidence: `Index listing at ${dir}` }]
     }
@@ -297,6 +306,7 @@ export async function runActiveChecks(
     xssPayloads: uniqCap(opts.xssPayloads ?? [], 6),
     redirectParams: uniqCap([...REDIRECT_PARAMS, ...discovered, ...customRedirect], 25),
     customPaths: uniqCap((opts.sensitivePaths ?? []).filter((p) => SAFE_PATH.test(p)), 25),
+    signal: opts.signal,
   }
 
   // SSRF guard — refuse if ANY resolved address (all A + AAAA, not just the
@@ -305,7 +315,7 @@ export async function runActiveChecks(
   const allIps = [...(dns?.a ?? []), ...(dns?.aaaa ?? [])]
   if (allIps.some(isInternalIp)) return { findings: [], reachable: false, targetedParams: 0 }
 
-  const base = await fetchRaw(baseUrl, { follow: true, headers })
+  const base = await fetchRaw(baseUrl, { follow: true, headers, signal: ctx.signal })
   if (!base) return { findings: [], reachable: false, targetedParams: 0 }
 
   const findings: ActiveFinding[] = [...checkSecurityHeaders(base, baseUrl)]
