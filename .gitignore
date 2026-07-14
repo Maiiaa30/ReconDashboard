@@ -24,5 +24,3 @@ website/.wrangler/
 
 # Local agent handoff notes (never commit)
 AGENT_CONTEXT.md
-prompt.md
-AUDIT-2026-07.md
