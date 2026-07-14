@@ -3,7 +3,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { getDomain } from '../domains/store'
 import { assertDomainActive, assertHostInScope, assertScanAllowed, ScanPolicyError } from '../domains/scanPolicy'
 import { sendRawRequest, ReplayError, type ReplayRequest } from '../replay/send'
-import { expandPayloads, MAX_PAYLOADS, PAYLOAD_MARKER } from '../replay/intruder'
+import { attackCount, expandPayloads, MAX_PAYLOADS, positionsInTemplate, type AttackMode } from '../replay/intruder'
 import { insertReplayHistory, listReplayHistory, getReplayHistory, clearReplayHistory } from '../replay/history'
 import { buildSitemap } from '../replay/sitemap'
 import { enqueueJob } from '../jobs/queue'
@@ -142,25 +142,40 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
   // requests) → a gated LOUD job, not a synchronous call. assertScanAllowed
   // enforces mode/confirm + authorization window + engagement scope + the
   // one-at-a-time pending guard; the run itself is sequential + throttled.
+  type PayloadSpec = { mode?: 'list' | 'range' | 'wordlist'; list?: string; from?: number; to?: number; pad?: number; wordlist?: string }
+  const expandSpec = (spec: PayloadSpec | undefined): string[] =>
+    spec?.mode === 'wordlist'
+      ? wordlistPayloads(String(spec?.wordlist ?? ''))
+      : expandPayloads({ mode: spec?.mode === 'range' ? 'range' : 'list', list: spec?.list, from: spec?.from, to: spec?.to, pad: spec?.pad })
+
   app.post<{
     Params: { id: string }
     Body: {
       template?: { method?: string; url?: string; headers?: Record<string, string>; body?: string; followRedirects?: boolean }
-      payload?: { mode?: 'list' | 'range' | 'wordlist'; list?: string; from?: number; to?: number; pad?: number; wordlist?: string }
+      mode?: AttackMode
+      payload?: PayloadSpec // legacy single-list spec (→ payloads[0])
+      payloads?: PayloadSpec[] // one per position for pitchfork / cluster-bomb
+      grep?: { extract?: string; match?: string[] }
+      concurrency?: number
       throttleMs?: number
       confirm?: boolean
     }
   }>('/api/domains/:id/intruder', async (request, reply) => {
     const id = Number(request.params.id)
-    const { template, payload, throttleMs, confirm } = request.body ?? {}
+    const { template, throttleMs, confirm } = request.body ?? {}
+    const mode: AttackMode = (['sniper', 'battering-ram', 'pitchfork', 'cluster-bomb'] as const).includes(request.body?.mode as AttackMode)
+      ? (request.body!.mode as AttackMode)
+      : 'sniper'
     if (!template || typeof template.url !== 'string' || !template.url) {
       return reply.code(400).send({ error: 'template.url is required' })
     }
-    // The marker must appear somewhere, or every request is identical.
-    const marked = [template.url, template.body ?? '', ...Object.values(template.headers ?? {})].some((s) =>
-      String(s).includes(PAYLOAD_MARKER),
-    )
-    if (!marked) return reply.code(400).send({ error: `no ${PAYLOAD_MARKER} marker in the request template` })
+
+    // Positions come from the template markers ({{P1}}…{{Pn}}, or legacy
+    // {{PAYLOAD}} = P1). At least one must appear, or every request is identical.
+    const method = (template.method ?? 'GET').toUpperCase()
+    const reqTemplate = { method, url: template.url, headers: template.headers, body: template.body, followRedirects: template.followRedirects === true }
+    const positions = positionsInTemplate(reqTemplate)
+    if (positions.length === 0) return reply.code(400).send({ error: 'no {{P1}} / {{PAYLOAD}} marker in the request template' })
 
     let host: string
     try {
@@ -169,21 +184,35 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: 'invalid template.url', code: 'invalid_target' })
     }
 
-    let payloads: string[]
+    // pitchfork / cluster-bomb use one payload list per position; sniper /
+    // battering-ram use a single list. Accept the legacy single `payload` spec.
+    const specs: PayloadSpec[] = request.body?.payloads?.length ? request.body.payloads : request.body?.payload ? [request.body.payload] : []
+    let lists: string[][]
+    let count: number
     try {
-      payloads =
-        payload?.mode === 'wordlist'
-          ? wordlistPayloads(String(payload?.wordlist ?? ''))
-          : expandPayloads({
-              mode: payload?.mode === 'range' ? 'range' : 'list',
-              list: payload?.list,
-              from: payload?.from,
-              to: payload?.to,
-              pad: payload?.pad,
-            })
+      if (mode === 'pitchfork' || mode === 'cluster-bomb') {
+        if (specs.length < positions.length) {
+          return reply.code(400).send({ error: `${mode} needs one payload list per position (${positions.length})`, code: 'need_lists' })
+        }
+        lists = positions.map((_, i) => expandSpec(specs[i]))
+      } else {
+        lists = [expandSpec(specs[0])]
+      }
+      count = attackCount(mode, positions, lists)
+      if (count === 0) return reply.code(400).send({ error: 'attack expands to zero requests' })
+      if (count > MAX_PAYLOADS) return reply.code(400).send({ error: `attack of ${count} requests exceeds the ${MAX_PAYLOADS} cap — narrow the payload lists`, code: 'too_many' })
     } catch (err) {
       return reply.code(400).send({ error: err instanceof Error ? err.message : 'invalid payloads' })
     }
+
+    // Sanitize grep config: bounded phrase list; the regex is compiled (safely) in
+    // the handler, not here.
+    const grep = request.body?.grep
+      ? {
+          extract: typeof request.body.grep.extract === 'string' ? request.body.grep.extract.slice(0, 500) : undefined,
+          match: Array.isArray(request.body.grep.match) ? request.body.grep.match.filter((p) => typeof p === 'string').slice(0, 25) : undefined,
+        }
+      : undefined
 
     try {
       const { domain } = await assertScanAllowed({
@@ -193,12 +222,15 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
         jobType: 'intruder',
         cooldownMs: 0, // tuning payloads means re-running often; the pending guard already blocks overlap
       })
-      const method = (template.method ?? 'GET').toUpperCase()
       const params = {
         domainId: id,
         target: host,
-        template: { method, url: template.url, headers: template.headers, body: template.body, followRedirects: template.followRedirects === true },
-        payloads,
+        template: reqTemplate,
+        mode,
+        positions,
+        lists,
+        grep,
+        concurrency: Math.max(1, Math.min(10, Number(request.body?.concurrency) || 1)),
         throttleMs: Number(throttleMs) || 0,
       }
       const jobId = enqueueJob('intruder', params)
@@ -209,9 +241,9 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
         target: host,
         mode: domain.mode,
         jobId,
-        detail: { method, url: template.url, count: payloads.length },
+        detail: { method, url: template.url, attack: mode, positions: positions.length, count },
       })
-      return reply.code(202).send({ jobId, count: payloads.length })
+      return reply.code(202).send({ jobId, count })
     } catch (err) {
       if (err instanceof ScanPolicyError) {
         if (err.retryAfterSec) reply.header('Retry-After', String(err.retryAfterSec))

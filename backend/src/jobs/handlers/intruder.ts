@@ -1,31 +1,41 @@
 import { getDomain } from '../../domains/store'
-import { runIntruder } from '../../replay/intruder'
+import { expandAttack, runIntruder, type AttackMode, type GrepConfig } from '../../replay/intruder'
 import type { ReplayRequest } from '../../replay/send'
 import type { JobContext } from '../worker'
 
-// Intruder job: iterate the pre-expanded payload list through the request
-// template, sequentially + throttled, honouring the abort signal (operator
-// cancel / timeout). The route already expanded + capped the payloads and gated
-// the run (assertScanAllowed); the handler just executes and records.
+// Intruder job: expand the attack (mode × positions × payload lists) into concrete
+// assignments, then fire them through the template with bounded concurrency, per-
+// worker throttle, and abort support. The route already validated + capped the
+// attack and gated the run (assertScanAllowed); the handler executes and records.
 export async function intruderHandler({ params, log, progress, signal }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
 
   const template = params.template as ReplayRequest | undefined
-  const payloads = Array.isArray(params.payloads) ? (params.payloads as string[]) : []
   if (!template || typeof template.url !== 'string') throw new Error('intruder: missing request template')
-  if (payloads.length === 0) throw new Error('intruder: no payloads')
-  const throttleMs = Number(params.throttleMs) || 0
 
-  const result = await runIntruder(template, payloads, {
+  const mode = (params.mode as AttackMode) ?? 'sniper'
+  const positions = Array.isArray(params.positions) ? (params.positions as number[]) : []
+  const lists = Array.isArray(params.lists) ? (params.lists as string[][]) : []
+  if (positions.length === 0) throw new Error('intruder: no marked positions')
+
+  const assignments = expandAttack(mode, positions, lists)
+  const throttleMs = Number(params.throttleMs) || 0
+  const concurrency = Number(params.concurrency) || 1
+  const grep = (params.grep as GrepConfig | undefined) ?? undefined
+
+  const result = await runIntruder(template, assignments, {
+    positions,
     throttleMs,
+    concurrency,
+    grep,
     signal,
     onProgress: (i, total) => progress(`intruder ${i}/${total}`),
   })
 
   log.info(
-    { domain: domain.host, sent: result.sent, total: result.total, interesting: result.interesting.length, aborted: result.aborted },
+    { domain: domain.host, mode, sent: result.sent, total: result.total, interesting: result.interesting.length, aborted: result.aborted },
     'intruder complete',
   )
   return result

@@ -23,6 +23,18 @@ function shortUrl(u: string): string {
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const
 const PAYLOAD_MARKER = '{{PAYLOAD}}'
+const ATTACK_MODES = ['sniper', 'battering-ram', 'pitchfork', 'cluster-bomb'] as const
+type AttackMode = (typeof ATTACK_MODES)[number]
+
+// Distinct 1-based payload positions marked in the composed request ({{P1}}…, or
+// legacy {{PAYLOAD}} = P1). Mirrors the server's positionsInTemplate.
+function detectPositions(req: BuiltRequest): number[] {
+  const text = [req.url, req.body ?? '', ...Object.values(req.headers)].join('\n')
+  const set = new Set<number>()
+  if (text.includes(PAYLOAD_MARKER)) set.add(1)
+  for (const m of text.matchAll(/\{\{P(\d+)\}\}/g)) set.add(Number(m[1]))
+  return [...set].sort((a, b) => a - b)
+}
 
 function parseHeaders(text: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -316,8 +328,10 @@ function RequestEditor(props: {
       </div>
       {props.mode === 'intruder' && (
         <p className="mb-2 text-xs text-zinc-500">
-          Put <code className="rounded bg-ink-800 px-1 font-mono text-accent-fg">{PAYLOAD_MARKER}</code> where each payload
-          should go — in the URL, a header value, or the body.
+          Mark payload positions with <code className="rounded bg-ink-800 px-1 font-mono text-accent-fg">{'{{P1}}'}</code>,{' '}
+          <code className="rounded bg-ink-800 px-1 font-mono text-accent-fg">{'{{P2}}'}</code>, … (or{' '}
+          <code className="rounded bg-ink-800 px-1 font-mono text-accent-fg">{PAYLOAD_MARKER}</code> = P1) — in the URL, a
+          header value, or the body.
         </p>
       )}
       <label className="mb-1 block text-[10px] uppercase tracking-wide text-zinc-600">Headers (one per line: Name: Value)</label>
@@ -595,6 +609,16 @@ function IntruderPanel({
   const [throttle, setThrottle] = useState('0')
   const [wordlists, setWordlists] = useState<Wordlist[]>([])
   const [wordlist, setWordlist] = useState('')
+  const [attackMode, setAttackMode] = useState<AttackMode>('sniper')
+  const [posLists, setPosLists] = useState<Record<number, string>>({}) // pitchfork/cluster-bomb: one list per position
+  const [grepExtract, setGrepExtract] = useState('')
+  const [grepMatch, setGrepMatch] = useState('')
+  const [concurrency, setConcurrency] = useState('1')
+
+  // Positions marked in the current request drive the multi-list UI. Multi-list
+  // modes (pitchfork/cluster-bomb) need one list per position.
+  const positions = detectPositions(build())
+  const multiList = attackMode === 'pitchfork' || attackMode === 'cluster-bomb'
 
   useEffect(() => {
     api
@@ -637,21 +661,31 @@ function IntruderPanel({
     if (busy || running) return
     const req = build()
     if (!req.url) return toast.error('Enter a URL first.')
-    const marked = [req.url, req.body ?? '', ...Object.values(req.headers)].some((s) => String(s).includes(PAYLOAD_MARKER))
-    if (!marked) return toast.error(`Add a ${PAYLOAD_MARKER} marker to the request first.`)
-    if (payloadMode === 'wordlist' && !wordlist) return toast.error('Pick a wordlist first.')
+    const pos = detectPositions(req)
+    if (pos.length === 0) return toast.error('Add a {{P1}} (or {{PAYLOAD}}) marker to the request first.')
+    if (!multiList && payloadMode === 'wordlist' && !wordlist) return toast.error('Pick a wordlist first.')
+    if (multiList && pos.some((p) => !(posLists[p] ?? '').trim())) return toast.error(`${attackMode} needs a payload list for each position (P${pos.join(', P')}).`)
     if (!(await confirmActive('Start this attack?', 'Intruder'))) return
+
+    const singleSpec =
+      payloadMode === 'range'
+        ? { mode: 'range' as const, from: Number(from), to: Number(to), pad: Number(pad) }
+        : payloadMode === 'wordlist'
+          ? { mode: 'wordlist' as const, wordlist }
+          : { mode: 'list' as const, list }
+    const match = grepMatch.split(/[\n,]/).map((l) => l.trim()).filter(Boolean)
+
     setBusy(true)
     setJob(null)
     try {
       const { jobId: id, count } = await api.intruder(domainId, {
         template: req,
-        payload:
-          payloadMode === 'range'
-            ? { mode: 'range', from: Number(from), to: Number(to), pad: Number(pad) }
-            : payloadMode === 'wordlist'
-              ? { mode: 'wordlist', wordlist }
-              : { mode: 'list', list },
+        mode: attackMode,
+        ...(multiList
+          ? { payloads: pos.map((p) => ({ mode: 'list' as const, list: posLists[p] ?? '' })) }
+          : { payload: singleSpec }),
+        grep: grepExtract.trim() || match.length ? { extract: grepExtract.trim() || undefined, match } : undefined,
+        concurrency: Number(concurrency) || 1,
         throttleMs: Number(throttle) || 0,
         confirm: passive,
       })
@@ -684,18 +718,37 @@ function IntruderPanel({
     <Card className="flex h-full min-h-0 flex-col overflow-auto">
       {/* Payload config */}
       <div className="mb-3 space-y-2">
-        <div className="inline-flex rounded-lg border border-hair bg-ink-950 p-0.5 text-xs">
-          {(['list', 'range', 'wordlist'] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => setPayloadMode(m)}
-              className={`rounded px-2.5 py-1 capitalize ${payloadMode === m ? 'bg-accent-500/15 text-accent-fg' : 'text-zinc-400'}`}
-            >
-              {m === 'range' ? 'Number range' : m}
-            </button>
-          ))}
+        {/* Attack mode */}
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={attackMode}
+            onChange={(e) => setAttackMode(e.target.value as AttackMode)}
+            className="rounded-lg border border-hair bg-ink-950 px-2 py-1.5 text-xs outline-none focus:border-accent-500"
+          >
+            {ATTACK_MODES.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+          <span className="text-[11px] text-zinc-500">
+            {positions.length ? `${positions.length} position${positions.length > 1 ? 's' : ''}: P${positions.join(', P')}` : 'no positions marked'}
+          </span>
         </div>
-        {payloadMode === 'list' && (
+        {!multiList && (
+          <>
+            <div className="inline-flex rounded-lg border border-hair bg-ink-950 p-0.5 text-xs">
+              {(['list', 'range', 'wordlist'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setPayloadMode(m)}
+                  className={`rounded px-2.5 py-1 capitalize ${payloadMode === m ? 'bg-accent-500/15 text-accent-fg' : 'text-zinc-400'}`}
+                >
+                  {m === 'range' ? 'Number range' : m}
+                </button>
+              ))}
+            </div>
+            {payloadMode === 'list' && (
           <>
             <PayloadLibrary
               currentList={list}
@@ -749,11 +802,57 @@ function IntruderPanel({
               })}
             </select>
           ))}
-        {payloadMode === 'wordlist' && wordlists.length > 0 && (
-          <p className="text-[11px] text-zinc-600">Large lists are capped at the first 10,000 entries.</p>
+            {payloadMode === 'wordlist' && wordlists.length > 0 && (
+              <p className="text-[11px] text-zinc-600">Large lists are capped at the first 10,000 entries.</p>
+            )}
+          </>
         )}
+        {multiList && (
+          <div className="space-y-2">
+            {positions.length === 0 && <p className="text-xs text-zinc-500">Mark positions with {'{{P1}}'}, {'{{P2}}'}, … first.</p>}
+            {positions.map((p) => (
+              <div key={p}>
+                <label className="mb-1 block text-[10px] uppercase tracking-wide text-zinc-600">P{p} payloads (one per line)</label>
+                <textarea
+                  value={posLists[p] ?? ''}
+                  onChange={(e) => setPosLists((prev) => ({ ...prev, [p]: e.target.value }))}
+                  rows={3}
+                  spellCheck={false}
+                  className="block w-full rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500"
+                />
+              </div>
+            ))}
+            <p className="text-[11px] text-zinc-600">
+              {attackMode === 'pitchfork' ? 'Lists advance in lockstep (min length).' : 'Every combination is tried (product of list lengths).'}
+            </p>
+          </div>
+        )}
+        {/* Grep + concurrency */}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-[10px] uppercase tracking-wide text-zinc-600">Grep-extract (regex → column)</span>
+            <input
+              value={grepExtract}
+              onChange={(e) => setGrepExtract(e.target.value)}
+              placeholder={'e.g. "csrf":"([^"]+)"'}
+              spellCheck={false}
+              className="block w-full rounded-lg border border-hair bg-ink-950 px-2 py-1.5 font-mono text-xs outline-none focus:border-accent-500"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[10px] uppercase tracking-wide text-zinc-600">Grep-match (comma/newline separated)</span>
+            <input
+              value={grepMatch}
+              onChange={(e) => setGrepMatch(e.target.value)}
+              placeholder={'SQL syntax, Traceback'}
+              spellCheck={false}
+              className="block w-full rounded-lg border border-hair bg-ink-950 px-2 py-1.5 font-mono text-xs outline-none focus:border-accent-500"
+            />
+          </label>
+        </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <NumField label="throttle ms / req" value={throttle} onChange={setThrottle} />
+          <NumField label="concurrency (1–10)" value={concurrency} onChange={setConcurrency} />
           {running ? (
             <Button variant="danger" onClick={cancel}>
               <StopCircle size={15} /> Cancel
@@ -840,6 +939,9 @@ function AttemptTable({ rows, highlight = false }: { rows: IntruderAttempt[]; hi
   // jank the tab. Render a page at a time; deviating rows are surfaced separately.
   const [limit, setLimit] = useState(ATTEMPT_PAGE)
   const shown = rows.slice(0, limit)
+  const hasWords = rows.some((r) => r.words != null)
+  const hasExtract = rows.some((r) => r.extract != null)
+  const hasMatched = rows.some((r) => r.matched)
   return (
     <div>
       <div className="max-h-72 overflow-auto rounded-lg border border-hair/60">
@@ -849,7 +951,10 @@ function AttemptTable({ rows, highlight = false }: { rows: IntruderAttempt[]; hi
               <th className="px-2 py-1 font-medium">payload</th>
               <th className="px-2 py-1 font-medium">status</th>
               <th className="px-2 py-1 font-medium">length</th>
+              {hasWords && <th className="px-2 py-1 font-medium">words</th>}
               <th className="px-2 py-1 font-medium">time</th>
+              {hasExtract && <th className="px-2 py-1 font-medium">extract</th>}
+              {hasMatched && <th className="px-2 py-1 font-medium">match</th>}
             </tr>
           </thead>
           <tbody>
@@ -860,7 +965,10 @@ function AttemptTable({ rows, highlight = false }: { rows: IntruderAttempt[]; hi
                   <Badge tone={statusTone(r.status)}>{r.error ? 'err' : r.status}</Badge>
                 </td>
                 <td className="px-2 py-1">{r.length}</td>
+                {hasWords && <td className="px-2 py-1 text-zinc-500">{r.words ?? ''}</td>}
                 <td className="px-2 py-1 text-zinc-500">{r.timeMs}ms</td>
+                {hasExtract && <td className="px-2 py-1 break-all text-accent-fg">{r.extract ?? ''}</td>}
+                {hasMatched && <td className="px-2 py-1">{r.matched ? <Badge tone="red">hit</Badge> : ''}</td>}
               </tr>
             ))}
           </tbody>

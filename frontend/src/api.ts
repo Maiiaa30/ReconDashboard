@@ -171,7 +171,11 @@ export interface IntruderAttempt {
   payload: string
   status: number
   length: number
+  words?: number
   timeMs: number
+  extract?: string
+  matched?: boolean
+  assignment?: Record<string, string>
   error?: string
 }
 export interface IntruderResult {
@@ -614,12 +618,18 @@ export const api = {
     get<{ history: ReplayHistoryItem[] }>(`/replay/history?domainId=${domainId}${limit ? `&limit=${limit}` : ''}`),
   replayHistoryDetail: (id: number) => get<{ entry: ReplayHistoryDetail }>(`/replay/history/${id}`),
   clearReplayHistory: (domainId: number) => del<{ cleared: number }>(`/replay/history?domainId=${domainId}`),
-  // intruder: iterate a payload set through a request template (gated LOUD job)
+  // intruder: iterate payloads through a request template (gated LOUD job). One or
+  // more {{Pn}} positions; sniper/battering-ram use one list, pitchfork/cluster-
+  // bomb one list per position.
   intruder: (
     id: number,
     bodyReq: {
       template: { method: string; url: string; headers?: Record<string, string>; body?: string; followRedirects?: boolean }
-      payload: { mode: 'list' | 'range' | 'wordlist'; list?: string; from?: number; to?: number; pad?: number; wordlist?: string }
+      mode?: 'sniper' | 'battering-ram' | 'pitchfork' | 'cluster-bomb'
+      payload?: { mode: 'list' | 'range' | 'wordlist'; list?: string; from?: number; to?: number; pad?: number; wordlist?: string }
+      payloads?: { mode: 'list' | 'range' | 'wordlist'; list?: string; from?: number; to?: number; pad?: number; wordlist?: string }[]
+      grep?: { extract?: string; match?: string[] }
+      concurrency?: number
       throttleMs?: number
       confirm?: boolean
     },
