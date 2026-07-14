@@ -6,6 +6,7 @@ import { analyzeCsp, analyzeHsts } from './csp'
 import { corsVerdict } from './cors'
 import { gitTriadComplete, type GitPart } from './vcs'
 import { isSsrfParam, redirectsToAttacker, REDIRECT_EVIL_HOST, REDIRECT_PAYLOADS } from './redirect'
+import { sstiConfirmed, SSTI_CONTROL, SSTI_MARKER, SSTI_PAYLOADS } from './ssti'
 
 // Direct, HTTP-based OWASP active checks — the engine that makes the OWASP tab
 // useful without leaning entirely on nuclei. Each check sends benign probes a
@@ -402,6 +403,37 @@ async function checkCors(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
   return out
 }
 
+// SSTI: for each candidate param, a literal-control probe establishes the marker
+// isn't already on the page, then each engine-syntax payload is tested. Confirmed
+// only when the arithmetic evaluated for the payload but not the control. Bounded
+// to a handful of params to keep the request budget sane.
+const SSTI_PARAM_CAP = 8
+
+async function checkSsti(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
+  for (const param of ctx.xssParams.slice(0, SSTI_PARAM_CAP)) {
+    if (ctx.signal?.aborted) break
+    const control = await fetchRaw(`${baseUrl}?${param}=${encodeURIComponent(SSTI_CONTROL)}`, { follow: true, headers: ctx.headers, signal: ctx.signal })
+    if (!control) continue
+    if (control.body.includes(SSTI_MARKER)) continue // product already present — can't differentiate on this param
+    for (const payload of SSTI_PAYLOADS) {
+      if (ctx.signal?.aborted) break
+      const url = `${baseUrl}?${param}=${encodeURIComponent(payload)}`
+      const res = await fetchRaw(url, { follow: true, headers: ctx.headers, signal: ctx.signal })
+      if (res && sstiConfirmed(res.body, control.body)) {
+        return [{
+          category: 'A03',
+          name: 'Server-Side Template Injection (SSTI)',
+          severity: 'high',
+          url,
+          evidence: `?${param}=${payload} evaluated server-side to ${SSTI_MARKER} (the literal control did not) — the template engine executes injected input`,
+          repro: { request: `GET ${url}`, payload, responseStatus: res.status, bodyExcerpt: excerptAround(res.body, SSTI_MARKER) },
+        }]
+      }
+    }
+  }
+  return []
+}
+
 async function checkTrace(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
   const res = await fetchRaw(baseUrl, { method: 'TRACE', headers: ctx.headers, signal: ctx.signal })
   if (res && res.status === 200 && /TRACE\s|X-Recon-Probe/i.test(res.body)) {
@@ -472,6 +504,7 @@ export async function runActiveChecks(
     checkCors(baseUrl, ctx),
     checkTrace(baseUrl, ctx),
     checkDirListing(baseUrl, ctx),
+    checkSsti(baseUrl, ctx),
   ])
   for (const g of groups) findings.push(...g)
   return { findings, reachable: true, targetedParams: discovered.length }
