@@ -1,6 +1,7 @@
 import { resolveDns } from '../sources/dns'
 import { guardedFetchRaw } from '../sources/guard'
 import { isInternalIp } from '../util/validate'
+import { analyzeCsp, analyzeHsts } from './csp'
 
 // Direct, HTTP-based OWASP active checks — the engine that makes the OWASP tab
 // useful without leaning entirely on nuclei. Each check sends benign probes a
@@ -117,6 +118,38 @@ function checkSecurityHeaders(base: RawResponse, baseUrl: string): ActiveFinding
   if (powered || (server && /\d/.test(server))) {
     out.push({ category: 'A05', name: 'Software version disclosure', severity: 'info', url: baseUrl, evidence: [server && `Server: ${server}`, powered && `X-Powered-By: ${powered}`].filter(Boolean).join(' · ') })
   }
+  return out
+}
+
+// CSP + HSTS quality (passive — reads only headers already on `base`, no extra
+// request). A present-but-weak policy is a distinct, higher-signal finding than a
+// missing one, so this runs alongside checkSecurityHeaders. Capped so a sprawling
+// policy can't produce a wall of low findings.
+const CSP_MAX_FINDINGS = 4
+
+function checkCsp(base: RawResponse, baseUrl: string): ActiveFinding[] {
+  const out: ActiveFinding[] = []
+  const csp = base.headers.get('content-security-policy')
+  const cspReportOnly = base.headers.get('content-security-policy-report-only')
+
+  if (csp) {
+    for (const issue of analyzeCsp(csp).slice(0, CSP_MAX_FINDINGS)) {
+      out.push({ category: 'A05', name: issue.name, severity: issue.severity, url: baseUrl, evidence: issue.evidence })
+    }
+  } else if (cspReportOnly) {
+    // A report-only policy is monitored but NOT enforced — it blocks nothing.
+    out.push({
+      category: 'A05',
+      name: 'CSP is report-only (not enforced)',
+      severity: 'low',
+      url: baseUrl,
+      evidence: 'Only Content-Security-Policy-Report-Only is set; violations are reported but not blocked',
+    })
+  }
+
+  const hsts = analyzeHsts(base.headers.get('strict-transport-security'))
+  if (hsts) out.push({ category: 'A05', name: hsts.name, severity: hsts.severity, url: baseUrl, evidence: hsts.evidence })
+
   return out
 }
 
@@ -318,7 +351,7 @@ export async function runActiveChecks(
   const base = await fetchRaw(baseUrl, { follow: true, headers, signal: ctx.signal })
   if (!base) return { findings: [], reachable: false, targetedParams: 0 }
 
-  const findings: ActiveFinding[] = [...checkSecurityHeaders(base, baseUrl)]
+  const findings: ActiveFinding[] = [...checkSecurityHeaders(base, baseUrl), ...checkCsp(base, baseUrl)]
   const groups = await Promise.all([
     checkSensitiveFiles(baseUrl, ctx),
     checkReflectedXss(baseUrl, ctx),
