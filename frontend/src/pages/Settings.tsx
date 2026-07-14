@@ -190,6 +190,10 @@ function BackupPanel() {
   const [error, setError] = useState<string | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [checkMsg, setCheckMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  // Restore is destructive → re-authenticate (password required; 2FA code if the
+  // account has it enabled — the backend enforces which are needed).
+  const [reauthPassword, setReauthPassword] = useState('')
+  const [reauthToken, setReauthToken] = useState('')
 
   const canUsePass = serverConfigured || passphrase.length >= 12
 
@@ -220,11 +224,22 @@ function BackupPanel() {
       tone: 'danger',
     })
     if (!ok) return
+    if (!reauthPassword) {
+      setCheckMsg({ ok: false, text: 'Re-enter your password to stage a restore.' })
+      return
+    }
     setBusy(true)
     setCheckMsg(null)
     try {
-      const r = await api.backupRestore(file, serverConfigured ? undefined : passphrase)
+      const r = await api.backupRestore(file, serverConfigured ? undefined : passphrase, {
+        password: reauthPassword,
+        token: reauthToken || undefined,
+      })
       setCheckMsg({ ok: !!r.ok, text: r.ok ? r.message || 'Restore staged — restart the backend to apply.' : r.error || 'restore failed' })
+      if (r.ok) {
+        setReauthPassword('')
+        setReauthToken('')
+      }
     } catch (e) {
       setCheckMsg({ ok: false, text: e instanceof Error ? e.message : 'restore failed' })
     } finally {
@@ -318,11 +333,31 @@ function BackupPanel() {
         {checkMsg && (
           <p className={`mt-2 text-sm ${checkMsg.ok ? 'text-green-400' : 'text-red-400'}`}>{checkMsg.text}</p>
         )}
+        {/* Re-auth for the destructive restore (verify does not need it). */}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <input
+            type="password"
+            value={reauthPassword}
+            onChange={(e) => setReauthPassword(e.target.value)}
+            placeholder="Password (to restore)"
+            autoComplete="current-password"
+            className="w-56 rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm outline-none focus:border-accent-500"
+          />
+          <input
+            type="text"
+            inputMode="numeric"
+            value={reauthToken}
+            onChange={(e) => setReauthToken(e.target.value)}
+            placeholder="2FA code (if enabled)"
+            autoComplete="one-time-code"
+            className="w-40 rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm outline-none focus:border-accent-500"
+          />
+        </div>
         <div className="mt-3 flex gap-2">
           <Button onClick={verify} disabled={busy || !file || !canUsePass}>
             {busy ? '…' : 'Verify backup'}
           </Button>
-          <Button variant="danger" onClick={restore} disabled={busy || !file || !canUsePass}>
+          <Button variant="danger" onClick={restore} disabled={busy || !file || !canUsePass || !reauthPassword}>
             {busy ? '…' : 'Stage restore'}
           </Button>
         </div>

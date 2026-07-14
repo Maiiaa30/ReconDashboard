@@ -2,6 +2,9 @@ import type { FastifyPluginAsync } from 'fastify'
 import { config } from '../config'
 import { createEncryptedBackup, stageRestore, verifyBackup } from '../backup/backup'
 import { actorName, writeAudit } from '../audit/store'
+import { getOperatorById } from '../auth/seed'
+import { verifyPassword } from '../auth/passwords'
+import { verifyTotp } from '../auth/totp'
 
 // Phase 8: download an encrypted dump of the SQLite DB. The passphrase comes
 // from BACKUP_PASSPHRASE (env) or, if unset, the request body — it is never
@@ -66,8 +69,34 @@ export const backupRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(result.ok ? 200 : 422).send(result)
   })
 
-  // Stage a verified backup to be swapped in on the next backend restart.
-  app.post('/api/backup/restore', async (request, reply) => {
+  // Re-authenticate the operator for a destructive action. Credentials come via
+  // headers because the request body is the raw .rdb octet-stream. Returns an
+  // error string to send, or null when re-auth passed.
+  async function requireReauth(request: {
+    session: { userId?: number }
+    headers: Record<string, unknown>
+  }): Promise<{ status: number; error: string } | null> {
+    const op = getOperatorById(request.session.userId!)
+    if (!op) return { status: 401, error: 'unauthorized' }
+    const password = String(request.headers['x-reauth-password'] ?? '')
+    if (!password || !(await verifyPassword(op.passwordHash, password))) {
+      return { status: 403, error: 'restore requires re-entering your password (X-Reauth-Password)' }
+    }
+    if (op.totpEnabled) {
+      const token = String(request.headers['x-reauth-token'] ?? '')
+      if (!verifyTotp(token, op.totpSecret)) {
+        return { status: 403, error: 'restore requires a valid 2FA code (X-Reauth-Token)' }
+      }
+    }
+    return null
+  }
+
+  // Stage a verified backup to be swapped in on the next backend restart. This
+  // replaces the entire database, so it re-authenticates the operator (password
+  // + 2FA if enabled) and is rate-limited — a live session alone is not enough.
+  app.post('/api/backup/restore', { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (request, reply) => {
+    const reauth = await requireReauth(request)
+    if (reauth) return reply.code(reauth.status).send({ error: reauth.error })
     const { blob, passphrase, error } = readInput(request)
     if (error) return reply.code(400).send({ error })
     const result = await stageRestore(blob!, passphrase, config.databasePath)

@@ -658,7 +658,10 @@ export const api = {
   // backup download is handled directly in the component (binary response).
   // Upload an encrypted .rdb (verify = safe check; restore = stage for restart).
   backupVerify: (blob: Blob, passphrase?: string) => uploadBackup('/backup/verify', blob, passphrase),
-  backupRestore: (blob: Blob, passphrase?: string) => uploadBackup('/backup/restore', blob, passphrase),
+  // Restore is destructive → the operator re-authenticates (password + 2FA if
+  // enabled); sent as X-Reauth-* headers since the body is the raw blob.
+  backupRestore: (blob: Blob, passphrase: string | undefined, reauth: { password: string; token?: string }) =>
+    uploadBackup('/backup/restore', blob, passphrase, reauth),
 }
 
 export interface BackupCheckResult {
@@ -670,9 +673,16 @@ export interface BackupCheckResult {
   message?: string
 }
 
-async function uploadBackup(path: string, blob: Blob, passphrase?: string): Promise<BackupCheckResult> {
+async function uploadBackup(
+  path: string,
+  blob: Blob,
+  passphrase?: string,
+  reauth?: { password: string; token?: string },
+): Promise<BackupCheckResult> {
   const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' }
   if (passphrase) headers['X-Backup-Passphrase'] = passphrase
+  if (reauth?.password) headers['X-Reauth-Password'] = reauth.password
+  if (reauth?.token) headers['X-Reauth-Token'] = reauth.token
   const res = await fetch(`/api${path}`, { method: 'POST', headers, body: blob })
   const text = await res.text()
   let body: unknown = null
