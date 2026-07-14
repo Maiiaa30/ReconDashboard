@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto'
 import { resolveDns } from '../sources/dns'
 import { guardedFetchRaw } from '../sources/guard'
 import { isInternalIp } from '../util/validate'
 import { analyzeCsp, analyzeHsts } from './csp'
 import { corsVerdict } from './cors'
+import { gitTriadComplete, type GitPart } from './vcs'
 
 // Direct, HTTP-based OWASP active checks — the engine that makes the OWASP tab
 // useful without leaning entirely on nuclei. Each check sends benign probes a
@@ -155,46 +157,102 @@ function checkCsp(base: RawResponse, baseUrl: string): ActiveFinding[] {
   return out
 }
 
-const SENSITIVE_FILES: { path: string; signatures: RegExp[]; name: string; severity: Severity }[] = [
+// Signature-gated so an SPA that returns its index.html for every path (content
+// that never matches these KEY=VALUE / binary / config signatures) doesn't
+// produce false positives. `git` marks the three .git members whose simultaneous
+// presence proves a dumpable repository (escalated to critical below).
+const SENSITIVE_FILES: { path: string; signatures: RegExp[]; name: string; severity: Severity; git?: GitPart }[] = [
   { path: '/.env', signatures: [/^[A-Z0-9_]+=/m, /APP_KEY|SECRET|PASSWORD|DB_/i], name: 'Exposed .env file', severity: 'high' },
-  { path: '/.git/config', signatures: [/\[core\]/, /\[remote/], name: 'Exposed .git/config', severity: 'high' },
-  { path: '/.git/HEAD', signatures: [/^ref:\s+refs\//], name: 'Exposed .git repository', severity: 'high' },
+  { path: '/.env.local', signatures: [/^[A-Z0-9_]+=/m, /APP_KEY|SECRET|PASSWORD|DB_/i], name: 'Exposed .env.local file', severity: 'high' },
+  { path: '/.env.bak', signatures: [/^[A-Z0-9_]+=/m, /APP_KEY|SECRET|PASSWORD|DB_/i], name: 'Exposed .env backup', severity: 'high' },
+  { path: '/.git/config', signatures: [/\[core\]/, /\[remote/], name: 'Exposed .git/config', severity: 'high', git: 'config' },
+  { path: '/.git/HEAD', signatures: [/^ref:\s+refs\//], name: 'Exposed .git repository', severity: 'high', git: 'head' },
+  { path: '/.git/index', signatures: [/^DIRC/], name: 'Exposed .git index', severity: 'high', git: 'index' },
+  { path: '/.svn/wc.db', signatures: [/^SQLite format 3/], name: 'Exposed .svn repository (wc.db)', severity: 'high' },
+  { path: '/.hg/requires', signatures: [/^(revlogv1|store|dotencode|fncache|generaldelta)$/m], name: 'Exposed Mercurial (.hg) repository', severity: 'high' },
   { path: '/phpinfo.php', signatures: [/phpinfo\(\)|PHP Version/i], name: 'Exposed phpinfo()', severity: 'medium' },
   { path: '/server-status', signatures: [/Apache Server Status/i], name: 'Apache server-status exposed', severity: 'medium' },
   { path: '/.aws/credentials', signatures: [/aws_access_key_id/i], name: 'Exposed AWS credentials', severity: 'critical' },
   { path: '/config.json', signatures: [/"(password|secret|api[_-]?key|token)"/i], name: 'Exposed config.json with secrets', severity: 'high' },
+  { path: '/.htpasswd', signatures: [/^[^:\s]+:(\$(?:apr1|2y|1|6)\$|\{SHA\})/m], name: 'Exposed .htpasswd (password hashes)', severity: 'high' },
+  { path: '/.npmrc', signatures: [/(_authToken|_auth|_password)=/], name: 'Exposed .npmrc (registry token)', severity: 'high' },
+  { path: '/backup.sql', signatures: [/(CREATE TABLE|INSERT INTO|MySQL dump|PostgreSQL database dump)/i], name: 'Exposed SQL backup (backup.sql)', severity: 'high' },
+  { path: '/dump.sql', signatures: [/(CREATE TABLE|INSERT INTO|MySQL dump|PostgreSQL database dump)/i], name: 'Exposed SQL dump (dump.sql)', severity: 'high' },
+  { path: '/wp-config.php.bak', signatures: [/DB_PASSWORD|DB_NAME|DB_USER/], name: 'Exposed wp-config backup (DB credentials)', severity: 'critical' },
   { path: '/.DS_Store', signatures: [/Bud1|\x00\x00\x00/], name: 'Exposed .DS_Store (path leak)', severity: 'low' },
 ]
 
+// Catch-all / SPA guard: fetch a path that cannot legitimately exist and see if
+// the app answers 200 with HTML. Such a server returns 200 for EVERYTHING, so a
+// bare 200 (with no content signature) proves nothing — this lets the custom-path
+// check suppress those. Signature-gated checks above are already immune (HTML
+// never matches their signatures).
+async function detectCatchAll(baseUrl: string, ctx: Ctx): Promise<boolean> {
+  const bogus = `/${randomUUID()}/${randomUUID()}.txt`
+  const res = await fetchRaw(baseUrl + bogus, { headers: ctx.headers, signal: ctx.signal })
+  if (!res || res.status !== 200) return false
+  const ct = res.headers.get('content-type') ?? ''
+  return /text\/html/i.test(ct) || /<html|<!doctype html/i.test(res.body.slice(0, 512))
+}
+
 async function checkSensitiveFiles(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
   const out: ActiveFinding[] = []
+  const catchAll = await detectCatchAll(baseUrl, ctx)
+  const gitParts: GitPart[] = []
+  const gitFindings: ActiveFinding[] = []
+
   for (const f of SENSITIVE_FILES) {
-    if (ctx.signal?.aborted) return out
+    if (ctx.signal?.aborted) break
     const res = await fetchRaw(baseUrl + f.path, { headers: ctx.headers, signal: ctx.signal })
-    if (res && res.status === 200 && f.signatures.some((re) => re.test(res.body))) {
-      out.push({
-        category: 'A02',
-        name: f.name,
-        severity: f.severity,
-        url: baseUrl + f.path,
-        evidence: `HTTP 200 with matching content at ${f.path}`,
-        repro: { request: `GET ${baseUrl + f.path}`, responseStatus: res.status, bodyExcerpt: res.body.slice(0, 300).replace(/\s+/g, ' ') },
-      })
+    if (!(res && res.status === 200 && f.signatures.some((re) => re.test(res.body)))) continue
+    const finding: ActiveFinding = {
+      category: 'A02',
+      name: f.name,
+      severity: f.severity,
+      url: baseUrl + f.path,
+      evidence: `HTTP 200 with matching content at ${f.path}`,
+      repro: { request: `GET ${baseUrl + f.path}`, responseStatus: res.status, bodyExcerpt: res.body.slice(0, 300).replace(/\s+/g, ' ') },
+    }
+    if (f.git) {
+      gitParts.push(f.git)
+      gitFindings.push(finding)
+    } else {
+      out.push(finding)
     }
   }
-  // Operator-supplied custom paths — reported on any 200 (verify manually).
-  for (const p of ctx.customPaths) {
-    if (ctx.signal?.aborted) return out
-    const res = await fetchRaw(baseUrl + p, { headers: ctx.headers, signal: ctx.signal })
-    if (res && res.status === 200) {
-      out.push({
-        category: 'A02',
-        name: `Custom path returned 200: ${p}`,
-        severity: 'low',
-        url: baseUrl + p,
-        evidence: `Custom sensitive path ${p} responded 200 — verify`,
-        repro: { request: `GET ${baseUrl + p}`, responseStatus: res.status },
-      })
+
+  // .git triad: HEAD + config + index all valid ⇒ a fully dumpable repository
+  // (source, secrets, history). Collapse the three highs into one critical; a
+  // partial exposure keeps its individual finding(s).
+  if (gitTriadComplete(gitParts)) {
+    out.push({
+      category: 'A02',
+      name: 'Dumpable .git repository (HEAD + config + index)',
+      severity: 'critical',
+      url: baseUrl + '/.git/',
+      evidence: 'All of /.git/HEAD, /.git/config and /.git/index are exposed — the full repository (source + history + secrets) is downloadable',
+      repro: { request: `GET ${baseUrl}/.git/index`, responseStatus: 200 },
+    })
+  } else {
+    out.push(...gitFindings)
+  }
+
+  // Operator-supplied custom paths — reported on any 200 (verify manually), but
+  // suppressed under a catch-all server where a bare 200 is meaningless.
+  if (!catchAll) {
+    for (const p of ctx.customPaths) {
+      if (ctx.signal?.aborted) break
+      const res = await fetchRaw(baseUrl + p, { headers: ctx.headers, signal: ctx.signal })
+      if (res && res.status === 200) {
+        out.push({
+          category: 'A02',
+          name: `Custom path returned 200: ${p}`,
+          severity: 'low',
+          url: baseUrl + p,
+          evidence: `Custom sensitive path ${p} responded 200 — verify`,
+          repro: { request: `GET ${baseUrl + p}`, responseStatus: res.status },
+        })
+      }
     }
   }
   return out
