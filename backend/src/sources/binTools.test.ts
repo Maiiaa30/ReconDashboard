@@ -19,6 +19,7 @@ import {
   runSqlmap,
   runWpEnum,
   runBypass403,
+  sameAsDenied,
 } from './binTools'
 
 const mockRun = vi.mocked(run)
@@ -264,5 +265,30 @@ describe('runBypass403', () => {
     })
     const f = await runBypass403('https', 'a.com')
     expect(f?.title).toMatch(/on 5 protected path\(s\)/)
+  })
+
+  it('does NOT flag a soft-403 (200 with the same denial body)', async () => {
+    const denial = '<html><body>Access Denied — you are not authorized</body></html>'
+    mockFetch.mockImplementation(async (url, opts) => {
+      if (url === `${base}/admin` && !opts?.headers && !opts?.method) return { status: 403, body: denial, finalUrl: url }
+      // A "bypass" that returns 200 but the SAME denial page — not a real bypass.
+      if (url === `${base}/admin` && opts?.headers?.['X-Forwarded-For'] === '127.0.0.1') return { status: 200, body: denial, finalUrl: url }
+      return null
+    })
+    expect(await runBypass403('https', 'a.com')).toBeNull()
+  })
+})
+
+describe('sameAsDenied', () => {
+  it('treats near-identical bodies as the same denial page', () => {
+    const denial = 'x'.repeat(1000)
+    expect(sameAsDenied(denial, denial)).toBe(true)
+    expect(sameAsDenied('x'.repeat(1020), denial)).toBe(true) // within 5%
+  })
+  it('treats a substantially different body as a real bypass', () => {
+    expect(sameAsDenied('x'.repeat(5000), 'x'.repeat(1000))).toBe(false)
+  })
+  it('never matches against an empty denial body', () => {
+    expect(sameAsDenied('anything', '')).toBe(false)
   })
 })

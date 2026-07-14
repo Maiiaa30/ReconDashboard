@@ -256,15 +256,50 @@ const IP_SPOOF_HEADERS = [
   'X-Forwarded-For', 'X-Forwarded-Host', 'X-Originating-IP', 'X-Remote-IP',
   'X-Client-IP', 'X-Host', 'X-Custom-IP-Authorization', 'X-Real-IP',
 ]
+// Headers that ask an upstream proxy/gateway to route to a different path — a
+// classic control-vs-origin authorization gap.
+const ROUTING_HEADERS = ['X-Original-URL', 'X-Rewrite-URL', 'X-Override-URL', 'X-Forwarded-Path']
 const BYPASS_METHODS = ['POST', 'HEAD', 'OPTIONS', 'PUT', 'TRACE']
 const MAX_FORBIDDEN = 5 // cap how many protected paths we exhaustively retry
 const BYPASS_TIMEOUT = 8_000
+// Operator-supplied paths must match a strict charset (audit AUDIT-2026-07): the
+// path is interpolated into the request URL, so free-text could smuggle a host or
+// a scheme. Encoding-bypass tricks are added by US afterwards, not accepted raw.
+const OPERATOR_PATH_RE = /^\/[A-Za-z0-9._~%\-/?#&=]{0,300}$/
 
-function pathMutations(p: string): string[] {
+// Categorised path mutations, each labelled with its technique so a hit names the
+// exact trick that worked.
+function pathMutations(p: string): { path: string; technique: string }[] {
   return [
-    `${p}/`, `${p}/.`, `/.${p}`, `//${p}//`, `${p}%20`, `${p}%09`,
-    `${p}?`, `${p}#`, `${p}/..;/`, `${p};/`, `${p}.json`, p.toUpperCase(),
+    { path: `${p}/`, technique: 'append: trailing slash' },
+    { path: `${p}/.`, technique: 'append: /.' },
+    { path: `/.${p}`, technique: 'prepend: /.' },
+    { path: `//${p}//`, technique: 'append: double slash' },
+    { path: `${p}%20`, technique: 'encoding: %20' },
+    { path: `${p}%09`, technique: 'encoding: %09 (tab)' },
+    { path: `${p}%2e`, technique: 'encoding: %2e' },
+    { path: `${p}?`, technique: 'append: ?' },
+    { path: `${p}#`, technique: 'append: #' },
+    { path: `${p}/..;/`, technique: 'traversal: /..;/' },
+    { path: `${p}..;/`, technique: 'traversal: ..;/' },
+    { path: `${p};/`, technique: 'append: ;/ (matrix param)' },
+    { path: `${p}/./`, technique: 'traversal: /./' },
+    { path: `${p.replace(/\//g, '%2f')}`, technique: 'encoding: %2f slashes' },
+    { path: `${p.replace(/\//g, '%252f')}`, technique: 'encoding: %252f (double)' },
+    { path: `${p}.json`, technique: 'append: .json' },
+    { path: p.toUpperCase(), technique: 'case: uppercase' },
   ]
+}
+
+// A bypass "worked" only if the 2xx body genuinely DIFFERS from the plain 401/403
+// denial body — a soft-403 returns 200 with the same denied content, which must
+// not be flagged. Match on length within 5% (plus a small floor for tiny bodies).
+export function sameAsDenied(bypassBody: string, deniedBody: string): boolean {
+  if (!deniedBody) return false
+  const a = bypassBody.length
+  const b = deniedBody.length
+  const m = Math.max(a, b, 1)
+  return Math.abs(a - b) / m <= 0.05
 }
 
 export async function runBypass403(
@@ -276,42 +311,54 @@ export async function runBypass403(
   await assertPublicHost(host)
   const base = `${scheme}://${host}`
 
-  // Candidate paths: an explicit list (e.g. a 403 hit sent over from Fuzzing) or
-  // the built-in list of commonly-protected paths.
-  const candidates = paths && paths.length ? paths.map((p) => (p.startsWith('/') ? p : `/${p}`)) : BYPASS_PATHS
+  // Candidate paths: an explicit list (e.g. a 403 hit sent over from Fuzzing,
+  // charset-guarded) or the built-in list of commonly-protected paths.
+  const candidates =
+    paths && paths.length
+      ? paths.map((p) => (p.startsWith('/') ? p : `/${p}`)).filter((p) => OPERATOR_PATH_RE.test(p))
+      : BYPASS_PATHS
 
-  // 1. Find protected paths (plain GET returns 401/403).
-  const forbidden: string[] = []
+  // 1. Find protected paths (plain GET returns 401/403) — and CAPTURE the denial
+  //    body so a soft-403 (200 with the same body) can't be mistaken for a bypass.
+  const forbidden: { path: string; deniedBody: string }[] = []
   for (const p of candidates) {
     if (signal?.aborted) break
     const res = await guardedFetch(`${base}${p}`, { timeoutMs: BYPASS_TIMEOUT, signal })
-    if (res && (res.status === 401 || res.status === 403)) forbidden.push(p)
+    if (res && (res.status === 401 || res.status === 403)) forbidden.push({ path: p, deniedBody: res.body })
     if (forbidden.length >= MAX_FORBIDDEN) break
   }
   // When the operator hand-picked a path (from Fuzzing), try to bypass it even if
-  // the re-check didn't reproduce the 401/403 (transient WAF/rate-limit), so the
-  // button always does something useful.
+  // the re-check didn't reproduce the 401/403 (transient WAF/rate-limit). Capture
+  // whatever body the plain GET returns as the denial baseline for the diff.
   if (!forbidden.length) {
-    if (paths && paths.length) forbidden.push(...candidates.slice(0, MAX_FORBIDDEN))
-    else return null
+    if (paths && paths.length) {
+      for (const p of candidates.slice(0, MAX_FORBIDDEN)) {
+        const res = await guardedFetch(`${base}${p}`, { timeoutMs: BYPASS_TIMEOUT, signal })
+        forbidden.push({ path: p, deniedBody: res?.body ?? '' })
+      }
+    } else {
+      return null
+    }
   }
 
-  // 2. For each, try the bypass battery; a 2xx means access was granted.
+  // 2. For each, run the categorised bypass battery; a 2xx whose body differs from
+  //    the denial body means access was actually granted.
   const hits: string[] = []
-  for (const p of forbidden) {
+  for (const { path: p, deniedBody } of forbidden) {
     if (signal?.aborted) break
-    const attempts: { url: string; method?: string; headers?: Record<string, string>; label: string }[] = [
-      ...IP_SPOOF_HEADERS.map((h) => ({ url: `${base}${p}`, headers: { [h]: '127.0.0.1' }, label: `header ${h}: 127.0.0.1` })),
-      { url: `${base}/`, headers: { 'X-Original-URL': p }, label: `header X-Original-URL: ${p}` },
-      { url: `${base}/`, headers: { 'X-Rewrite-URL': p }, label: `header X-Rewrite-URL: ${p}` },
-      ...pathMutations(p).map((mp) => ({ url: `${base}${mp}`, label: `path ${mp}` })),
-      ...BYPASS_METHODS.map((m) => ({ url: `${base}${p}`, method: m, label: `method ${m}` })),
+    const attempts: { url: string; method?: string; headers?: Record<string, string>; technique: string }[] = [
+      ...IP_SPOOF_HEADERS.map((h) => ({ url: `${base}${p}`, headers: { [h]: '127.0.0.1' }, technique: `header ${h}: 127.0.0.1` })),
+      ...ROUTING_HEADERS.map((h) => ({ url: `${base}/`, headers: { [h]: p }, technique: `routing header ${h}: ${p}` })),
+      ...pathMutations(p).map((m) => ({ url: `${base}${m.path}`, technique: m.technique })),
+      ...BYPASS_METHODS.map((m) => ({ url: `${base}${p}`, method: m, technique: `verb tampering: ${m}` })),
+      // method-override: ask the app to treat a GET as another verb via the header.
+      { url: `${base}${p}`, headers: { 'X-HTTP-Method-Override': 'GET' }, technique: 'method-override: X-HTTP-Method-Override GET' },
     ]
     for (const a of attempts) {
       if (signal?.aborted) break
       const res = await guardedFetch(a.url, { timeoutMs: BYPASS_TIMEOUT, headers: a.headers, method: a.method, signal })
-      if (res && res.status >= 200 && res.status < 300) {
-        hits.push(`${p} → ${res.status} via ${a.label}`)
+      if (res && res.status >= 200 && res.status < 300 && !sameAsDenied(res.body, deniedBody)) {
+        hits.push(`${p} → ${res.status} via ${a.technique}`)
       }
     }
   }
@@ -322,7 +369,7 @@ export async function runBypass403(
     target: host,
     severity: 'high',
     title: `403/401 bypass — ${hits.length} on ${forbidden.length} protected path(s)`,
-    detail: 'A restricted path returned 2xx after an access-control bypass trick',
+    detail: 'A restricted path returned 2xx (with content differing from the denial page) after an access-control bypass trick',
     items: hits.slice(0, MAX_ITEMS),
   }
 }
