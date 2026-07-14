@@ -1,9 +1,9 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   AlertTriangle, Bell, Flag, Radar, Search, Sparkles, Globe, ShieldAlert, Bug, ArrowRight,
-  type LucideIcon,
+  CalendarClock, Clock, LogIn, type LucideIcon,
 } from 'lucide-react'
-import { api, type DomainOverview, type HomeFinding, type RecentChange } from '../api'
+import { api, type DomainOverview, type HomeFinding, type RecentChange, type TodayData } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
@@ -20,6 +20,17 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
   const [overview, setOverview] = useState<DomainOverview[]>([])
   const [top, setTop] = useState<HomeFinding[]>([])
   const [changes, setChanges] = useState<RecentChange[]>([])
+  const [today, setToday] = useState<TodayData | null>(null)
+
+  // Fetch "Today" exactly once per mount — the endpoint advances the server-side
+  // last-viewed marker, so it must NOT be on the poll (the ref survives a
+  // StrictMode double-invoke in dev).
+  const todayFetched = useRef(false)
+  useEffect(() => {
+    if (todayFetched.current) return
+    todayFetched.current = true
+    api.today().then(setToday).catch(() => {})
+  }, [])
 
   const load = useCallback(() => {
     api.home().then((r) => {
@@ -75,6 +86,8 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
   return (
     <div>
       <Hero count={overview.length} lastActivity={lastActivity} navigate={navigate} />
+
+      <TodayPanel today={today} navigate={navigate} />
 
       {/* Headline stats — the dashboard "vitals" */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -199,6 +212,131 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
             ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+// "Today" — the ranked "what changed / got riskier since you last looked" panel.
+// One row per item across four signals, each deep-linking to the right page.
+function TodayPanel({ today, navigate }: { today: TodayData | null; navigate: (page: string, domainId?: number) => void }) {
+  if (!today) return null // still loading — don't flash an empty state
+  const { findings, cves, subdomains, expiring } = today
+  const total = findings.length + cves.length + subdomains.length + expiring.length
+
+  const Row = ({ onClick, badge, label, right }: { onClick: () => void; badge: ReactNode; label: ReactNode; right?: ReactNode }) => (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-3 rounded-lg border border-hair bg-ink-900/50 px-3 py-1.5 text-left text-sm transition hover:border-hair-strong hover:bg-ink-850"
+    >
+      {badge}
+      <span className="min-w-0 flex-1 truncate font-mono text-zinc-200">{label}</span>
+      {right != null && <span className="shrink-0 font-mono text-xs text-zinc-500">{right}</span>}
+    </button>
+  )
+  const scoreBadge = (score: number | null) => (
+    <span className={`flex h-7 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold ring-1 ${RISK_SCORE[riskFromScore(score)]}`}>
+      {score ?? '—'}
+    </span>
+  )
+
+  return (
+    <Card className="mb-6 border-accent-500/30 bg-accent-500/[0.05]">
+      <div className="mb-3 flex items-center gap-2">
+        <CalendarClock size={16} className="text-accent-fg" />
+        <h2 className="text-sm font-semibold text-zinc-100">Today — what changed since your last visit</h2>
+        <span className="ml-auto text-xs text-zinc-500">since {timeAgo(new Date(today.since).getTime())}</span>
+      </div>
+
+      {total === 0 ? (
+        <p className="text-sm text-zinc-500">Nothing new since your last visit.</p>
+      ) : (
+        <div className="space-y-3">
+          {findings.length > 0 && (
+            <TodayGroup icon={Flag} tone="amber" title={`${findings.length} new high-risk finding${findings.length > 1 ? 's' : ''}`}>
+              {findings.map((f) => (
+                <Row
+                  key={f.id}
+                  onClick={() => navigate('findings', f.domainId ?? undefined)}
+                  badge={scoreBadge(f.score)}
+                  label={summarizeFinding(f.type, f.data)}
+                  right={f.host ?? undefined}
+                />
+              ))}
+            </TodayGroup>
+          )}
+          {cves.length > 0 && (
+            <TodayGroup icon={Bug} tone="red" title={`${cves.length} new CVE${cves.length > 1 ? 's' : ''} on known assets`}>
+              {cves.map((c) => (
+                <Row
+                  key={c.id}
+                  onClick={() => navigate('findings', c.domainId ?? undefined)}
+                  badge={scoreBadge(c.score)}
+                  label={
+                    <>
+                      {c.data?.cveId ?? 'CVE'}
+                      {c.data?.kev ? <Badge tone="red">KEV</Badge> : null} on {c.data?.host ?? c.data?.ip ?? c.host ?? '?'}
+                    </>
+                  }
+                  right={c.host ?? undefined}
+                />
+              ))}
+            </TodayGroup>
+          )}
+          {subdomains.length > 0 && (
+            <TodayGroup icon={Sparkles} tone="blue" title={`${subdomains.length} new subdomain${subdomains.length > 1 ? 's' : ''}`}>
+              {subdomains.map((s) => (
+                <Row
+                  key={s.id}
+                  onClick={() => navigate('subdomains', s.domainId)}
+                  badge={
+                    <span className="flex h-7 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold ring-1 ring-blue-800/40 text-blue-300">
+                      {s.httpStatus ?? '—'}
+                    </span>
+                  }
+                  label={
+                    <>
+                      {s.host}
+                      {s.loginHint ? (
+                        <Badge tone="amber">
+                          <LogIn size={11} className="mr-0.5 inline" />
+                          login
+                        </Badge>
+                      ) : null}
+                    </>
+                  }
+                  right={s.domainHost ?? undefined}
+                />
+              ))}
+            </TodayGroup>
+          )}
+          {expiring.length > 0 && (
+            <TodayGroup icon={Clock} tone="red" title={`${expiring.length} authorization window${expiring.length > 1 ? 's' : ''} expiring soon`}>
+              {expiring.map((e) => (
+                <Row
+                  key={e.id}
+                  onClick={() => navigate('domains', e.id)}
+                  badge={<Clock size={15} className="shrink-0 text-red-400" />}
+                  label={e.host}
+                  right={e.daysLeft != null ? `${e.daysLeft}d left` : undefined}
+                />
+              ))}
+            </TodayGroup>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function TodayGroup({ icon: Icon, tone, title, children }: { icon: LucideIcon; tone: 'amber' | 'red' | 'blue'; title: string; children: ReactNode }) {
+  const chip = { amber: 'text-amber-400', red: 'text-red-400', blue: 'text-blue-400' }[tone]
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-1.5">
+        <Icon size={13} className={chip} />
+        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">{title}</span>
+      </div>
+      <div className="space-y-1">{children}</div>
     </div>
   )
 }

@@ -24,6 +24,9 @@ export const users = sqliteTable('users', {
   // Persisted per-operator UI state so the selected target follows the account
   // across browsers/devices (not just this browser's localStorage).
   selectedDomainId: integer('selected_domain_id'),
+  // When the operator last opened Home. The "Today" panel diffs new/risky items
+  // against this (fallback: last 7 days when null).
+  lastDashboardViewedAt: integer('last_dashboard_viewed_at', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
 })
@@ -100,6 +103,9 @@ export const subdomains = sqliteTable(
     title: text('title'),
     server: text('server'),
     scheme: text('scheme'),
+    // The HTTP probe saw a login form / auth wording — a high-value new host to
+    // surface first in the "Today" panel.
+    loginHint: integer('login_hint', { mode: 'boolean' }).notNull().default(false),
     probedAt: integer('probed_at', { mode: 'timestamp_ms' }),
     screenshotPath: text('screenshot_path'),
     screenshotAt: integer('screenshot_at', { mode: 'timestamp_ms' }),

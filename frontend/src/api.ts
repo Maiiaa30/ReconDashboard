@@ -440,6 +440,16 @@ export interface RecentChange {
   createdAt: string
 }
 
+// "Today" panel — what's new/risky since the operator's last Home visit.
+export interface TodayData {
+  since: string
+  counts: { findings: number; cves: number; subdomains: number; expiring: number }
+  findings: { id: number; domainId: number | null; host: string | null; type: string; data: any; score: number | null; createdAt: string }[]
+  cves: { id: number; domainId: number | null; host: string | null; data: any; score: number | null; createdAt: string }[]
+  subdomains: { id: number; domainId: number; domainHost: string | null; host: string; httpStatus: number | null; title: string | null; scheme: string | null; loginHint: boolean; firstSeen: string }[]
+  expiring: { id: number; host: string; authorizedUntil: string | null; daysLeft: number | null }[]
+}
+
 // --- API surface -------------------------------------------------------------
 
 export const api = {
@@ -460,6 +470,9 @@ export const api = {
 
   // engagement home (cross-target overview + top open findings + recent changes)
   home: () => get<{ overview: DomainOverview[]; topFindings: HomeFinding[]; recentChanges: RecentChange[] }>('/home'),
+  // "Today" — new/risky since last visit. Fetching also advances the last-viewed
+  // marker server-side, so call it once per Home mount (not on the poll).
+  today: () => get<TodayData>('/home/today'),
 
   // meta
   meta: () => get<MetaStatus>('/meta/status'),

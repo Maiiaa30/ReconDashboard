@@ -148,6 +148,13 @@
       "when": 1784059142296,
       "tag": "0020_motionless_beast",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1784062662928,
+      "tag": "0021_striped_leader",
+      "breakpoints": true
     }
   ]
 }

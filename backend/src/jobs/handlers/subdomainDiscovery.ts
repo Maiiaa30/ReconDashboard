@@ -94,6 +94,7 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
       title: p?.title ?? null,
       server: p?.server ?? null,
       scheme: p?.scheme ?? null,
+      loginHint: p?.loginHint ?? false,
     })
   })
 
