@@ -5,6 +5,7 @@ import { assertDomainActive, assertHostInScope, assertScanAllowed, ScanPolicyErr
 import { sendRawRequest, ReplayError, type ReplayRequest } from '../replay/send'
 import { expandPayloads, MAX_PAYLOADS, PAYLOAD_MARKER } from '../replay/intruder'
 import { insertReplayHistory, listReplayHistory, getReplayHistory, clearReplayHistory } from '../replay/history'
+import { buildSitemap } from '../replay/sitemap'
 import { enqueueJob } from '../jobs/queue'
 import { SsrfBlockedError } from '../sources/guard'
 import { actorName, writeAudit } from '../audit/store'
@@ -241,5 +242,14 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
     const cleared = clearReplayHistory(domainId)
     writeAudit({ actor: actorName(request.session.userId), action: 'replay:history:clear', domainId, detail: { cleared } })
     return { cleared }
+  })
+
+  // Workbench sitemap: an endpoint tree for the target from already-stored data
+  // (captured requests + ffuf hits + the discovered URL corpus). No new requests.
+  app.get<{ Querystring: { domainId?: string } }>('/api/replay/sitemap', async (request, reply) => {
+    const domainId = Number(request.query.domainId)
+    if (!Number.isFinite(domainId)) return reply.code(400).send({ error: 'domainId required' })
+    if (!getDomain(domainId)) return reply.code(404).send({ error: 'domain not found' })
+    return { hosts: buildSitemap(domainId) }
   })
 }

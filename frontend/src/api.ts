@@ -259,6 +259,19 @@ export interface Wordlist {
   category?: 'payload' | 'content'
 }
 
+export interface SitemapEndpoint {
+  path: string
+  method: string
+  status: number | null
+  source: 'captured' | 'fuzzed' | 'discovered'
+  url: string
+}
+export interface SitemapHost {
+  host: string
+  count: number
+  endpoints: SitemapEndpoint[]
+}
+
 export interface AttackPath {
   ip: string
   cdn: string | null
@@ -642,6 +655,8 @@ export const api = {
   snapshotUrl: (id: number, format: 'html' | 'md') => `/api/report/snapshots/${id}?format=${format}`,
   // Chromium-rendered PDF of a frozen snapshot.
   reportPdfUrl: (id: number) => `/api/export/report/${id}.pdf`,
+  // Workbench sitemap (endpoint tree from captured + discovered data).
+  sitemap: (domainId: number) => get<{ hosts: SitemapHost[] }>(`/replay/sitemap?domainId=${domainId}`),
   bulkUpdateFindings: (ids: number[], patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ changed: number }>('/findings/bulk', { ids, ...patchBody }),
 
