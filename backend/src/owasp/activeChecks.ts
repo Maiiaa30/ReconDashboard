@@ -1,4 +1,5 @@
 import { resolveDns } from '../sources/dns'
+import { guardedFetchRaw } from '../sources/guard'
 import { isInternalIp } from '../util/validate'
 
 // Direct, HTTP-based OWASP active checks — the engine that makes the OWASP tab
@@ -72,44 +73,24 @@ interface RawResponse {
   body: string
 }
 
+// All target requests go through the one guarded client (guardedFetchRaw), which
+// re-runs the SSRF check on every hop. `follow` controls redirect handling:
+// checks that INSPECT a Location header (open redirect) pass follow=false and get
+// the 30x response verbatim; checks that need the final page pass follow=true and
+// the redirect is followed under the per-hop guard. No raw fetch() here — the
+// lint rule enforces that so this guard can't be silently dropped again.
 async function fetchRaw(
   url: string,
-  opts: { method?: string; headers?: Record<string, string>; redirect?: 'follow' | 'manual' | 'error' } = {},
+  opts: { method?: string; headers?: Record<string, string>; follow?: boolean } = {},
 ): Promise<RawResponse | null> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
-  try {
-    const res = await fetch(url, {
-      method: opts.method ?? 'GET',
-      redirect: opts.redirect ?? 'manual',
-      signal: controller.signal,
-      headers: { 'User-Agent': UA, ...(opts.headers ?? {}) },
-    })
-    let body = ''
-    if (res.body) {
-      const reader = res.body.getReader()
-      const chunks: Uint8Array[] = []
-      let total = 0
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        if (value) {
-          chunks.push(value)
-          total += value.byteLength
-          if (total >= MAX_BODY) {
-            await reader.cancel()
-            break
-          }
-        }
-      }
-      body = Buffer.concat(chunks).toString('utf8')
-    }
-    return { status: res.status, headers: res.headers, body }
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timer)
-  }
+  const res = await guardedFetchRaw(url, {
+    method: opts.method ?? 'GET',
+    headers: { 'User-Agent': UA, ...(opts.headers ?? {}) },
+    timeoutMs: TIMEOUT_MS,
+    maxBytes: MAX_BODY,
+    follow: opts.follow ?? false,
+  })
+  return res ? { status: res.status, headers: res.headers, body: res.body } : null
 }
 
 // --- individual checks -------------------------------------------------------
@@ -188,7 +169,7 @@ async function checkReflectedXss(baseUrl: string, ctx: Ctx): Promise<ActiveFindi
   //    target uses (discovered + defaults + custom).
   for (const param of ctx.xssParams) {
     const url = `${baseUrl}?${param}=${encodeURIComponent(DEFAULT_XSS.inject)}`
-    const res = await fetchRaw(url, { redirect: 'follow', headers: ctx.headers })
+    const res = await fetchRaw(url, { follow: true, headers: ctx.headers })
     if (res && res.body.includes(DEFAULT_XSS.needle)) {
       out.push({
         category: 'A03',
@@ -204,7 +185,7 @@ async function checkReflectedXss(baseUrl: string, ctx: Ctx): Promise<ActiveFindi
   // 2) Custom payloads (operator's bypass attempts) reflected on a common param.
   for (const p of ctx.xssPayloads) {
     const url = `${baseUrl}?q=${encodeURIComponent(p)}`
-    const res = await fetchRaw(url, { redirect: 'follow', headers: ctx.headers })
+    const res = await fetchRaw(url, { follow: true, headers: ctx.headers })
     if (res && res.body.includes(p)) {
       out.push({
         category: 'A03',
@@ -225,7 +206,8 @@ async function checkOpenRedirect(baseUrl: string, ctx: Ctx): Promise<ActiveFindi
   const evil = 'https://example.org/owasp-redirect-probe'
   for (const param of ctx.redirectParams) {
     const url = `${baseUrl}?${param}=${encodeURIComponent(evil)}`
-    const res = await fetchRaw(url, { redirect: 'manual', headers: ctx.headers })
+    // follow:false — we INSPECT the Location header, we do not chase it.
+    const res = await fetchRaw(url, { headers: ctx.headers })
     if (res && res.status >= 300 && res.status < 400) {
       const loc = res.headers.get('location') ?? ''
       if (/^https?:\/\/(www\.)?example\.org/i.test(loc) || loc.startsWith('//example.org')) {
@@ -323,7 +305,7 @@ export async function runActiveChecks(
   const allIps = [...(dns?.a ?? []), ...(dns?.aaaa ?? [])]
   if (allIps.some(isInternalIp)) return { findings: [], reachable: false, targetedParams: 0 }
 
-  const base = await fetchRaw(baseUrl, { redirect: 'follow', headers })
+  const base = await fetchRaw(baseUrl, { follow: true, headers })
   if (!base) return { findings: [], reachable: false, targetedParams: 0 }
 
   const findings: ActiveFinding[] = [...checkSecurityHeaders(base, baseUrl)]

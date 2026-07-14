@@ -60,6 +60,107 @@ export interface GuardedResponse {
   finalUrl: string
 }
 
+export interface GuardedRawResponse {
+  status: number
+  headers: Headers
+  body: string
+  finalUrl: string
+}
+
+// Read a response body into a string, capped at maxBytes so a hostile target
+// can't stream an unbounded (or decompression-bombed) body into memory.
+async function readCapped(res: Response, maxBytes: number): Promise<string> {
+  if (!res.body) return ''
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (value) {
+      chunks.push(value)
+      total += value.byteLength
+      if (total >= maxBytes) {
+        await reader.cancel()
+        break
+      }
+    }
+  }
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+/**
+ * Like guardedFetch, but exposes the full response Headers (and a size-capped,
+ * streamed body) — for callers that must inspect headers/cookies (fingerprint,
+ * OWASP active checks). Same per-hop SSRF discipline: every URL, including each
+ * followed redirect, passes assertPublicHost first.
+ *
+ * `follow` controls redirect handling: `true` follows 30x manually, guarding
+ * each hop; `false` (default) returns the first response as-is — so a caller
+ * that INSPECTS a Location header (open-redirect check) still sees it without
+ * the tool ever fetching the redirect target. Returns null on any failure or an
+ * SSRF-blocked hop.
+ */
+export async function guardedFetchRaw(
+  url: string,
+  opts: {
+    method?: string
+    headers?: Record<string, string>
+    timeoutMs?: number
+    maxBytes?: number
+    maxRedirects?: number
+    follow?: boolean
+    body?: string
+    signal?: AbortSignal
+  } = {},
+): Promise<GuardedRawResponse | null> {
+  const timeoutMs = opts.timeoutMs ?? 9_000
+  const maxBytes = opts.maxBytes ?? 256 * 1024
+  const maxRedirects = opts.follow ? (opts.maxRedirects ?? 5) : 0
+  let current = url
+
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    if (opts.signal?.aborted) return null
+    let u: URL
+    try {
+      u = new URL(current)
+    } catch {
+      return null
+    }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    try {
+      await assertPublicHost(u.hostname)
+    } catch {
+      return null // SSRF-blocked hop
+    }
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const res = await fetch(current, {
+        method: opts.method,
+        body: opts.body,
+        redirect: 'manual',
+        signal: opts.signal ? AbortSignal.any([controller.signal, opts.signal]) : controller.signal,
+        headers: { 'User-Agent': 'recon-dashboard/0.1', ...opts.headers },
+      })
+      // Follow (guarded) only when asked AND there's a Location to follow.
+      if (opts.follow && res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+        if (res.body) await res.body.cancel().catch(() => {})
+        current = new URL(res.headers.get('location')!, current).toString()
+        continue
+      }
+      const body = await readCapped(res, maxBytes)
+      return { status: res.status, headers: res.headers, body, finalUrl: current }
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  return null // too many redirects
+}
+
 /**
  * fetch() that re-resolves and SSRF-guards the host on EVERY redirect hop.
  * Node's redirect:'follow' would happily follow a public host's 30x into an

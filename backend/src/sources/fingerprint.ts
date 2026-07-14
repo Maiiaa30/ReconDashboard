@@ -1,4 +1,5 @@
 import { resolveDns } from './dns'
+import { guardedFetchRaw } from './guard'
 import { isInternalIp } from '../util/validate'
 
 // Passive technology fingerprint: one GET to the host, then map response
@@ -128,51 +129,28 @@ async function fetchOnce(url: string): Promise<{
   cookieNames: string[]
   html: string
 } | null> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
-  try {
-    const res = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow',
-      signal: controller.signal,
-      headers: { 'User-Agent': 'recon-dashboard/0.1 (+passive fingerprint)' },
-    })
-    const headers: Record<string, string> = {}
-    for (const name of INTERESTING_HEADERS) {
-      const v = res.headers.get(name)
-      if (v) headers[name] = v
-    }
-    const setCookies = res.headers.getSetCookie?.() ?? []
-    const cookieNames = setCookies.map((c) => c.split('=')[0].trim()).filter(Boolean)
+  // Guarded fetch that re-checks every redirect hop — a target can 30x this
+  // passive probe into an internal address, and Node's redirect:'follow' would
+  // chase it without re-validating.
+  const res = await guardedFetchRaw(url, {
+    method: 'GET',
+    follow: true,
+    timeoutMs: TIMEOUT_MS,
+    maxBytes: MAX_HTML,
+    headers: { 'User-Agent': 'recon-dashboard/0.1 (+passive fingerprint)' },
+  })
+  if (!res) return null
 
-    let html = ''
-    const ct = res.headers.get('content-type') ?? ''
-    if (ct.includes('html') && res.body) {
-      const reader = res.body.getReader()
-      const chunks: Uint8Array[] = []
-      let total = 0
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        if (value) {
-          chunks.push(value)
-          total += value.byteLength
-          if (total >= MAX_HTML) {
-            await reader.cancel()
-            break
-          }
-        }
-      }
-      html = Buffer.concat(chunks).toString('utf8')
-    } else if (res.body) {
-      await res.body.cancel().catch(() => {})
-    }
-    return { status: res.status, headers, cookieNames, html }
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timer)
+  const headers: Record<string, string> = {}
+  for (const name of INTERESTING_HEADERS) {
+    const v = res.headers.get(name)
+    if (v) headers[name] = v
   }
+  const setCookies = res.headers.getSetCookie?.() ?? []
+  const cookieNames = setCookies.map((c) => c.split('=')[0].trim()).filter(Boolean)
+  const ct = res.headers.get('content-type') ?? ''
+  const html = ct.includes('html') ? res.body : ''
+  return { status: res.status, headers, cookieNames, html }
 }
 
 export async function fingerprintHost(host: string, cpes: string[] = []): Promise<Fingerprint> {
@@ -181,10 +159,11 @@ export async function fingerprintHost(host: string, cpes: string[] = []): Promis
     cdn: null, technologies: [], headers: {},
   }
 
-  // SSRF defense: refuse a host that resolves to an internal address.
+  // SSRF defense: refuse if ANY resolved address (all A + AAAA, not just the
+  // first A) is internal. guardedFetchRaw re-checks each redirect hop too.
   const dns = await resolveDns(host).catch(() => null)
-  const ip = dns?.a[0] ?? null
-  if (ip && isInternalIp(ip)) return empty
+  const allIps = [...(dns?.a ?? []), ...(dns?.aaaa ?? [])]
+  if (allIps.some(isInternalIp)) return empty
 
   for (const scheme of ['https', 'http'] as const) {
     const res = await fetchOnce(`${scheme}://${host}`)
