@@ -155,6 +155,13 @@
       "when": 1784062662928,
       "tag": "0021_striped_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1784069362630,
+      "tag": "0022_slim_lester",
+      "breakpoints": true
     }
   ]
 }
