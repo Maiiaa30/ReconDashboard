@@ -518,8 +518,10 @@ export const api = {
   // origin discovery (WAF/CDN bypass)
   findOrigin: (id: number) => post<{ jobId: number }>(`/domains/${id}/origin`),
 
-  // passive API-surface discovery (OpenAPI/Swagger + GraphQL)
-  apiDiscovery: (id: number) => post<{ jobId: number }>(`/domains/${id}/api-discovery`),
+  // passive API-surface discovery (OpenAPI/Swagger + GraphQL). Optional host
+  // restricts the scan to one apex/subdomain; omitted = apex + all live subs.
+  apiDiscovery: (id: number, host?: string) =>
+    post<{ jobId: number }>(`/domains/${id}/api-discovery`, host ? { host } : undefined),
 
   // domain breach/leak exposure (needs a configured provider; passive lookup)
   leaks: (id: number) => get<LeaksResponse>(`/domains/${id}/leaks`),

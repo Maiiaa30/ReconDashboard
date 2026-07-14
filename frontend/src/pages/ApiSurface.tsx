@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Braces, Webhook, KeyRound, ShieldAlert, ChevronRight, Code, AlertTriangle, Route, Crosshair } from 'lucide-react'
-import { api, ApiError, type Finding } from '../api'
+import { api, ApiError, type Finding, type Subdomain } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
 import { useToast } from '../components/Toast'
@@ -110,6 +110,21 @@ export function ApiSurface({ navigate }: { navigate: (page: string, domainId?: n
     setPendingReplay(r)
     navigate('replay')
   }
+
+  // Optional single-host target for discovery ('' = apex + all live subdomains).
+  const [subs, setSubs] = useState<Subdomain[]>([])
+  const [scanHost, setScanHost] = useState('')
+  useEffect(() => {
+    setScanHost('')
+    if (!selected) {
+      setSubs([])
+      return
+    }
+    api
+      .subdomains(selected.id)
+      .then((r) => setSubs(r.subdomains))
+      .catch(() => {})
+  }, [selected?.id])
   const [findings, setFindings] = useState<Finding[]>([])
   const [crawlFindings, setCrawlFindings] = useState<Finding[]>([])
   const [ffufFindings, setFfufFindings] = useState<Finding[]>([])
@@ -117,6 +132,26 @@ export function ApiSurface({ navigate }: { navigate: (page: string, domainId?: n
   const [busy, setBusy] = useState(false)
   const [crawlBusy, setCrawlBusy] = useState(false)
   const [fuzzBusy, setFuzzBusy] = useState(false)
+  const hostOptions = useMemo(() => {
+    if (!selected) return []
+    const base = selected.host.toLowerCase()
+    const inScope = (h: string) => h === base || h.endsWith('.' + base)
+    const extra = new Set<string>()
+    // Live discovered subdomains.
+    for (const s of subs) if (s.httpStatus != null && s.host !== selected.host) extra.add(s.host)
+    // API-base hosts the app itself declares in its exposed config (e.g.
+    // VITE_PUBLIC_*_API_BASE=https://api.target.com) — often where the real API
+    // lives, and frequently NOT in the subdomain list, so surface them here too.
+    for (const f of findings) {
+      const d = f.data as { kind?: string; env?: { value: string | null }[] }
+      if (d?.kind !== 'js' || !Array.isArray(d.env)) continue
+      for (const e of d.env) {
+        const m = typeof e?.value === 'string' ? e.value.match(/^https?:\/\/([a-z0-9.-]+)/i) : null
+        if (m && inScope(m[1].toLowerCase()) && m[1].toLowerCase() !== base) extra.add(m[1].toLowerCase())
+      }
+    }
+    return [selected.host, ...[...extra].sort()]
+  }, [selected, subs, findings])
 
   usePoll(
     () => {
@@ -210,8 +245,8 @@ export function ApiSurface({ navigate }: { navigate: (page: string, domainId?: n
     if (!selected || busy) return
     setBusy(true)
     try {
-      const { jobId } = await api.apiDiscovery(selected.id)
-      toast.success(`API discovery queued (job #${jobId}) — results appear here.`)
+      const { jobId } = await api.apiDiscovery(selected.id, scanHost || undefined)
+      toast.success(`API discovery queued (job #${jobId})${scanHost ? ` for ${scanHost}` : ''} — results appear here.`)
     } catch {
       toast.error('Failed to queue API discovery.')
     } finally {
@@ -282,7 +317,20 @@ export function ApiSurface({ navigate }: { navigate: (page: string, domainId?: n
         title="API Surface"
         subtitle={`${selected.host} — specs, GraphQL, endpoints mined from JS & a JWT inspector`}
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={scanHost}
+              onChange={(e) => setScanHost(e.target.value)}
+              title="Limit API discovery to a single host, or scan the whole domain"
+              className="rounded-lg border border-hair bg-ink-950 px-2.5 py-2 text-sm text-zinc-300 outline-none focus:border-accent-500"
+            >
+              <option value="">All hosts (apex + subdomains)</option>
+              {hostOptions.map((h) => (
+                <option key={h} value={h}>
+                  {h}
+                </option>
+              ))}
+            </select>
             <Button variant="loud" onClick={discover} disabled={busy}>
               <Webhook size={15} /> {busy ? 'Queuing…' : 'Discover API surface'}
             </Button>

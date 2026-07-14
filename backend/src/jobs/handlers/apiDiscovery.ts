@@ -20,15 +20,20 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
 
-  // Apex + LIVE subdomains: API-ish names first, then any other live host, up to
-  // the cap. (Only hosts already discovered by a subdomain scan are visible —
-  // run Discovery first for full subdomain coverage.)
-  const hosts: string[] = [domain.host]
-  const live = listSubdomains(domainId).filter((s) => s.httpStatus != null && s.host !== domain.host)
-  const ordered = [...live.filter((s) => API_HOSTISH.test(s.host)), ...live.filter((s) => !API_HOSTISH.test(s.host))]
-  for (const s of ordered) {
-    if (hosts.length >= MAX_HOSTS) break
-    if (!hosts.includes(s.host)) hosts.push(s.host)
+  // A specific host was requested (validated in the route as belonging to this
+  // domain): scan just that one. Otherwise sweep the apex + LIVE subdomains,
+  // API-ish names first, then any other live host, up to the cap. (Only hosts
+  // already discovered by a subdomain scan are visible — run Discovery first for
+  // full subdomain coverage.)
+  const only = typeof params.host === 'string' && params.host ? params.host : null
+  const hosts: string[] = only ? [only] : [domain.host]
+  if (!only) {
+    const live = listSubdomains(domainId).filter((s) => s.httpStatus != null && s.host !== domain.host)
+    const ordered = [...live.filter((s) => API_HOSTISH.test(s.host)), ...live.filter((s) => !API_HOSTISH.test(s.host))]
+    for (const s of ordered) {
+      if (hosts.length >= MAX_HOSTS) break
+      if (!hosts.includes(s.host)) hosts.push(s.host)
+    }
   }
 
   // The full passive URL corpus from prior recon (wayback/commoncrawl/urlscan/
