@@ -1,5 +1,6 @@
 import zlib from 'node:zlib'
 import { assertPublicHost } from '../sources/guard'
+import { applyRules, type MatchReplaceRule } from './matchReplace'
 
 // Server-side HTTP sender for the Replay (Repeater) + Intruder tools: take a
 // fully-specified request the operator composed, send it, and return the full
@@ -164,16 +165,23 @@ function decodeBody(buf: Buffer, contentEncoding: string, wasTruncated: boolean)
  * SSRF-guarded on every hop. Throws ReplayError on bad input / too many
  * redirects, or SsrfBlockedError if a (redirect) host resolves internal.
  */
-export async function sendRawRequest(req: ReplayRequest, opts: { signal?: AbortSignal } = {}): Promise<ReplayResponse> {
-  const method = (req.method || 'GET').toUpperCase()
+export async function sendRawRequest(
+  req: ReplayRequest,
+  opts: { signal?: AbortSignal; rules?: MatchReplaceRule[] } = {},
+): Promise<ReplayResponse> {
+  // Match/replace rules run ONCE, up front — before sanitizeHeaders and the
+  // redirect loop — so reserved-header stripping, per-hop assertPublicHost, and
+  // cross-host credential stripping all still apply to the rewritten request.
+  const r = opts.rules?.length ? applyRules(req, opts.rules) : req
+  const method = (r.method || 'GET').toUpperCase()
   if (!ALLOWED_METHODS.has(method)) throw new ReplayError(`unsupported method: ${method}`)
-  const timeoutMs = clamp(req.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000, MAX_TIMEOUT_MS)
-  const follow = req.followRedirects ?? false
-  const headers = sanitizeHeaders(req.headers)
-  const hasBody = method !== 'GET' && method !== 'HEAD' && req.body != null
+  const timeoutMs = clamp(r.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000, MAX_TIMEOUT_MS)
+  const follow = r.followRedirects ?? false
+  const headers = sanitizeHeaders(r.headers)
+  const hasBody = method !== 'GET' && method !== 'HEAD' && r.body != null
   const redirects: { status: number; location: string }[] = []
   const started = Date.now()
-  let current = req.url
+  let current = r.url
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     if (opts.signal?.aborted) throw new ReplayError('request aborted', 499)
@@ -197,7 +205,7 @@ export async function sendRawRequest(req: ReplayRequest, opts: { signal?: AbortS
       res = await fetch(current, {
         method,
         headers,
-        body: hasBody ? req.body : undefined,
+        body: hasBody ? r.body : undefined,
         redirect: 'manual',
         signal,
       })

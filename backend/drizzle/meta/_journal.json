@@ -162,6 +162,13 @@
       "when": 1784069362630,
       "tag": "0022_slim_lester",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1784071473508,
+      "tag": "0023_yielding_karnak",
+      "breakpoints": true
     }
   ]
 }

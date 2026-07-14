@@ -187,6 +187,17 @@ export interface IntruderResult {
   baseline: { status: number; length: number } | null
 }
 
+export interface MatchReplaceRule {
+  id: number
+  domainId: number | null
+  name: string
+  enabled: boolean
+  part: 'url' | 'header' | 'body'
+  match: string
+  replace: string
+  isRegex: boolean
+}
+
 // A request captured by the browser extension, awaiting replay/review.
 export interface Capture {
   id: number
@@ -647,6 +658,13 @@ export const api = {
     post<{ set: { id: number; name: string; category: string | null; payloads: string[] } }>('/payloads', bodyReq),
   deletePayloadSet: (id: number) => del<{ ok: true }>(`/payloads/${id}`),
   encodePayload: (input: string, chain: string[]) => post<{ output: string }>('/payloads/encode', { input, chain }),
+
+  // match/replace rules (applied inside the Repeater/Intruder send path)
+  matchReplaceRules: () => get<{ rules: MatchReplaceRule[] }>('/match-replace'),
+  createMatchReplace: (body: Partial<MatchReplaceRule> & { name: string; part: string }) =>
+    post<{ rule: MatchReplaceRule }>('/match-replace', body),
+  updateMatchReplace: (id: number, body: Partial<MatchReplaceRule>) => put<{ rule: MatchReplaceRule }>(`/match-replace/${id}`, body),
+  deleteMatchReplace: (id: number) => del<{ ok: true }>(`/match-replace/${id}`),
 
   // captured traffic (from the browser extension)
   captures: (domainId?: number, limit?: number) => {

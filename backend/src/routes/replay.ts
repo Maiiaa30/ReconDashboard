@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { getDomain } from '../domains/store'
 import { assertDomainActive, assertHostInScope, assertScanAllowed, ScanPolicyError } from '../domains/scanPolicy'
 import { sendRawRequest, ReplayError, type ReplayRequest } from '../replay/send'
+import { applicableRules } from '../replay/matchReplaceStore'
 import { attackCount, expandPayloads, MAX_PAYLOADS, positionsInTemplate, type AttackMode } from '../replay/intruder'
 import { insertReplayHistory, listReplayHistory, getReplayHistory, clearReplayHistory } from '../replay/history'
 import { buildSitemap } from '../replay/sitemap'
@@ -110,7 +111,7 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
     })
 
     try {
-      const response = await sendRawRequest(req)
+      const response = await sendRawRequest(req, { rules: applicableRules(domain.id) })
       // Record in the Repeater history (best-effort — never fail the send on it).
       try {
         insertReplayHistory({
@@ -230,6 +231,9 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
         positions,
         lists,
         grep,
+        // Snapshot the match/replace rules at enqueue so a mid-run edit can't
+        // change an in-flight attack (reproducibility for the audit ledger).
+        rules: applicableRules(id),
         concurrency: Math.max(1, Math.min(10, Number(request.body?.concurrency) || 1)),
         throttleMs: Number(throttleMs) || 0,
       }

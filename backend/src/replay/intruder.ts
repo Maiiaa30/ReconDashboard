@@ -1,4 +1,5 @@
 import { sendRawRequest, type ReplayRequest } from './send'
+import type { MatchReplaceRule } from './matchReplace'
 
 // Intruder: iterate payloads through a request template with one or more marked
 // positions ({{P1}}, {{P2}}, …; {{PAYLOAD}} is a back-compat alias for {{P1}}) and
@@ -261,6 +262,7 @@ export async function runIntruder(
     throttleMs?: number
     concurrency?: number
     grep?: GrepConfig
+    rules?: MatchReplaceRule[]
     signal: AbortSignal
     onProgress?: (i: number, total: number) => void
   },
@@ -287,7 +289,7 @@ export async function runIntruder(
       const display = multi ? displayPayload(assignment, positions) : (assignment[positions[0]] ?? '')
       const t0 = Date.now()
       try {
-        const res = await sendRawRequest(applyPayloads(template, assignment), { signal: opts.signal })
+        const res = await sendRawRequest(applyPayloads(template, assignment), { signal: opts.signal, rules: opts.rules })
         const words = res.body ? res.body.split(/\s+/).filter(Boolean).length : 0
         const attempt: IntruderAttempt = { payload: display, status: res.status, length: res.bodyBytes, words, timeMs: res.timeMs }
         if (extract) {

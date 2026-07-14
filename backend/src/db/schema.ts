@@ -332,8 +332,28 @@ export const payloadSets = sqliteTable(
   (t) => [unique('payload_sets_name_uq').on(t.name)],
 )
 
+// Session-wide request-rewrite rules for the Repeater/Intruder (inject an auth
+// header, swap a CSRF token, rewrite Host, …). domain_id null = a global rule.
+export const matchReplaceRules = sqliteTable(
+  'match_replace_rules',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id').references(() => domains.id, { onDelete: 'cascade' }), // null = global
+    name: text('name').notNull(),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    part: text('part').notNull(), // 'url' | 'header' | 'body'
+    match: text('match').notNull().default(''),
+    replace: text('replace').notNull().default(''),
+    isRegex: integer('is_regex', { mode: 'boolean' }).notNull().default(false),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [index('match_replace_domain_idx').on(t.domainId)],
+)
+
 export type User = typeof users.$inferSelect
 export type PayloadSet = typeof payloadSets.$inferSelect
+export type MatchReplaceRuleRow = typeof matchReplaceRules.$inferSelect
 export type Domain = typeof domains.$inferSelect
 export type CapturedRequest = typeof capturedRequests.$inferSelect
 export type ReplayHistoryRow = typeof replayHistory.$inferSelect

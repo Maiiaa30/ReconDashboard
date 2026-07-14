@@ -1,5 +1,6 @@
 import { getDomain } from '../../domains/store'
 import { expandAttack, runIntruder, type AttackMode, type GrepConfig } from '../../replay/intruder'
+import type { MatchReplaceRule } from '../../replay/matchReplace'
 import type { ReplayRequest } from '../../replay/send'
 import type { JobContext } from '../worker'
 
@@ -24,12 +25,14 @@ export async function intruderHandler({ params, log, progress, signal }: JobCont
   const throttleMs = Number(params.throttleMs) || 0
   const concurrency = Number(params.concurrency) || 1
   const grep = (params.grep as GrepConfig | undefined) ?? undefined
+  const rules = Array.isArray(params.rules) ? (params.rules as MatchReplaceRule[]) : undefined
 
   const result = await runIntruder(template, assignments, {
     positions,
     throttleMs,
     concurrency,
     grep,
+    rules,
     signal,
     onProgress: (i, total) => progress(`intruder ${i}/${total}`),
   })
