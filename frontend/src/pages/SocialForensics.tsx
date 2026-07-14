@@ -1,6 +1,7 @@
 import { useMemo, useState, type MouseEvent, type ReactNode } from 'react'
 import { ExternalLink, ShieldAlert, Search, Copy, Check } from 'lucide-react'
 import { Card, Empty, PageHeader } from '../components/ui'
+import { copyText } from '../lib/clipboard'
 import {
   buildUrl,
   METHODOLOGY,
@@ -155,12 +156,9 @@ function LinkTile({ resource, value }: { resource: Resource; value: string }) {
   async function copy(e: MouseEvent) {
     e.preventDefault()
     e.stopPropagation()
-    try {
-      await navigator.clipboard.writeText(url)
+    if (await copyText(url)) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch {
-      /* clipboard blocked */
     }
   }
 

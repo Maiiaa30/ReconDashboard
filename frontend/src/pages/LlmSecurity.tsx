@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Copy, Check, ExternalLink, ShieldAlert } from 'lucide-react'
 import { Badge, Card, Empty, PageHeader } from '../components/ui'
+import { copyText } from '../lib/clipboard'
 import {
   MODEL_LABELS,
   MODEL_METHODOLOGY,
@@ -261,12 +262,9 @@ function ListBlock({ title, items, tone = 'zinc' }: { title: string; items: stri
 function CopyBlock({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(text)
+    if (await copyText(text)) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch {
-      /* clipboard blocked — no-op */
     }
   }
   return (

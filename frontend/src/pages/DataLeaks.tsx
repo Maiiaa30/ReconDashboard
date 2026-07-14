@@ -4,6 +4,7 @@ import { api, type Finding, type FreeEmailResult, type LeaksResponse } from '../
 import { useApp, usePoll } from '../state'
 import { Badge, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
 import { timeAgo } from '../lib/format'
+import { copyText } from '../lib/clipboard'
 
 // Domain breach/leak exposure. Queries a configured provider (HIBP / DeHashed /
 // LeakCheck) for accounts on the selected domain and lists the exposed records.
@@ -335,12 +336,9 @@ function FreeTools({ domainId, domainHost, onStored }: { domainId: number; domai
 function Secret({ value, reveal }: { value: string; reveal: boolean }) {
   const [copied, setCopied] = useState(false)
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(value)
+    if (await copyText(value)) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch {
-      /* clipboard blocked */
     }
   }
   return (

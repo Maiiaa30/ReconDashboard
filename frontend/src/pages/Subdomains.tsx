@@ -4,6 +4,7 @@ import { api, type Subdomain } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Empty, ExportLinks, PageHeader } from '../components/ui'
 import { useToast } from '../components/Toast'
+import { copyText } from '../lib/clipboard'
 
 type Tone = 'green' | 'blue' | 'amber' | 'red' | 'zinc'
 
@@ -43,15 +44,15 @@ function CopyLink({ url }: { url: string }) {
       type="button"
       title={`Copy ${url}`}
       aria-label="Copy link"
-      onClick={(e) => {
+      onClick={async (e) => {
         e.stopPropagation()
-        navigator.clipboard
-          .writeText(url)
-          .then(() => {
-            setCopied(true)
-            setTimeout(() => setCopied(false), 1200)
-          })
-          .catch(() => toast.error('Copy failed'))
+        const ok = await copyText(url)
+        if (ok) {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        } else {
+          toast.error('Copy failed')
+        }
       }}
       className="rounded p-1 text-zinc-500 transition hover:bg-ink-700 hover:text-zinc-200"
     >
