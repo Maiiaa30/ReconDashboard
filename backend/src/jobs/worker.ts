@@ -1,6 +1,16 @@
 import type { FastifyBaseLogger } from 'fastify'
 import type { Job } from '../db/schema'
-import { claimNextQueued, failJob, finishJob, isLoudJob, markJobCancelled, requeueStaleRunning, setJobProgress } from './queue'
+import {
+  JOB_TIMEOUT_MS,
+  claimNextQueued,
+  failJob,
+  finishJob,
+  isLoudJob,
+  markJobCancelled,
+  reapTimedOutRunning,
+  requeueStaleRunning,
+  setJobProgress,
+} from './queue'
 import type { JobLane, JobType } from './queue'
 import { writeAudit } from '../audit/store'
 import { chainAfter } from './chains'
@@ -19,10 +29,6 @@ export interface JobContext {
 export type JobHandler = (ctx: JobContext) => Promise<unknown>
 
 const handlers = new Map<JobType, JobHandler>()
-
-// Hard wall-clock cap per job so a hung external call (whois, fetch, a scan that
-// never returns) can't wedge the single worker forever.
-const JOB_TIMEOUT_MS = 20 * 60 * 1000
 
 // AbortControllers for jobs currently running, so a timeout or an operator
 // cancel can abort the in-flight subprocess/fetch. Single sequential worker, so
@@ -87,8 +93,19 @@ async function runClaimedJob(job: Job, log: FastifyBaseLogger): Promise<void> {
     return
   }
 
-  log.info({ jobId: job.id, type: job.type }, 'job started')
   const loud = isLoudJob(job.type)
+
+  // Durable cancel: the operator asked to cancel this before it started running
+  // here (e.g. requested while queued, or persisted across a restart) — don't run
+  // it. Guarded markJobCancelled flips running→cancelled.
+  if (job.cancelRequested) {
+    markJobCancelled(job.id)
+    log.warn({ jobId: job.id, type: job.type }, 'job cancelled before start (persisted request)')
+    if (loud) auditJob('job:cancelled', job, params, { type: job.type })
+    return
+  }
+
+  log.info({ jobId: job.id, type: job.type }, 'job started')
   if (loud) {
     writeAudit({
       actor: 'worker',
@@ -164,11 +181,19 @@ function auditJob(action: string, job: Job, params: Record<string, unknown>, det
 }
 
 export function startWorker(log: FastifyBaseLogger, intervalMs = 2_000): void {
-  const { requeued, dead } = requeueStaleRunning()
+  const { requeued, dead, cancelled } = requeueStaleRunning()
   if (requeued > 0) log.warn(`requeued ${requeued} stale running job(s) from a previous run`)
   if (dead > 0) log.warn(`dead-lettered ${dead} stale running job(s) (loud/exhausted — not auto-resumed)`)
+  if (cancelled > 0) log.warn(`cancelled ${cancelled} stale running job(s) with a pending cancel request`)
 
   timer = setInterval(() => {
+    // Reap any job stuck 'running' past the wall-clock deadline (its in-process
+    // timer died with a previous worker) — durable backstop for the in-memory
+    // withTimeout. Cheap: 'running' rows are few and indexed.
+    const r = reapTimedOutRunning()
+    if (r.dead || r.requeued || r.cancelled) {
+      log.warn(`reaper: ${r.dead} dead, ${r.requeued} requeued, ${r.cancelled} cancelled (past deadline)`)
+    }
     // Both lanes poll every tick; each is independently guarded, so they run
     // concurrently but never overlap themselves.
     void tickLane('passive', log)

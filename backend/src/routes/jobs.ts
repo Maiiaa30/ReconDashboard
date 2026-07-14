@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { cancelJob, getJob, listJobs } from '../jobs/queue'
+import { cancelJob, getJob, listJobs, markCancelRequested } from '../jobs/queue'
 import { cancelRunningJob } from '../jobs/worker'
 import { safeJsonParse } from '../util/json'
 
@@ -28,19 +28,16 @@ export const jobRoutes: FastifyPluginAsync = async (app) => {
     const id = Number(request.params.id)
     const job = getJob(id)
     if (!job) return reply.code(404).send({ error: 'job not found' })
-    if (job.status === 'queued') {
-      if (!cancelJob(id)) {
-        // Lost the race — the worker just claimed it. Fall through to abort it.
-        if (!cancelRunningJob(id)) return reply.code(409).send({ error: 'job already started — too late to cancel' })
-      }
-      return { job: parseJob(getJob(id)) }
+    // Still queued → drop it atomically (guarded by status='queued').
+    if (cancelJob(id)) return { job: parseJob(getJob(id)) }
+    // Otherwise it's running (or was just claimed out of the queue): persist a
+    // durable cancel request (so a restart before it stops still cancels it, not
+    // re-runs it) and abort the in-flight work in this process.
+    const persisted = markCancelRequested(id)
+    const aborted = cancelRunningJob(id)
+    if (!persisted && !aborted) {
+      return reply.code(409).send({ error: `job is ${getJob(id)?.status ?? 'gone'} — nothing to cancel` })
     }
-    if (job.status === 'running') {
-      if (!cancelRunningJob(id)) {
-        return reply.code(409).send({ error: 'job is no longer running' })
-      }
-      return { requested: true, job: parseJob(getJob(id)) }
-    }
-    return reply.code(409).send({ error: `job is ${job.status} — nothing to cancel` })
+    return { requested: true, job: parseJob(getJob(id)) }
   })
 }

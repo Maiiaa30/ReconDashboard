@@ -134,6 +134,11 @@ export const jobs = sqliteTable(
     // Bumped on every claim. Powers the crash-loop guard: a job that keeps
     // dying is dead-lettered instead of re-queued forever.
     attempts: integer('attempts').notNull().default(0),
+    // Durable cancel request. Set when an operator cancels a running job, so the
+    // intent survives a restart: on reboot a still-'running' cancelled job is
+    // marked cancelled instead of being re-queued/re-run (in-memory cancel state
+    // alone was lost on restart — audit §5).
+    cancelRequested: integer('cancel_requested', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),

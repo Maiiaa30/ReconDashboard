@@ -34,6 +34,13 @@ const LOUD_TYPES: ReadonlySet<JobType> = new Set([
 // that crashes the process on every run can't crash-loop forever.
 const MAX_ATTEMPTS = 3
 
+// Hard wall-clock cap per job. The worker enforces it in-process (withTimeout);
+// the reaper below uses it to catch jobs left 'running' past the deadline after
+// the worker/process that owned their timer died. The grace margin keeps the
+// reaper from racing a job whose in-process timeout is firing at the same moment.
+export const JOB_TIMEOUT_MS = 20 * 60 * 1000
+const REAP_GRACE_MS = 5 * 60 * 1000
+
 // Job states that still hold a slot / count as "pending" for dedup + cooldown.
 const PENDING_STATUSES = ['queued', 'running'] as const
 
@@ -186,6 +193,19 @@ export function setJobProgress(id: number, progress: string): void {
     .run()
 }
 
+// Persist an operator's cancel request on a queued/running job. Durable so it
+// survives a restart: requeueStaleRunning honors it (cancel, don't re-run) and
+// the worker refuses to start a job that carries it. No-op (false) once the job
+// has reached a terminal state.
+export function markCancelRequested(id: number): boolean {
+  const res = db
+    .update(jobs)
+    .set({ cancelRequested: true, updatedAt: new Date() })
+    .where(and(eq(jobs.id, id), inArray(jobs.status, [...PENDING_STATUSES])))
+    .run()
+  return res.changes > 0
+}
+
 // Mark a running job cancelled (operator aborted it). Guarded by status='running'.
 export function markJobCancelled(id: number): boolean {
   const res = db
@@ -205,15 +225,41 @@ export function failJob(id: number, error: string): boolean {
   return res.changes > 0
 }
 
-// On boot, any job left 'running' from a previous process was interrupted.
-// Passive jobs under the attempt cap are re-queued (retry once more); loud
-// active scans and attempt-exhausted jobs are dead-lettered instead of silently
-// re-firing against the target or crash-looping forever.
-export function requeueStaleRunning(): { requeued: number; dead: number } {
-  const stale = db.select().from(jobs).where(eq(jobs.status, 'running')).all()
+// Resolve jobs stuck in 'running'. Two callers:
+//   • boot (no options): every 'running' row is stale — no worker is executing
+//     it, it was interrupted by the restart.
+//   • the periodic reaper (onlyOlderThanMs): only jobs whose startedAt is past
+//     the wall-clock deadline, i.e. orphaned 'running' rows whose in-process
+//     timer died with their worker; a job still under the deadline is being
+//     executed right now and is left alone.
+// Resolution: a job the operator asked to cancel is cancelled; loud active scans
+// and attempt-exhausted jobs are dead-lettered (never silently re-fire against a
+// target or crash-loop); passive jobs under the cap are re-queued.
+export function requeueStaleRunning(opts: { onlyOlderThanMs?: number } = {}): {
+  requeued: number
+  dead: number
+  cancelled: number
+} {
+  let stale = db.select().from(jobs).where(eq(jobs.status, 'running')).all()
+  if (opts.onlyOlderThanMs != null) {
+    const cutoff = Date.now() - opts.onlyOlderThanMs
+    stale = stale.filter((j) => j.startedAt != null && j.startedAt.getTime() < cutoff)
+  }
   let requeued = 0
   let dead = 0
+  let cancelled = 0
   for (const j of stale) {
+    // Honor a durable cancel first — the operator asked for this job to stop, so
+    // don't re-run or dead-letter it.
+    if (j.cancelRequested) {
+      const res = db
+        .update(jobs)
+        .set({ status: 'cancelled', error: 'cancelled by operator', finishedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(jobs.id, j.id), eq(jobs.status, 'running')))
+        .run()
+      if (res.changes > 0) cancelled++
+      continue
+    }
     const loud = LOUD_TYPES.has(j.type as JobType)
     const exhausted = (j.attempts ?? 0) >= MAX_ATTEMPTS
     if (loud || exhausted) {
@@ -235,5 +281,12 @@ export function requeueStaleRunning(): { requeued: number; dead: number } {
       if (res.changes > 0) requeued++
     }
   }
-  return { requeued, dead }
+  return { requeued, dead, cancelled }
+}
+
+// Periodic reaper: resolve any job left 'running' well past the wall-clock
+// deadline. Unlike the in-process withTimeout, this catches a job whose worker
+// died holding its timer (the DB row is stuck 'running' forever otherwise).
+export function reapTimedOutRunning(): { requeued: number; dead: number; cancelled: number } {
+  return requeueStaleRunning({ onlyOlderThanMs: JOB_TIMEOUT_MS + REAP_GRACE_MS })
 }
