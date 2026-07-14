@@ -29,7 +29,14 @@ vi.mock('../db/index', async () => {
 
 import { db } from '../db/index'
 import { jobs } from '../db/schema'
-import { JOB_TIMEOUT_MS, getJob, markCancelRequested, reapTimedOutRunning, requeueStaleRunning } from './queue'
+import {
+  JOB_TIMEOUT_MS,
+  getJob,
+  markCancelRequested,
+  pruneTerminalJobs,
+  reapTimedOutRunning,
+  requeueStaleRunning,
+} from './queue'
 
 const PAST = () => new Date(Date.now() - JOB_TIMEOUT_MS - 10 * 60 * 1000) // well past deadline+grace
 const insert = (v: Record<string, unknown>): number =>
@@ -74,5 +81,34 @@ describe('job reaper + durable cancel (audit §5)', () => {
     expect(markCancelRequested(running)).toBe(true)
     expect(getJob(running)?.cancelRequested).toBe(true)
     expect(markCancelRequested(done)).toBe(false)
+  })
+})
+
+describe('pruneTerminalJobs retention (audit §4)', () => {
+  beforeEach(() => {
+    db.delete(jobs).run()
+  })
+
+  const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000) // 40 days ago
+  const recent = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000) // 1 day ago
+
+  it('deletes only terminal jobs older than the window; keeps queued/running/recent', () => {
+    const oldDone = insert({ type: 'osint_gather', status: 'done', updatedAt: old, finishedAt: old })
+    const oldError = insert({ type: 'nmap_scan', status: 'error', updatedAt: old, finishedAt: old })
+    const oldDead = insert({ type: 'nmap_scan', status: 'dead', updatedAt: old, finishedAt: old })
+    const recentDone = insert({ type: 'osint_gather', status: 'done', updatedAt: recent, finishedAt: recent })
+    const oldQueued = insert({ type: 'osint_gather', status: 'queued', updatedAt: old })
+    const oldRunning = insert({ type: 'nmap_scan', status: 'running', startedAt: old, updatedAt: old })
+
+    const removed = pruneTerminalJobs(30 * 24 * 60 * 60 * 1000)
+    expect(removed).toBe(3) // the three old terminal jobs
+
+    expect(getJob(oldDone)).toBeUndefined()
+    expect(getJob(oldError)).toBeUndefined()
+    expect(getJob(oldDead)).toBeUndefined()
+    // Never pruned: recent terminal, and queued/running at any age.
+    expect(getJob(recentDone)?.status).toBe('done')
+    expect(getJob(oldQueued)?.status).toBe('queued')
+    expect(getJob(oldRunning)?.status).toBe('running')
   })
 })

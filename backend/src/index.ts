@@ -13,6 +13,7 @@ import { sqliteSessionStore, startSessionPruner } from './auth/sessionStore'
 import { registerJobHandlers } from './jobs/register'
 import { getScorer } from './scoring'
 import { startWorker } from './jobs/worker'
+import { startJobsPruner } from './jobs/queue'
 import { startScheduler } from './jobs/scheduler'
 import { domainRoutes } from './routes/domains'
 import { jobRoutes } from './routes/jobs'
@@ -125,6 +126,10 @@ async function main() {
   startWorker(app.log)
   startScheduler(app.log)
   startSessionPruner()
+  // Prune old terminal job rows so the table doesn't grow forever (audit §4).
+  // audit_log is intentionally left unpruned — it is append-only legal cover; an
+  // archive-then-prune policy is an open operator decision, not done here.
+  startJobsPruner(config.jobsRetentionDays)
 
   await app.listen({ port: config.port, host: config.host })
   app.log.info(`backend listening on ${config.host}:${config.port}`)

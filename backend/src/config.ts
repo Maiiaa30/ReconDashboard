@@ -45,6 +45,18 @@ export const config = {
   // Session lifetime: 7 days.
   sessionMaxAgeMs: 7 * 24 * 60 * 60 * 1000,
 
+  // Retention for terminal job rows (done/error/cancelled/dead). 0 disables
+  // pruning. Default 30 days. Queued/running jobs are never pruned. (audit_log is
+  // deliberately NOT pruned — it is append-only legal cover.)
+  jobsRetentionDays: ((): number => {
+    const n = Number(process.env.JOBS_RETENTION_DAYS ?? 30)
+    if (!Number.isFinite(n) || n < 0) {
+      console.warn('JOBS_RETENTION_DAYS is not a valid non-negative number; using 30.')
+      return 30
+    }
+    return n
+  })(),
+
   // Discord webhook for alerts. Empty => alerting disabled (silent).
   discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL?.trim() || '',
 

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt, notInArray, sql } from 'drizzle-orm'
 import { db } from '../db/index'
 import { jobs } from '../db/schema'
 
@@ -289,4 +289,38 @@ export function requeueStaleRunning(opts: { onlyOlderThanMs?: number } = {}): {
 // died holding its timer (the DB row is stuck 'running' forever otherwise).
 export function reapTimedOutRunning(): { requeued: number; dead: number; cancelled: number } {
   return requeueStaleRunning({ onlyOlderThanMs: JOB_TIMEOUT_MS + REAP_GRACE_MS })
+}
+
+// --- Retention (audit §4): the jobs table grows forever otherwise ------------
+
+const TERMINAL_STATUSES = ['done', 'error', 'cancelled', 'dead'] as const
+
+// Delete terminal job rows older than the cutoff. NEVER touches queued/running
+// (updatedAt is bumped on every state change, so for a terminal row it marks when
+// the job finished). Returns the number of rows removed.
+export function pruneTerminalJobs(olderThanMs: number): number {
+  const cutoff = new Date(Date.now() - olderThanMs)
+  const res = db
+    .delete(jobs)
+    .where(and(inArray(jobs.status, [...TERMINAL_STATUSES]), lt(jobs.updatedAt, cutoff)))
+    .run()
+  return res.changes
+}
+
+// Start the periodic jobs pruner (default every 6h, plus once on boot). Returns
+// null when retention is disabled (retentionDays <= 0).
+export function startJobsPruner(retentionDays: number, intervalMs = 6 * 60 * 60 * 1000): NodeJS.Timeout | null {
+  if (retentionDays <= 0) return null
+  const olderThanMs = retentionDays * 24 * 60 * 60 * 1000
+  const run = () => {
+    try {
+      pruneTerminalJobs(olderThanMs)
+    } catch {
+      /* best-effort */
+    }
+  }
+  run()
+  const timer = setInterval(run, intervalMs)
+  timer.unref()
+  return timer
 }
