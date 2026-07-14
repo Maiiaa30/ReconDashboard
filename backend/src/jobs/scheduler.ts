@@ -4,6 +4,7 @@ import { domainsDueForMonitoring, listDomains, markMonitored } from '../domains/
 import { enqueueJob, hasPendingJob, lastJobAt } from './queue'
 
 const LEAK_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000 // active domains: once a day
+const CODE_LEAK_INTERVAL_MS = 24 * 60 * 60 * 1000 // public-code search: once a day
 
 // Per-domain auto-monitoring. Each domain can opt into "re-run passive recon
 // every N hours" (Domains tab). A lightweight ticker checks once a minute which
@@ -54,6 +55,24 @@ export function startScheduler(log: FastifyBaseLogger): void {
           log.info({ domain: d.host }, 'daily leak-check enqueued')
         } catch (err) {
           log.error({ err, domain: d.host }, 'leak-check enqueue failed for domain')
+        }
+      }
+    }
+
+    // Daily public-code leak search for ACTIVE domains, when a GitHub token is
+    // configured (GitHub requires auth for code search). Queries GitHub, not the
+    // target, so it's passive — but kept to active domains to bound API usage.
+    if (config.githubToken) {
+      for (const d of listDomains()) {
+        if (d.mode !== 'active_authorized') continue
+        if (hasPendingJob('code_leak', d.id)) continue
+        const last = lastJobAt('code_leak', d.id)
+        if (last && Date.now() - last.getTime() < CODE_LEAK_INTERVAL_MS) continue
+        try {
+          enqueueJob('code_leak', { domainId: d.id })
+          log.info({ domain: d.host }, 'daily code-leak search enqueued')
+        } catch (err) {
+          log.error({ err, domain: d.host }, 'code-leak enqueue failed for domain')
         }
       }
     }

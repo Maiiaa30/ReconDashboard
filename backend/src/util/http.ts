@@ -23,6 +23,8 @@ export class HttpError extends Error {
 interface GetOptions {
   timeoutMs?: number
   accept?: string
+  // Extra request headers (e.g. an Authorization token for an authenticated API).
+  headers?: Record<string, string>
 }
 
 async function readCapped(res: Response): Promise<string> {
@@ -132,6 +134,7 @@ export async function getText(url: string, opts: GetOptions = {}): Promise<strin
           headers: {
             'User-Agent': USER_AGENT,
             ...(opts.accept ? { Accept: opts.accept } : {}),
+            ...opts.headers,
           },
           redirect: 'follow',
         })

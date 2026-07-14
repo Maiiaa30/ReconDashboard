@@ -10,6 +10,7 @@ import { originHandler } from './handlers/origin'
 import { leakCheckHandler } from './handlers/leakCheck'
 import { apiDiscoveryHandler } from './handlers/apiDiscovery'
 import { intruderHandler } from './handlers/intruder'
+import { codeLeakHandler } from './handlers/codeLeak'
 
 // Wire every job type to its handler. Called once at startup.
 export function registerJobHandlers(): void {
@@ -26,4 +27,5 @@ export function registerJobHandlers(): void {
   registerHandler('leak_check', leakCheckHandler)
   registerHandler('api_discovery', apiDiscoveryHandler)
   registerHandler('intruder', intruderHandler)
+  registerHandler('code_leak', codeLeakHandler)
 }

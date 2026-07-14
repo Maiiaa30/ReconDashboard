@@ -28,6 +28,7 @@ const VALID_TYPES: FindingType[] = [
   'cve_new',
   'leak',
   'api',
+  'secret',
 ]
 const MAX_NOTE = 2000
 

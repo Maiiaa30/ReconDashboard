@@ -17,6 +17,7 @@ export type FindingType =
   | 'cve_new'
   | 'leak'
   | 'api'
+  | 'secret'
 
 // Triage lifecycle state.
 export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
@@ -58,6 +59,9 @@ export function findingKey(type: string, data: any): string | null {
       return data.specUrl ? `api:spec:${data.specUrl}` : null
     case 'cve_new':
       return data.ip && data.cveId ? `cvenew:${data.ip}:${data.cveId}` : null
+    case 'secret':
+      // One row per (repo, path) so re-searching the same leaked file dedupes.
+      return data.repo && data.path ? `secret:${data.repo}:${data.path}` : null
     case 'leak': {
       // One row per (identity, breach, credential): same account in the same
       // breach dedups on re-check, but distinct passwords stay distinct.

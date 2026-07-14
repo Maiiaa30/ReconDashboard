@@ -103,6 +103,11 @@ export const config = {
     return { baseUrl, apiKey, model, enabled: Boolean(baseUrl && model) }
   })(),
 
+  // Optional GitHub token for the code-leak source (public code search for the
+  // target's domain/keys). GitHub requires auth for code search, so the source is
+  // disabled when this is empty. A read-only/public-scope token is enough.
+  githubToken: process.env.GITHUB_TOKEN?.trim() || '',
+
   // Optional breach-data provider for the domain leak check (Social/Data Leaks).
   // Default OFF — set LEAK_PROVIDER (hibp | dehashed | leakcheck) + LEAK_API_KEY.
   // Queries the provider's API by domain for exposed accounts. Active domains get

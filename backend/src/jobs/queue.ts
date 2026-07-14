@@ -16,6 +16,7 @@ export type JobType =
   | 'leak_check'
   | 'api_discovery'
   | 'intruder'
+  | 'code_leak'
 
 // Loud/active job types we deliberately do NOT auto-resume after a crash: a scan
 // interrupted mid-run would silently re-fire against the target on the next boot,

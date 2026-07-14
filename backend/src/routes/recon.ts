@@ -25,6 +25,15 @@ export const reconRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(202).send({ jobId: enqueueJob('origin_scan', { domainId: id }) })
   })
 
+  // Passive code-leak search: look for the domain (+ optional seeds) in public
+  // code (GitHub). Queries GitHub, not the target — safe on any domain.
+  app.post<{ Params: { id: string }; Body: { seeds?: string[] } }>('/api/domains/:id/code-leaks', async (request, reply) => {
+    const id = Number(request.params.id)
+    if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+    const seeds = Array.isArray(request.body?.seeds) ? request.body.seeds.filter((s) => typeof s === 'string').slice(0, 5) : []
+    return reply.code(202).send({ jobId: enqueueJob('code_leak', { domainId: id, seeds }) })
+  })
+
   // Passive API-surface discovery: OpenAPI/Swagger specs + GraphQL endpoints.
   // Optional `host` restricts the scan to one apex/subdomain (must belong to the
   // domain); omitted = the apex + all live subdomains (the default sweep).

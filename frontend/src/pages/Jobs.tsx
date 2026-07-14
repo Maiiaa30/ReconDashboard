@@ -24,6 +24,7 @@ const JOB_META: Record<string, { label: string; icon: LucideIcon }> = {
   owasp_active: { label: 'OWASP checks', icon: ShieldCheck },
   tool_scan: { label: 'Tool', icon: Wrench },
   api_discovery: { label: 'API discovery', icon: Webhook },
+  code_leak: { label: 'Code leaks', icon: Eye },
 }
 const jobMeta = (type: string) => JOB_META[type] ?? { label: type, icon: Activity }
 

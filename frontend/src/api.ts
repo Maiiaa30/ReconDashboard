@@ -664,6 +664,9 @@ export const api = {
   reportPdfUrl: (id: number) => `/api/export/report/${id}.pdf`,
   // Workbench sitemap (endpoint tree from captured + discovered data).
   sitemap: (domainId: number) => get<{ hosts: SitemapHost[] }>(`/replay/sitemap?domainId=${domainId}`),
+  // Passive code-leak search (public code, GitHub) → 'secret' findings.
+  codeLeaks: (domainId: number, seeds?: string[]) =>
+    post<{ jobId: number }>(`/domains/${domainId}/code-leaks`, seeds && seeds.length ? { seeds } : {}),
   bulkUpdateFindings: (ids: number[], patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ changed: number }>('/findings/bulk', { ids, ...patchBody }),
   // AI triage suggestions (suggest-only; nothing is applied server-side).

@@ -3,28 +3,53 @@ import { Copy, Check, Eye, EyeOff, ShieldAlert, RefreshCw, Search, ExternalLink,
 import { api, type Finding, type FreeEmailResult, type LeaksResponse } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
+import { useToast } from '../components/Toast'
 import { timeAgo } from '../lib/format'
 import { copyText } from '../lib/clipboard'
+import { safeHttpUrl } from '../lib/url'
 
 // Domain breach/leak exposure. Queries a configured provider (HIBP / DeHashed /
 // LeakCheck) for accounts on the selected domain and lists the exposed records.
 // Active domains are auto-checked daily; passive domains use "Check now".
 export function DataLeaks() {
   const { selected } = useApp()
+  const toast = useToast()
   const [state, setState] = useState<LeaksResponse | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [reveal, setReveal] = useState(false)
   const [query, setQuery] = useState('')
+  // Code leaks — a separate signal from breach data: 'secret' findings produced
+  // by a GitHub public-code search.
+  const [secretFindings, setSecretFindings] = useState<Finding[]>([])
+  const [codeBusy, setCodeBusy] = useState(false)
 
   const load = useCallback(() => {
     if (!selected) {
       setState(null)
+      setSecretFindings([])
       return
     }
     api.leaks(selected.id).then(setState).catch(() => setState(null))
+    api
+      .findings({ domainId: selected.id, type: 'secret', limit: 200 })
+      .then((r) => setSecretFindings(r.findings))
+      .catch(() => setSecretFindings([]))
   }, [selected])
   usePoll(load, 6000, true)
+
+  async function searchCode() {
+    if (!selected || codeBusy) return
+    setCodeBusy(true)
+    try {
+      await api.codeLeaks(selected.id)
+      toast.success('Code-leak search queued — results appear here.')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'failed to start code search')
+    } finally {
+      setCodeBusy(false)
+    }
+  }
 
   async function checkNow() {
     if (!selected || busy) return
@@ -186,7 +211,72 @@ export function DataLeaks() {
           {rows.length === 0 && <p className="mt-3 text-xs text-zinc-500">No records match “{query}”.</p>}
         </>
       )}
+
+      {/* Code leaks — separate signal: 'secret' findings from a public-code (GitHub) search. */}
+      <Card className="mt-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-100">Code leaks — public code (GitHub)</h3>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+              Searches public code for this domain and possible leaked keys/URLs. Requires a configured GitHub token.
+            </p>
+          </div>
+          <button
+            onClick={searchCode}
+            disabled={codeBusy}
+            className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-hair px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-ink-800 hover:border-hair-strong disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Search size={15} />
+            {codeBusy ? 'Searching…' : 'Search public code'}
+          </button>
+        </div>
+
+        {secretFindings.length === 0 ? (
+          <p className="mt-4 text-xs text-zinc-500">
+            No code leaks found yet. Run a search (needs GITHUB_TOKEN configured on the server).
+          </p>
+        ) : (
+          <ul className="mt-4 space-y-2">
+            {secretFindings.map((f) => (
+              <CodeLeakRow key={f.id} finding={f} />
+            ))}
+          </ul>
+        )}
+      </Card>
     </div>
+  )
+}
+
+function CodeLeakRow({ finding }: { finding: Finding }) {
+  const d = finding.data ?? {}
+  const label = [d.repo, d.path].filter(Boolean).join('/') || d.url || '—'
+  const href = safeHttpUrl(d.url)
+  const fragments: string[] = Array.isArray(d.fragments) ? d.fragments : []
+
+  return (
+    <li className="rounded-lg border border-hair bg-ink-900/40 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <ScoreBadge score={finding.score} />
+        {href ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="font-mono text-xs text-accent-fg break-all hover:underline"
+          >
+            {label}
+          </a>
+        ) : (
+          <span className="font-mono text-xs text-zinc-300 break-all">{label}</span>
+        )}
+        {d.secretHint && <Badge tone="red">possible secret</Badge>}
+      </div>
+      {fragments.length > 0 && (
+        <pre className="mt-2 overflow-x-auto rounded-lg border border-hair bg-ink-900 p-2 text-[11px] leading-relaxed text-zinc-400">
+          {fragments.join('\n')}
+        </pre>
+      )}
+    </li>
   )
 }
 

@@ -51,6 +51,8 @@ export function summarizeFinding(type: string, data: any): string {
     }
     case 'tool':
       return `${data.tool ?? 'tool'}: ${data.title ?? data.detail ?? ''}${data.target ? ` @ ${data.target}` : ''}`
+    case 'secret':
+      return `${data.repo ?? '?'}/${data.path ?? '?'}${data.secretHint ? ' — possible secret' : ''}`
     case 'owasp':
       return `${data.category ? data.category + ' — ' : ''}${data.name ?? data.title ?? '?'}${data.url ? ` @ ${data.url}` : ''}`
     case 'origin': {
