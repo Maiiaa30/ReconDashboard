@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, Sparkles, AlertTriangle } from 'lucide-react'
-import { api, type Finding, type FindingStatus, type ReportSnapshot } from '../api'
+import { Bot, Camera, Sparkles, AlertTriangle } from 'lucide-react'
+import { api, type Finding, type FindingStatus, type ReportSnapshot, type TriageSuggestion } from '../api'
 import { useApp } from '../state'
-import { Badge, Button, Empty, ExportLinks, PageHeader, SkeletonList } from '../components/ui'
+import { Badge, Button, Card, Empty, ExportLinks, PageHeader, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { RISK_SCORE_CLASS, riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
 import { safeHttpUrl } from '../lib/url'
@@ -96,6 +96,11 @@ export function Findings() {
   const [llmOn, setLlmOn] = useState(false)
   const [narrative, setNarrative] = useState<{ text: string; note: string } | null>(null)
   const [narrBusy, setNarrBusy] = useState(false)
+  // AI triage suggestions — suggest-only; nothing is applied until the operator clicks Apply.
+  const [suggestions, setSuggestions] = useState<TriageSuggestion[] | null>(null)
+  const [aiNote, setAiNote] = useState<string | null>(null)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiApplied, setAiApplied] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     api.meta().then((m) => setLlmOn(Boolean(m.llm?.enabled))).catch(() => {})
@@ -113,6 +118,65 @@ export function Findings() {
       toast.error(`AI summary failed: ${note}`)
     } finally {
       setNarrBusy(false)
+    }
+  }
+
+  // Ask the AI for a suggested triage status per finding. Suggest-only: the
+  // response never mutates anything — the operator applies rows explicitly.
+  async function suggestTriage() {
+    if (domainId === '') return
+    setAiBusy(true)
+    try {
+      const r = await api.triageSuggest(Number(domainId))
+      setAiApplied(new Set())
+      if (!r.enabled || r.suggestions.length === 0) {
+        setSuggestions([])
+        setAiNote(r.note ?? (r.enabled ? 'No triage suggestions right now.' : 'AI is disabled.'))
+      } else {
+        setSuggestions(r.suggestions)
+        setAiNote(r.note ?? null)
+      }
+    } catch (e) {
+      const note = e instanceof Error ? e.message : 'failed to fetch suggestions'
+      toast.error(`AI triage failed: ${note}`)
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  function dismissSuggestions() {
+    setSuggestions(null)
+    setAiNote(null)
+    setAiApplied(new Set())
+  }
+
+  // Apply a single suggestion through the existing optimistic single-triage path.
+  function applyOne(s: TriageSuggestion) {
+    void update(s.findingId, { status: s.suggestedStatus })
+    setAiApplied((prev) => new Set(prev).add(s.findingId))
+  }
+
+  // Apply every still-pending suggestion, grouped by status into bulk calls, then
+  // clear the panel and refetch so the list reflects the persisted state.
+  async function applyAllSuggestions() {
+    const pending = (suggestions ?? []).filter((s) => !aiApplied.has(s.findingId))
+    if (!pending.length) return
+    const groups = new Map<FindingStatus, number[]>()
+    for (const s of pending) {
+      const arr = groups.get(s.suggestedStatus) ?? []
+      arr.push(s.findingId)
+      groups.set(s.suggestedStatus, arr)
+    }
+    try {
+      for (const [status, ids] of groups) {
+        await api.bulkUpdateFindings(ids, { status })
+      }
+      toast.success(`Applied ${pending.length} AI suggestion${pending.length > 1 ? 's' : ''}`)
+      dismissSuggestions()
+      load()
+    } catch {
+      toast.error('Apply all failed — reverting.')
+      load()
     }
   }
 
@@ -273,6 +337,14 @@ export function Findings() {
                 )}
               </>
             )}
+            <button
+              onClick={suggestTriage}
+              disabled={domainId === '' || aiBusy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-accent-500/40 px-2.5 py-1 text-xs text-accent-fg transition hover:bg-accent-500/10 disabled:opacity-50"
+              title="Ask the configured AI to suggest a triage status per finding for this domain (suggest-only — nothing is applied until you click Apply)"
+            >
+              <Bot size={13} /> {aiBusy ? 'Thinking…' : 'Suggest triage'}
+            </button>
             <ExportLinks
               path="/findings/export"
               params={{ domainId: domainId === '' ? undefined : domainId, type: type || undefined }}
@@ -396,6 +468,65 @@ export function Findings() {
           </button>
           <span className="hidden text-[10px] text-zinc-600 sm:inline">keys: o/c/f/r/i · a=all · esc</span>
         </div>
+      )}
+
+      {suggestions !== null && (
+        <Card className="mb-4 border-accent-500/30">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-accent-fg">
+              <Bot size={13} /> AI triage suggestions
+            </span>
+            <div className="flex items-center gap-2">
+              {suggestions.length > 0 && (
+                <button
+                  onClick={applyAllSuggestions}
+                  className="rounded-md border border-accent-500/40 px-2 py-0.5 text-xs text-accent-fg transition hover:bg-accent-500/10"
+                >
+                  Apply all
+                </button>
+              )}
+              <button onClick={dismissSuggestions} className="text-xs text-zinc-500 hover:text-zinc-300">
+                Dismiss
+              </button>
+            </div>
+          </div>
+          <p className="mb-3 text-[11px] text-zinc-500">
+            AI suggestions — review before applying. Nothing changes until you click Apply.
+          </p>
+          {suggestions.length === 0 ? (
+            <p className="text-sm text-zinc-400">{aiNote ?? 'No triage suggestions right now.'}</p>
+          ) : (
+            <div className="space-y-1.5">
+              {suggestions.map((s) => {
+                const f = findings.find((x) => x.id === s.findingId)
+                const label = f ? summarizeFinding(f.type, f.data) : `#${s.findingId}`
+                const applied = aiApplied.has(s.findingId)
+                return (
+                  <div key={s.findingId} className="rounded-lg border border-hair/60 bg-ink-950/40 px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-xs ${STATUS_SELECT[s.suggestedStatus]}`}>
+                        {STATUS_LABEL[s.suggestedStatus]}
+                      </span>
+                      <span className="min-w-0 flex-1 break-all font-mono text-xs text-zinc-100">{label}</span>
+                      {applied ? (
+                        <span className="shrink-0 text-xs text-green-400">✓ applied</span>
+                      ) : (
+                        <button
+                          onClick={() => applyOne(s)}
+                          className="shrink-0 rounded-md border border-accent-500/40 px-2 py-0.5 text-xs text-accent-fg transition hover:bg-accent-500/10"
+                        >
+                          Apply
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-zinc-500">{s.reason}</p>
+                    <p className="mt-0.5 text-xs text-zinc-500">Next: {s.nextAction}</p>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
       )}
 
       {!loaded ? (

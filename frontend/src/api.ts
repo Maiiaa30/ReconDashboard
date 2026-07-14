@@ -272,6 +272,13 @@ export interface SitemapHost {
   endpoints: SitemapEndpoint[]
 }
 
+export interface TriageSuggestion {
+  findingId: number
+  suggestedStatus: FindingStatus
+  reason: string
+  nextAction: string
+}
+
 export interface AttackPath {
   ip: string
   cdn: string | null
@@ -659,6 +666,9 @@ export const api = {
   sitemap: (domainId: number) => get<{ hosts: SitemapHost[] }>(`/replay/sitemap?domainId=${domainId}`),
   bulkUpdateFindings: (ids: number[], patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ changed: number }>('/findings/bulk', { ids, ...patchBody }),
+  // AI triage suggestions (suggest-only; nothing is applied server-side).
+  triageSuggest: (domainId: number) =>
+    post<{ enabled: boolean; suggestions: TriageSuggestion[]; note?: string }>('/findings/triage-suggest', { domainId }),
 
   // notes
   notes: (domainId: number | 'global') =>

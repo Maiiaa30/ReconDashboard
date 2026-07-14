@@ -9,6 +9,7 @@ import {
   type FindingStatus,
   type FindingType,
 } from '../findings/store'
+import { suggestTriage } from '../findings/triageSuggest'
 
 // Must list EVERY FindingType — a type missing here is silently dropped from the
 // ?type= filter, so the query falls back to "all types" and the caller's findings
@@ -64,6 +65,16 @@ export const findingRoutes: FastifyPluginAsync = async (app) => {
       return { changed }
     },
   )
+
+  // AI triage helper: SUGGEST dispositions for a domain's open findings. No side
+  // effects — it never changes a finding or enqueues a scan; the operator applies
+  // suggestions with the normal bulk-triage action. Degrades gracefully when no
+  // LLM is configured.
+  app.post<{ Body: { domainId?: number } }>('/api/findings/triage-suggest', async (request, reply) => {
+    const domainId = Number(request.body?.domainId)
+    if (!Number.isFinite(domainId)) return reply.code(400).send({ error: 'domainId required' })
+    return suggestTriage(domainId)
+  })
 
   // Triage a finding: set its lifecycle status and/or note.
   app.patch<{ Params: { id: string }; Body: { status?: string; note?: string | null } }>(
