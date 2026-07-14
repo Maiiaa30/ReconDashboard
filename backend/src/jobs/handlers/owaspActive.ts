@@ -1,8 +1,10 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
 import { listFindings } from '../../findings/store'
+import { listCaptures } from '../../capture/store'
 import { jsRecon } from '../../sources/jsRecon'
 import { runActiveChecks, type OwaspChecksOptions } from '../../owasp/activeChecks'
+import { analyzeJwtToken, findJwts } from '../../owasp/jwt'
 import { safeJsonParse } from '../../util/json'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
 import type { JobContext } from '../worker'
@@ -49,6 +51,31 @@ export function knownUrlsFor(domainId: number): string[] {
   return [...new Set(urls)]
 }
 
+// Gather JWTs the tool already holds — the operator's auth header, JWTs mined
+// from JS, and tokens seen in captured requests — mapped to a short source label
+// (first source wins). Passive: reads local data only, no target traffic.
+function gatherTokens(domainId: number, authHeader: string | undefined, jsJwts: string[]): Map<string, string> {
+  const tokens = new Map<string, string>() // token -> source label
+  const add = (token: string, source: string) => {
+    if (!tokens.has(token)) tokens.set(token, source)
+  }
+  for (const t of findJwts(authHeader ?? '')) add(t, 'owaspConfig.authHeader')
+  for (const t of jsJwts) add(t, 'JS bundle')
+  for (const cap of listCaptures({ domainId, limit: 200 })) {
+    const path = (() => {
+      try {
+        return new URL(cap.url).pathname
+      } catch {
+        return cap.url.slice(0, 60)
+      }
+    })()
+    const source = `capture:${cap.method} ${path}`
+    for (const [, value] of cap.headers) for (const t of findJwts(value)) add(t, source)
+    for (const t of findJwts(cap.url)) add(t, source)
+  }
+  return tokens
+}
+
 // OWASP active checks: direct HTTP probes (headers, sensitive files, reflected
 // XSS, open redirect, CORS, TRACE, directory listing) that don't depend on
 // nuclei. Authorization (active_authorized OR confirm) is enforced at the route
@@ -68,10 +95,14 @@ export async function owaspActiveHandler({ params, log, progress, signal }: JobC
   // JS recon: mine discovered .js files for endpoints, params and leaked secrets.
   // The params feed straight back into the target-aware checks below.
   let jsParams: string[] = []
+  let jsJwts: string[] = []
   try {
     progress(`mining JS files on ${target}`)
     const js = await jsRecon(knownUrlsFor(domainId))
     jsParams = js.params
+    // JWTs mined from JS — but only untruncated samples (a clipped token can't be
+    // decoded or cracked).
+    jsJwts = js.secrets.filter((s) => s.pattern === 'JWT' && !s.sample.includes('…')).map((s) => s.sample)
     if (js.secrets.length) {
       await addScoredFinding({
         domainId,
@@ -115,7 +146,33 @@ export async function owaspActiveHandler({ params, log, progress, signal }: JobC
     sensitivePaths: cfg.sensitivePaths,
     authHeader: cfg.authHeader,
     discoveredParams: [...new Set([...discoveredParamsFor(domainId), ...jsParams])],
+    jwtSecrets: cfg.jwtSecrets,
     signal,
+  }
+
+  // Passive JWT analysis + offline HMAC crack over the tokens we already hold.
+  // Zero target traffic; a cracked secret is self-verifying proof, so these are
+  // among the highest-signal findings the tool produces.
+  try {
+    const tokens = gatherTokens(domainId, cfg.authHeader, jsJwts)
+    let jwtFindings = 0
+    for (const [token, source] of tokens) {
+      // A short token fingerprint keeps distinct tokens from the same source from
+      // collapsing under the owasp dedupe key (owasp:cat:name@url).
+      const fp = token.slice(-6)
+      for (const f of analyzeJwtToken(token, source, cfg.jwtSecrets ?? [])) {
+        await addScoredFinding({
+          domainId,
+          type: 'owasp',
+          data: { target, category: 'A07', name: f.name, severity: f.severity, url: `${source} [${fp}]`, evidence: f.evidence },
+          tags: ['owasp', 'jwt', 'owasp:A07', `sev:${f.severity}`, ...(f.name.includes('cracked') ? ['cracked'] : [])],
+        })
+        jwtFindings++
+      }
+    }
+    if (jwtFindings) log.info({ target, tokens: tokens.size, jwtFindings }, 'jwt analysis complete')
+  } catch (err) {
+    log.warn({ err }, 'jwt analysis failed')
   }
 
   progress(`running active checks on ${target}`)

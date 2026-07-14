@@ -50,6 +50,7 @@ export interface OwaspChecksOptions {
   sensitivePaths?: string[] // custom paths to probe (reported on 200)
   authHeader?: string // "Name: value" — sent on every request
   discoveredParams?: string[] // real query params seen for this target
+  jwtSecrets?: string[] // extra candidate secrets for the offline JWT HMAC crack
   signal?: AbortSignal // job cancel/timeout — stops probing mid-loop
 }
 
