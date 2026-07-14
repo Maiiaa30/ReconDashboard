@@ -1,6 +1,6 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
-import { alertNewCves, recordAndDetectNewCves, type AssetCve } from '../../findings/cveWatch'
+import { alertNewCves, markCvesAlerted, recordAndDetectNewCves, type AssetCve } from '../../findings/cveWatch'
 import { asnLookup } from '../../sources/asn'
 import { enrichCves } from '../../sources/cvedb'
 import { resolveDns } from '../../sources/dns'
@@ -92,7 +92,12 @@ export async function exposureHandler({ params, log }: JobContext) {
           return { id, cvss: c?.cvss_v3 ?? c?.cvss ?? null, kev: !!c?.kev }
         })
         const fresh = recordAndDetectNewCves(domainId, ip, assetCveList)
-        if (fresh.length) await alertNewCves(domainId, ip, [...hostSet], fresh)
+        if (fresh.length) {
+          await alertNewCves(domainId, ip, [...hostSet], fresh)
+          // Stamp alerted ONLY after the alert fired — an interruption before
+          // this leaves the rows un-alerted so the next run re-drives them.
+          markCvesAlerted(domainId, ip, fresh.map((c) => c.id))
+        }
         return finding
       } catch (err) {
         log.warn({ ip, err }, 'internetdb enrichment failed')

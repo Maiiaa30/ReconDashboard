@@ -194,6 +194,12 @@ export const assetCves = sqliteTable(
     cvss: real('cvss'),
     kev: integer('kev', { mode: 'boolean' }).notNull().default(false),
     firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull().default(now),
+    // When the "new CVE" alert for this row was fired. NULL = recorded but not yet
+    // alerted, so it is re-driven on the next run — this is what keeps a crash
+    // between recording the CVE and sending its alert from losing the alert.
+    // Baseline rows (first scan of an asset) are inserted already-marked so they
+    // never alert.
+    alertedAt: integer('alerted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [
     unique('asset_cve_uq').on(t.domainId, t.ip, t.cveId),

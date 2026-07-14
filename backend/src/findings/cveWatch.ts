@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray, isNull, ne } from 'drizzle-orm'
 import { db } from '../db/index'
 import { assetCves } from '../db/schema'
 import { addFinding } from './store'
@@ -22,9 +22,13 @@ export interface AssetCve {
 // never alerts — exactly the transition this watch exists to catch.
 const BASELINE_MARKER = '__baseline__'
 
-// Record the current CVE set for an asset; return the CVEs that are new since it
-// was baselined (empty on the asset's first-ever scan). "Baselined" means
-// "scanned before", independent of whether the earlier scan had any CVEs.
+// Record the current CVE set for an asset and return the CVEs that still need an
+// alert. Crash-safety (audit §3 #5): a CVE row is written with alerted_at = NULL
+// and only stamped once its alert has actually fired (markCvesAlerted). So this
+// returns EVERY un-alerted CVE for the asset — the ones new this run PLUS any left
+// un-alerted by a prior run that crashed between recording and alerting — instead
+// of "CVEs never seen before". Baseline rows (the asset's first-ever scan) are
+// written already-alerted so the initial discovery never alerts.
 export function recordAndDetectNewCves(domainId: number, ip: string, cves: AssetCve[]): AssetCve[] {
   const known = new Set(
     db
@@ -39,25 +43,59 @@ export function recordAndDetectNewCves(domainId: number, ip: string, cves: Asset
 
   const now = new Date()
   // Drop a baseline marker on the first scan so a future clean→CVE transition is
-  // detectable even if this scan (and the first) found nothing.
+  // detectable even if this scan (and the first) found nothing. Markers never
+  // alert, so they are stamped immediately.
   if (!known.has(BASELINE_MARKER)) {
     db.insert(assetCves)
-      .values({ domainId, ip, cveId: BASELINE_MARKER, cvss: null, kev: false, firstSeenAt: now })
+      .values({ domainId, ip, cveId: BASELINE_MARKER, cvss: null, kev: false, firstSeenAt: now, alertedAt: now })
       .onConflictDoNothing()
       .run()
   }
 
-  const fresh: AssetCve[] = []
   for (const c of cves) {
     if (known.has(c.id)) continue
     known.add(c.id)
     db.insert(assetCves)
-      .values({ domainId, ip, cveId: c.id, cvss: c.cvss, kev: c.kev, firstSeenAt: now })
+      .values({
+        domainId,
+        ip,
+        cveId: c.id,
+        cvss: c.cvss,
+        kev: c.kev,
+        firstSeenAt: now,
+        // First-ever scan = baseline: stamp it so it never alerts. A later scan
+        // = genuinely new: leave alerted_at NULL so it is alerted (and re-driven
+        // if we crash before the alert fires).
+        alertedAt: seenBefore ? null : now,
+      })
       .onConflictDoNothing()
       .run()
-    if (seenBefore) fresh.push(c)
   }
-  return fresh
+
+  // Everything un-alerted for this asset (excluding the marker) is due an alert.
+  return db
+    .select({ cveId: assetCves.cveId, cvss: assetCves.cvss, kev: assetCves.kev })
+    .from(assetCves)
+    .where(
+      and(
+        eq(assetCves.domainId, domainId),
+        eq(assetCves.ip, ip),
+        isNull(assetCves.alertedAt),
+        ne(assetCves.cveId, BASELINE_MARKER),
+      ),
+    )
+    .all()
+    .map((r) => ({ id: r.cveId, cvss: r.cvss, kev: r.kev }))
+}
+
+// Stamp CVE rows as alerted — called by the handler ONLY after alertNewCves has
+// finished, so an interruption before this point leaves them re-drivable.
+export function markCvesAlerted(domainId: number, ip: string, cveIds: string[]): void {
+  if (!cveIds.length) return
+  db.update(assetCves)
+    .set({ alertedAt: new Date() })
+    .where(and(eq(assetCves.domainId, domainId), eq(assetCves.ip, ip), inArray(assetCves.cveId, cveIds)))
+    .run()
 }
 
 function scoreFor(c: AssetCve): number {
@@ -97,10 +135,18 @@ export async function alertNewCves(
     })
   }
 
+  // The durable cve_new findings above are the primary alert; Discord is a
+  // best-effort notification. Swallow its failures so a webhook outage doesn't
+  // throw (which would stop the handler from marking these CVEs alerted and make
+  // them re-fire every scan). The finding is already persisted.
   if (isDiscordConfigured()) {
-    await alertList(
-      `🚨 ${fresh.length} new CVE(s) on ${host} (${ip})`,
-      fresh.map((c) => `${c.id}${c.kev ? ' [KEV]' : ''}${c.cvss != null ? ` · CVSS ${c.cvss}` : ''}`),
-    )
+    try {
+      await alertList(
+        `🚨 ${fresh.length} new CVE(s) on ${host} (${ip})`,
+        fresh.map((c) => `${c.id}${c.kev ? ' [KEV]' : ''}${c.cvss != null ? ` · CVSS ${c.cvss}` : ''}`),
+      )
+    } catch {
+      /* notification is best-effort */
+    }
   }
 }
