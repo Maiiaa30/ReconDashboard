@@ -6,7 +6,25 @@ import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/Confirm'
 import { timeAgo } from '../lib/format'
+import { setPendingReplay, type PendingReplay } from '../lib/replayHandoff'
 
+interface SpecParam {
+  name: string
+  in: string
+  required: boolean
+}
+interface SpecBodyField {
+  name: string
+  type: string
+  required: boolean
+}
+interface SpecEndpoint {
+  method: string
+  path: string
+  summary?: string | null
+  params?: SpecParam[]
+  body?: { contentType: string; fields: SpecBodyField[] } | null
+}
 interface SpecData {
   kind: 'openapi'
   host: string
@@ -18,7 +36,12 @@ interface SpecData {
   servers: string[]
   authSchemes: string[]
   operationCount: number
-  endpoints: { method: string; path: string }[]
+  endpoints: SpecEndpoint[]
+}
+interface GqlOperation {
+  kind: 'query' | 'mutation'
+  name: string
+  args: { name: string; type: string }[]
 }
 interface GqlData {
   kind: 'graphql'
@@ -27,6 +50,43 @@ interface GqlData {
   introspectionEnabled: boolean
   queryType: string | null
   typeCount: number
+  operations?: GqlOperation[]
+}
+
+// --- Build a starter Repeater request from a discovered operation -------------
+function pickServer(d: SpecData): string {
+  const abs = (d.servers ?? []).find((s) => /^https?:\/\//i.test(s))
+  if (abs) return abs.replace(/\/+$/, '')
+  const rel = (d.servers ?? [])[0]
+  const base = `https://${d.host}`
+  return rel && rel.startsWith('/') ? base + rel.replace(/\/+$/, '') : base
+}
+function sampleForType(t: string): unknown {
+  if (t.endsWith('[]')) return []
+  const b = t.replace(/\[\]$/, '')
+  if (/^(number|integer|int|float|double|long)$/i.test(b)) return 0
+  if (/^bool/i.test(b)) return false
+  if (/^string$/i.test(b)) return ''
+  return null
+}
+function specToReplay(d: SpecData, e: SpecEndpoint): PendingReplay {
+  const path = e.path.startsWith('/') ? e.path : '/' + e.path
+  const url = pickServer(d) + path
+  const headers: [string, string][] = []
+  let body: string | null = null
+  if (e.body?.fields?.length) {
+    headers.push(['Content-Type', e.body.contentType || 'application/json'])
+    body = JSON.stringify(Object.fromEntries(e.body.fields.map((f) => [f.name, sampleForType(f.type)])), null, 2)
+  }
+  const auth = d.authSchemes ?? []
+  if (auth.some((s) => /bearer|oauth2|http|jwt/i.test(s))) headers.push(['Authorization', 'Bearer <token>'])
+  else if (auth.some((s) => /apikey|api_key/i.test(s))) headers.push(['X-API-Key', '<key>'])
+  return { method: e.method, url, headers, body }
+}
+function gqlToReplay(d: GqlData, op: GqlOperation): PendingReplay {
+  const argHint = op.args.length ? `  # args: ${op.args.map((a) => `${a.name}: ${a.type}`).join(', ')}` : ''
+  const query = `${op.kind} {\n  ${op.name}${argHint}\n}`
+  return { method: 'POST', url: d.endpoint, headers: [['Content-Type', 'application/json']], body: JSON.stringify({ query }, null, 2) }
 }
 interface JsData {
   kind: 'js'
@@ -41,10 +101,15 @@ interface JsData {
   env?: { key: string; value: string | null }[] // baked-in public env config
 }
 
-export function ApiSurface() {
+export function ApiSurface({ navigate }: { navigate: (page: string, domainId?: number) => void }) {
   const { selected } = useApp()
   const toast = useToast()
   const ask = useConfirm()
+  // Drop a starter request into the Repeater and jump there.
+  const sendToReplay = (r: PendingReplay) => {
+    setPendingReplay(r)
+    navigate('replay')
+  }
   const [findings, setFindings] = useState<Finding[]>([])
   const [crawlFindings, setCrawlFindings] = useState<Finding[]>([])
   const [ffufFindings, setFfufFindings] = useState<Finding[]>([])
@@ -294,10 +359,10 @@ export function ApiSurface() {
       ) : (
         <div className="space-y-3">
           {gqls.map(({ f, d }) => (
-            <GraphqlCard key={f.id} d={d} at={f.createdAt} score={f.score} />
+            <GraphqlCard key={f.id} d={d} at={f.createdAt} score={f.score} onReplay={sendToReplay} />
           ))}
           {specs.map(({ f, d }) => (
-            <SpecCard key={f.id} d={d} at={f.createdAt} score={f.score} />
+            <SpecCard key={f.id} d={d} at={f.createdAt} score={f.score} onReplay={sendToReplay} />
           ))}
           {jsCards.map(({ f, d }) => (
             <JsCard key={f.id} d={d} at={f.createdAt} score={f.score} />
@@ -314,7 +379,20 @@ export function ApiSurface() {
   )
 }
 
-function GraphqlCard({ d, at, score }: { d: GqlData; at: string; score: number | null }) {
+function GraphqlCard({
+  d,
+  at,
+  score,
+  onReplay,
+}: {
+  d: GqlData
+  at: string
+  score: number | null
+  onReplay: (r: PendingReplay) => void
+}) {
+  const [opsOpen, setOpsOpen] = useState(false)
+  const operations = Array.isArray(d.operations) ? d.operations : []
+  const shownOps = opsOpen ? operations : operations.slice(0, 12)
   return (
     <Card className={d.introspectionEnabled ? 'border-red-900/50' : ''}>
       <div className="flex flex-wrap items-center gap-2">
@@ -339,6 +417,42 @@ function GraphqlCard({ d, at, score }: { d: GqlData; at: string; score: number |
           Introspection exposes the entire schema (queries, mutations, types) to anyone — usually disabled in production.
         </p>
       )}
+
+      {operations.length > 0 && (
+        <div className="mt-2.5">
+          <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-600">Callable operations ({operations.length})</div>
+          <div className="space-y-1">
+            {shownOps.map((op, i) => (
+              <div key={i} className="flex items-center gap-2 rounded border border-hair bg-ink-900/50 px-2 py-1">
+                <Badge tone={op.kind === 'mutation' ? 'amber' : 'green'}>{op.kind}</Badge>
+                <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-zinc-200">
+                  {op.name}
+                  {op.args.length > 0 && (
+                    <span className="text-zinc-500">({op.args.map((a) => `${a.name}: ${a.type}`).join(', ')})</span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onReplay(gqlToReplay(d, op))}
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-sky-400 hover:bg-ink-800 hover:text-sky-300"
+                  title="Send a starter query to Replay"
+                >
+                  → Replay
+                </button>
+              </div>
+            ))}
+          </div>
+          {operations.length > 12 && (
+            <button
+              onClick={() => setOpsOpen((v) => !v)}
+              className="mt-1 inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300"
+            >
+              <ChevronRight size={12} className={opsOpen ? 'rotate-90 transition' : 'transition'} />
+              {opsOpen ? 'show fewer' : `show all ${operations.length}`}
+            </button>
+          )}
+        </div>
+      )}
     </Card>
   )
 }
@@ -351,8 +465,25 @@ const METHOD_TONE: Record<string, string> = {
   DELETE: 'text-red-300 bg-red-500/10',
 }
 
-function SpecCard({ d, at, score }: { d: SpecData; at: string; score: number | null }) {
+function SpecCard({
+  d,
+  at,
+  score,
+  onReplay,
+}: {
+  d: SpecData
+  at: string
+  score: number | null
+  onReplay: (r: PendingReplay) => void
+}) {
   const [open, setOpen] = useState(false)
+  const [openOps, setOpenOps] = useState<Set<number>>(new Set())
+  const toggleOp = (i: number) =>
+    setOpenOps((cur) => {
+      const next = new Set(cur)
+      next.has(i) ? next.delete(i) : next.add(i)
+      return next
+    })
   // Defend against any legacy/partial finding missing these arrays.
   const endpoints = Array.isArray(d.endpoints) ? d.endpoints : []
   const servers = Array.isArray(d.servers) ? d.servers : []
@@ -382,15 +513,73 @@ function SpecCard({ d, at, score }: { d: SpecData; at: string; score: number | n
       )}
 
       {endpoints.length > 0 && (
-        <div className="mt-2.5">
-          <div className="flex flex-wrap gap-1">
-            {shown.map((e, i) => (
-              <span key={i} className="inline-flex items-center gap-1 rounded border border-hair bg-ink-900/50 px-1.5 py-0.5 font-mono text-[11px]">
-                <span className={`rounded px-1 ${METHOD_TONE[e.method] ?? 'text-zinc-300 bg-ink-800'}`}>{e.method}</span>
-                <span className="text-zinc-300 break-all">{e.path}</span>
-              </span>
-            ))}
-          </div>
+        <div className="mt-2.5 space-y-1">
+          {shown.map((e, i) => {
+            const hasDetail = !!(e.summary || e.params?.length || e.body?.fields?.length)
+            const isOpen = openOps.has(i)
+            return (
+              <div key={i} className="rounded border border-hair bg-ink-900/50">
+                <div className="flex items-center gap-2 px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => hasDetail && toggleOp(i)}
+                    className={`flex min-w-0 flex-1 items-center gap-2 text-left ${hasDetail ? 'cursor-pointer' : 'cursor-default'}`}
+                  >
+                    <span className={`rounded px-1 font-mono text-[11px] ${METHOD_TONE[e.method] ?? 'text-zinc-300 bg-ink-800'}`}>
+                      {e.method}
+                    </span>
+                    <span className="truncate font-mono text-[11px] text-zinc-300">{e.path}</span>
+                    {hasDetail && (
+                      <ChevronRight size={11} className={`shrink-0 text-zinc-600 transition ${isOpen ? 'rotate-90' : ''}`} />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onReplay(specToReplay(d, e))}
+                    className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-sky-400 hover:bg-ink-800 hover:text-sky-300"
+                    title="Send a starter request to Replay"
+                  >
+                    → Replay
+                  </button>
+                </div>
+                {isOpen && hasDetail && (
+                  <div className="space-y-1.5 border-t border-hair/60 px-2 py-1.5 text-[11px]">
+                    {e.summary && <div className="text-zinc-400">{e.summary}</div>}
+                    {e.params?.length ? (
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-zinc-600">Params</div>
+                        <div className="mt-0.5 flex flex-wrap gap-1">
+                          {e.params.map((p, j) => (
+                            <span key={j} className="rounded bg-ink-800/70 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
+                              {p.name}
+                              <span className="text-zinc-500">
+                                {' '}
+                                ({p.in}
+                                {p.required ? ', required' : ''})
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {e.body?.fields?.length ? (
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-zinc-600">Body ({e.body.contentType})</div>
+                        <div className="mt-0.5 flex flex-wrap gap-1">
+                          {e.body.fields.map((f, j) => (
+                            <span key={j} className="rounded bg-ink-800/70 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
+                              {f.name}: <span className="text-accent-fg">{f.type}</span>
+                              {f.required && <span className="text-red-400">*</span>}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            )
+          })}
           {endpoints.length > 8 && (
             <button onClick={() => setOpen((v) => !v)} className="mt-1.5 inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300">
               <ChevronRight size={12} className={open ? 'rotate-90 transition' : 'transition'} />

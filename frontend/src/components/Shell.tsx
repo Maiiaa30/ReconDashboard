@@ -429,7 +429,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {active === 'traffic' && <Traffic navigate={navigate} />}
           {active === 'exposure' && <Exposure />}
           {active === 'ports' && <Ports />}
-          {active === 'api' && <ApiSurface />}
+          {active === 'api' && <ApiSurface navigate={navigate} />}
           {active === 'osint' && <Osint />}
           {active === 'social' && <SocialForensics />}
           {active === 'leaks' && <DataLeaks />}

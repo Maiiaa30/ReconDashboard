@@ -53,6 +53,27 @@ function isApiEndpoint(e: string): boolean {
   return false
 }
 
+// A single parameter (query/path/header/cookie) an operation accepts.
+export interface SpecParam {
+  name: string
+  in: string // query | path | header | cookie | body
+  required: boolean
+}
+// One field of a JSON request body (name + declared type + required flag).
+export interface SpecBodyField {
+  name: string
+  type: string
+  required: boolean
+}
+// A single operation with enough detail to actually call it.
+export interface SpecEndpoint {
+  method: string
+  path: string
+  summary?: string | null
+  params?: SpecParam[]
+  body?: { contentType: string; fields: SpecBodyField[] } | null
+}
+
 export interface ApiSpec {
   specUrl: string
   format: 'openapi' | 'swagger'
@@ -62,7 +83,15 @@ export interface ApiSpec {
   servers: string[]
   authSchemes: string[]
   operationCount: number
-  endpoints: { method: string; path: string }[]
+  endpoints: SpecEndpoint[]
+}
+
+// A callable GraphQL root field (query/mutation) + the arguments it takes — the
+// "how to call it" detail that a bare "introspection enabled" flag hides.
+export interface GqlOperation {
+  kind: 'query' | 'mutation'
+  name: string
+  args: { name: string; type: string }[]
 }
 
 export interface GraphqlInfo {
@@ -70,6 +99,7 @@ export interface GraphqlInfo {
   introspectionEnabled: boolean
   queryType: string | null
   typeCount: number
+  operations?: GqlOperation[]
 }
 
 export interface JsFindings {
@@ -106,6 +136,50 @@ export interface ApiSurfaceResult {
   js: JsFindings
 }
 
+// Resolve a local JSON-pointer $ref (`#/components/schemas/X`, `#/definitions/X`)
+// against the spec document. Returns null for external/unresolvable refs.
+function resolveRef(doc: any, ref: unknown): any {
+  if (typeof ref !== 'string' || !ref.startsWith('#/')) return null
+  let cur = doc
+  for (const raw of ref.slice(2).split('/')) {
+    const key = raw.replace(/~1/g, '/').replace(/~0/g, '~')
+    cur = cur?.[key]
+    if (cur == null) return null
+  }
+  return cur
+}
+
+// Short type label for a schema node (follows one $ref / array items level).
+function schemaTypeLabel(doc: any, schema: any, depth = 0): string {
+  if (!schema || typeof schema !== 'object' || depth > 3) return 'any'
+  if (schema.$ref) {
+    const name = String(schema.$ref).split('/').pop() || 'object'
+    return name
+  }
+  if (schema.type === 'array') return `${schemaTypeLabel(doc, schema.items, depth + 1)}[]`
+  if (Array.isArray(schema.enum)) return `enum(${schema.type ?? 'string'})`
+  return typeof schema.type === 'string' ? schema.type : 'object'
+}
+
+// Flatten a request-body schema into a bounded list of top-level fields.
+function bodyFields(doc: any, schema: any, depth = 0): SpecBodyField[] {
+  if (!schema || typeof schema !== 'object' || depth > 3) return []
+  if (schema.$ref) return bodyFields(doc, resolveRef(doc, schema.$ref), depth + 1)
+  let obj = schema
+  if (schema.type === 'array' && schema.items) {
+    obj = schema.items.$ref ? resolveRef(doc, schema.items.$ref) : schema.items
+  }
+  const props = obj?.properties
+  if (!props || typeof props !== 'object') return []
+  const required = new Set(Array.isArray(obj.required) ? obj.required.map(String) : [])
+  const fields: SpecBodyField[] = []
+  for (const [name, s] of Object.entries(props)) {
+    if (fields.length >= 30) break
+    fields.push({ name, type: schemaTypeLabel(doc, s), required: required.has(name) })
+  }
+  return fields
+}
+
 export function parseSpec(url: string, body: string): ApiSpec | null {
   let doc: any
   try {
@@ -118,11 +192,48 @@ export function parseSpec(url: string, body: string): ApiSpec | null {
   if (!isOpenapi && !isSwagger) return null
 
   const paths = doc.paths && typeof doc.paths === 'object' ? doc.paths : {}
-  const endpoints: { method: string; path: string }[] = []
-  for (const [p, ops] of Object.entries(paths)) {
-    if (!ops || typeof ops !== 'object') continue
+  const endpoints: SpecEndpoint[] = []
+  for (const [p, itemRaw] of Object.entries(paths)) {
+    const pathItem = itemRaw as Record<string, any> | null
+    if (!pathItem || typeof pathItem !== 'object') continue
+    // Path-level parameters apply to every operation under this path.
+    const sharedParams: any[] = Array.isArray(pathItem.parameters) ? pathItem.parameters : []
     for (const m of HTTP_METHODS) {
-      if ((ops as Record<string, unknown>)[m]) endpoints.push({ method: m.toUpperCase(), path: p })
+      const op = pathItem[m]
+      if (!op || typeof op !== 'object') continue
+
+      const params: SpecParam[] = []
+      let bodyContract: SpecEndpoint['body'] = null
+      const rawParams = [...sharedParams, ...(Array.isArray(op.parameters) ? op.parameters : [])]
+        .map((pp: any) => (pp?.$ref ? resolveRef(doc, pp.$ref) : pp))
+        .filter((pp: any) => pp && typeof pp === 'object')
+      for (const pp of rawParams) {
+        if (pp.in === 'body') {
+          // Swagger 2 body parameter carries the schema directly.
+          bodyContract = { contentType: 'application/json', fields: bodyFields(doc, pp.schema) }
+        } else if (pp.name && pp.in && params.length < 20) {
+          params.push({ name: String(pp.name), in: String(pp.in), required: !!pp.required })
+        }
+      }
+      // OpenAPI 3 request body: components-referenced content by media type.
+      if (!bodyContract && op.requestBody) {
+        const rb = op.requestBody.$ref ? resolveRef(doc, op.requestBody.$ref) : op.requestBody
+        const content = rb?.content
+        if (content && typeof content === 'object') {
+          const ct = content['application/json'] ? 'application/json' : Object.keys(content)[0]
+          const schema = ct ? content[ct]?.schema : null
+          if (schema) bodyContract = { contentType: ct, fields: bodyFields(doc, schema) }
+        }
+      }
+
+      const summaryRaw = typeof op.summary === 'string' ? op.summary : typeof op.description === 'string' ? op.description : null
+      endpoints.push({
+        method: m.toUpperCase(),
+        path: p,
+        summary: summaryRaw ? summaryRaw.slice(0, 120) : null,
+        ...(params.length ? { params } : {}),
+        ...(bodyContract ? { body: bodyContract } : {}),
+      })
     }
   }
 
@@ -152,9 +263,45 @@ export function parseSpec(url: string, body: string): ApiSpec | null {
   }
 }
 
-const INTROSPECTION_QUERY = JSON.stringify({
-  query: '{__schema{queryType{name} types{name}}}',
+// Shallow probe: reliably detects the endpoint + whether introspection is on,
+// WITHOUT the deep nesting that trips server query-depth guards (a deep query can
+// be rejected outright, hiding a real endpoint). The operations query below is a
+// best-effort second step only after this confirms introspection.
+const DETECT_QUERY = JSON.stringify({ query: '{__schema{queryType{name} types{name}}}' })
+// Ask for the root query/mutation FIELDS (+ their argument types) — those fields
+// are the operations an operator can actually call. Three ofType levels unwrap the
+// common NON_NULL(LIST(NON_NULL(Named))) nesting.
+const ARG_TYPE = 'type{kind name ofType{kind name ofType{kind name ofType{kind name}}}}'
+const OPERATIONS_QUERY = JSON.stringify({
+  query: `{__schema{queryType{name fields{name args{name ${ARG_TYPE}}}} mutationType{name fields{name args{name ${ARG_TYPE}}}}}}`,
 })
+
+// Render a GraphQL type reference (NON_NULL / LIST wrappers) to SDL, e.g. "[ID!]!".
+function gqlTypeName(t: any): string {
+  if (!t || typeof t !== 'object') return 'Unknown'
+  if (t.kind === 'NON_NULL') return `${gqlTypeName(t.ofType)}!`
+  if (t.kind === 'LIST') return `[${gqlTypeName(t.ofType)}]`
+  return typeof t.name === 'string' ? t.name : 'Unknown'
+}
+
+// Build the callable operation list from an introspected __schema (bounded).
+function buildGqlOperations(schema: any): GqlOperation[] {
+  const out: GqlOperation[] = []
+  const take = (root: any, kind: 'query' | 'mutation') => {
+    const fields = Array.isArray(root?.fields) ? root.fields : []
+    for (const f of fields) {
+      if (out.length >= 150 || !f?.name) break
+      const args = (Array.isArray(f.args) ? f.args : [])
+        .slice(0, 20)
+        .map((a: any) => ({ name: String(a?.name ?? ''), type: gqlTypeName(a?.type) }))
+        .filter((a: { name: string }) => a.name)
+      out.push({ kind, name: String(f.name), args })
+    }
+  }
+  take(schema?.queryType, 'query')
+  take(schema?.mutationType, 'mutation')
+  return out
+}
 
 // Fetch a host's homepage and pull out its JS bundle URLs — the live corpus
 // jsRecon mines for API endpoints. Matches BOTH <script src> AND
@@ -260,8 +407,30 @@ async function sweepSpecs(host: string): Promise<ApiSpec[]> {
   return specs
 }
 
+// Best-effort second step: fetch the callable operations from an endpoint already
+// confirmed to allow introspection. The deeper query can be rejected by a query-
+// depth/cost guard — that's fine, we just return none and keep the detection.
+async function fetchGqlOperations(endpoint: string): Promise<GqlOperation[]> {
+  const res = await guardedFetch(endpoint, {
+    method: 'POST',
+    timeoutMs: TIMEOUT_MS,
+    headers: { 'Content-Type': 'application/json' },
+    body: OPERATIONS_QUERY,
+    maxBytes: MAX_SPEC_BYTES,
+  })
+  if (!res) return []
+  try {
+    const schema = JSON.parse(res.body)?.data?.__schema
+    return schema ? buildGqlOperations(schema) : []
+  } catch {
+    return []
+  }
+}
+
 // GraphQL: parallel introspection probes; report a SINGLE endpoint per host,
-// preferring one where introspection is enabled.
+// preferring one where introspection is enabled. Detection uses a SHALLOW query
+// (deep queries get rejected by query-depth guards, which would hide the
+// endpoint); the winner is then enriched with its callable operations.
 async function sweepGraphql(host: string): Promise<GraphqlInfo[]> {
   for (const scheme of ['https', 'http'] as const) {
     const probed = await mapLimit(
@@ -273,7 +442,7 @@ async function sweepGraphql(host: string): Promise<GraphqlInfo[]> {
           method: 'POST',
           timeoutMs: TIMEOUT_MS,
           headers: { 'Content-Type': 'application/json' },
-          body: INTROSPECTION_QUERY,
+          body: DETECT_QUERY,
           maxBytes: MAX_SPEC_BYTES,
         })
         if (!res) return null
@@ -286,7 +455,9 @@ async function sweepGraphql(host: string): Promise<GraphqlInfo[]> {
         const schema = doc?.data?.__schema
         const gqlError =
           Array.isArray(doc?.errors) &&
-          /cannot query field|must provide (a )?query|graphql|syntax error|unknown operation|introspection/i.test(res.body)
+          /cannot query field|must provide (a )?query|graphql|syntax error|unknown operation|introspection|depth limit|query (is too )?complex|complexity|cost limit/i.test(
+            res.body,
+          )
         if (!schema && !gqlError) return null
         return {
           endpoint: url,
@@ -300,7 +471,12 @@ async function sweepGraphql(host: string): Promise<GraphqlInfo[]> {
     const matches = probed.filter((m): m is GraphqlInfo => m !== null)
     if (matches.length) {
       const best = matches.find((m) => m.introspectionEnabled) ?? matches[0]
-      return best ? [best] : []
+      if (!best) return []
+      if (best.introspectionEnabled) {
+        const operations = await fetchGqlOperations(best.endpoint)
+        if (operations.length) best.operations = operations
+      }
+      return [best]
     }
   }
   return []

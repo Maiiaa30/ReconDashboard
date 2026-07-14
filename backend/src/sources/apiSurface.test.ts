@@ -19,9 +19,64 @@ describe('parseSpec', () => {
     expect(spec!.title).toBe('Orders API')
     expect(spec!.apiVersion).toBe('2.4.0')
     expect(spec!.operationCount).toBe(4)
-    expect(spec!.endpoints).toContainEqual({ method: 'DELETE', path: '/orders/{id}' })
+    expect(spec!.endpoints).toContainEqual(expect.objectContaining({ method: 'DELETE', path: '/orders/{id}' }))
     expect(spec!.servers).toEqual(['https://api.example.com/v2'])
     expect(spec!.authSchemes).toEqual(['bearerAuth:http'])
+  })
+
+  it('extracts per-operation params + request body (resolving $ref)', () => {
+    const doc = {
+      openapi: '3.0.1',
+      info: { title: 'Shop', version: '1' },
+      components: {
+        schemas: {
+          NewUser: {
+            type: 'object',
+            required: ['email'],
+            properties: { email: { type: 'string' }, age: { type: 'integer' }, tags: { type: 'array', items: { type: 'string' } } },
+          },
+        },
+      },
+      paths: {
+        '/users/{id}': {
+          parameters: [{ name: 'id', in: 'path', required: true }],
+          post: {
+            summary: 'Create user',
+            requestBody: { content: { 'application/json': { schema: { $ref: '#/components/schemas/NewUser' } } } },
+          },
+        },
+      },
+    }
+    const spec = parseSpec('https://x/openapi.json', JSON.stringify(doc))
+    const op = spec!.endpoints.find((e) => e.method === 'POST' && e.path === '/users/{id}')
+    expect(op).toBeTruthy()
+    expect(op!.summary).toBe('Create user')
+    expect(op!.params).toContainEqual({ name: 'id', in: 'path', required: true })
+    expect(op!.body?.contentType).toBe('application/json')
+    expect(op!.body?.fields).toContainEqual({ name: 'email', type: 'string', required: true })
+    expect(op!.body?.fields).toContainEqual({ name: 'tags', type: 'string[]', required: false })
+  })
+
+  it('extracts a Swagger 2 in:body parameter schema', () => {
+    const doc = {
+      swagger: '2.0',
+      info: { title: 'L', version: '1' },
+      definitions: { Login: { type: 'object', required: ['user', 'pass'], properties: { user: { type: 'string' }, pass: { type: 'string' } } } },
+      paths: {
+        '/login': {
+          post: {
+            parameters: [
+              { name: 'body', in: 'body', schema: { $ref: '#/definitions/Login' } },
+              { name: 'verbose', in: 'query', required: false },
+            ],
+          },
+        },
+      },
+    }
+    const spec = parseSpec('https://x/swagger.json', JSON.stringify(doc))
+    const op = spec!.endpoints[0]
+    expect(op.params).toContainEqual({ name: 'verbose', in: 'query', required: false })
+    expect(op.body?.fields).toContainEqual({ name: 'user', type: 'string', required: true })
   })
 
   it('parses a Swagger 2 document (host/basePath/securityDefinitions)', () => {
