@@ -630,6 +630,9 @@ export const api = {
   },
   updateFinding: (id: number, patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ finding: Finding }>(`/findings/${id}`, patchBody),
+  // Attach evidence (request/response/screenshot/note) to a finding (merged).
+  attachEvidence: (id: number, body: { request?: string; response?: string; screenshotPath?: string; note?: string }) =>
+    post<{ finding: Finding; evidenceCount: number }>(`/findings/${id}/evidence`, body),
 
   // immutable report snapshots (frozen deliverables)
   snapshots: (domainId: number) => get<{ snapshots: ReportSnapshot[] }>(`/domains/${domainId}/report/snapshots`),
@@ -637,6 +640,8 @@ export const api = {
     post<{ snapshot: ReportSnapshot }>(`/domains/${domainId}/report/snapshot`, label ? { label } : {}),
   deleteSnapshot: (id: number) => del<{ ok: true }>(`/report/snapshots/${id}`),
   snapshotUrl: (id: number, format: 'html' | 'md') => `/api/report/snapshots/${id}?format=${format}`,
+  // Chromium-rendered PDF of a frozen snapshot.
+  reportPdfUrl: (id: number) => `/api/export/report/${id}.pdf`,
   bulkUpdateFindings: (ids: number[], patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ changed: number }>('/findings/bulk', { ids, ...patchBody }),
 

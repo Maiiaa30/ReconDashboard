@@ -168,6 +168,42 @@ export function getFinding(id: number) {
   return r ? mapRow(r, safeJsonParse<unknown>(r.data, null)) : undefined
 }
 
+// Operator-attached evidence lives as an array on the finding's data.evidence
+// (merged, never clobbered). The report renders these alongside any auto-captured
+// data.repro. Bounded so a finding's JSON can't balloon.
+export interface EvidenceItem {
+  request?: string
+  response?: string
+  screenshotPath?: string
+  note?: string
+  addedAt: string
+}
+const EVIDENCE_MAX_ITEMS = 25
+
+export function appendEvidence(
+  id: number,
+  item: { request?: string; response?: string; screenshotPath?: string; note?: string },
+): { evidenceCount: number } | null {
+  const row = db.select().from(findings).where(eq(findings.id, id)).limit(1).all()[0]
+  if (!row) return null
+  const data = safeJsonParse<Record<string, unknown>>(row.data, {}) ?? {}
+  if (typeof data !== 'object' || Array.isArray(data)) return null
+  const clip = (s: string | undefined, n: number) => (typeof s === 'string' && s.trim() ? s.slice(0, n) : undefined)
+  const entry: EvidenceItem = {
+    request: clip(item.request, 64 * 1024),
+    response: clip(item.response, 128 * 1024),
+    screenshotPath: clip(item.screenshotPath, 512),
+    note: clip(item.note, 4096),
+    addedAt: new Date().toISOString(),
+  }
+  if (!entry.request && !entry.response && !entry.screenshotPath && !entry.note) return null // nothing to attach
+  const evidence: EvidenceItem[] = Array.isArray(data.evidence) ? (data.evidence as EvidenceItem[]) : []
+  evidence.push(entry)
+  data.evidence = evidence.slice(-EVIDENCE_MAX_ITEMS)
+  db.update(findings).set({ data: JSON.stringify(data) }).where(eq(findings.id, id)).run()
+  return { evidenceCount: (data.evidence as EvidenceItem[]).length }
+}
+
 // Update triage fields only (status/note). Re-scans never touch these, so an
 // operator's triage survives across discovery runs (addFinding's upsert leaves
 // status/note untouched).

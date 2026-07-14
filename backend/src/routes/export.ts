@@ -4,6 +4,7 @@ import { listSubdomains } from '../subdomains/store'
 import { listFindings, type FindingType } from '../findings/store'
 import { buildDomainReport, buildDomainReportHtml } from '../findings/report'
 import { createSnapshot, deleteSnapshot, getSnapshot, listSnapshots } from '../findings/snapshots'
+import { renderHtmlToPdf } from '../sources/screenshot'
 import { toCsv } from '../util/csv'
 import { config } from '../config'
 import { llmComplete, llmEnabled } from '../util/llm'
@@ -116,6 +117,22 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
   app.delete<{ Params: { sid: string } }>('/api/report/snapshots/:sid', async (request, reply) => {
     if (!deleteSnapshot(Number(request.params.sid))) return reply.code(404).send({ error: 'snapshot not found' })
     return { ok: true }
+  })
+
+  // Render a frozen snapshot's HTML to PDF via headless Chromium. Path is
+  // ".../:snapshotId.pdf" so a browser saves it with a .pdf name.
+  app.get<{ Params: { file: string } }>('/api/export/report/:file', async (request, reply) => {
+    const sid = Number(String(request.params.file).replace(/\.pdf$/i, ''))
+    if (!Number.isFinite(sid)) return reply.code(400).send({ error: 'invalid snapshot id' })
+    const snap = getSnapshot(sid)
+    if (!snap) return reply.code(404).send({ error: 'snapshot not found' })
+    const pdf = await renderHtmlToPdf(snap.contentHtml)
+    if (!pdf) return reply.code(503).send({ error: 'PDF rendering unavailable (Chromium not installed in this image)' })
+    const date = new Date(snap.createdAt).toISOString().slice(0, 10)
+    reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="${snap.host}-report-${date}.pdf"`)
+    return reply.send(pdf)
   })
 
   // Optional AI-DRAFTED executive narrative (grounded strictly in the finding

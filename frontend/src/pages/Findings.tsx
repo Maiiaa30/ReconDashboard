@@ -795,6 +795,13 @@ function SnapshotsPanel({ domainId }: { domainId: number }) {
                   )}
                   <span className="ml-auto flex items-center gap-2">
                     <a
+                      href={api.reportPdfUrl(s.id)}
+                      className="rounded border border-accent-500/40 bg-accent-500/10 px-2 py-0.5 text-xs text-accent-fg transition hover:bg-accent-500/20"
+                      title="Download this snapshot as a PDF (rendered server-side)"
+                    >
+                      PDF
+                    </a>
+                    <a
                       href={api.snapshotUrl(s.id, 'html')}
                       className="rounded border border-hair px-2 py-0.5 text-xs text-zinc-300 transition hover:border-hair-strong hover:bg-ink-800"
                       title="Download the frozen HTML report"

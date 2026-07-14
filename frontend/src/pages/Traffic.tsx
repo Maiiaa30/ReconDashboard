@@ -5,6 +5,7 @@ import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/Confirm'
+import { AttachToFinding } from '../components/AttachToFinding'
 import { timeAgo } from '../lib/format'
 import { setPendingReplay } from '../lib/replayHandoff'
 
@@ -221,7 +222,13 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
             <Empty>No captured requests match “{query}”.</Empty>
           ) : (
             filtered.map((c) => (
-              <CaptureRow key={c.id} c={c} onSend={() => sendToReplay(c)} onDelete={() => deleteOne(c.id)} />
+              <CaptureRow
+                key={c.id}
+                c={c}
+                domainId={c.domainId ?? selected.id}
+                onSend={() => sendToReplay(c)}
+                onDelete={() => deleteOne(c.id)}
+              />
             ))
           )}
         </div>
@@ -230,11 +237,28 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
   )
 }
 
-function CaptureRow({ c, onSend, onDelete }: { c: Capture; onSend: () => void; onDelete: () => void }) {
+function CaptureRow({
+  c,
+  domainId,
+  onSend,
+  onDelete,
+}: {
+  c: Capture
+  domainId: number
+  onSend: () => void
+  onDelete: () => void
+}) {
   const [open, setOpen] = useState(false)
   const [body, setBody] = useState<string | null>(c.body)
   const [bodyLoading, setBodyLoading] = useState(false)
   const { tags, interesting, authed } = useMemo(() => analyze(c), [c])
+
+  // Plain-text request for attaching as evidence. Includes the body when it's
+  // already loaded (expand the row to fetch it); request-only is fine otherwise.
+  const reqStr = useMemo(() => {
+    const headerLines = c.headers.map(([k, v]) => `${k}: ${v}`).join('\n')
+    return `${c.method} ${c.url}\n${headerLines}${body ? `\n\n${body}` : ''}`.trimEnd()
+  }, [c, body])
 
   async function toggle() {
     const next = !open
@@ -270,6 +294,7 @@ function CaptureRow({ c, onSend, onDelete }: { c: Capture; onSend: () => void; o
         <Button variant="ghost" onClick={onSend}>
           <Repeat size={14} /> Send to Replay
         </Button>
+        <AttachToFinding domainId={domainId} request={reqStr} />
         <button
           onClick={onDelete}
           title="Delete this request"

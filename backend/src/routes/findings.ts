@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify'
 import {
+  appendEvidence,
   bulkUpdateTriage,
   FINDING_STATUSES,
   getFinding,
@@ -80,6 +81,22 @@ export const findingRoutes: FastifyPluginAsync = async (app) => {
       const ok = updateFindingTriage(id, { status: status as FindingStatus | undefined, note })
       if (!ok) return reply.code(404).send({ error: 'finding not found' })
       return { finding: getFinding(id) }
+    },
+  )
+
+  // Attach evidence (a request/response, screenshot path, or note) to a finding.
+  // Merged into data.evidence (never clobbered) and rendered in the report.
+  app.post<{ Params: { id: string }; Body: { request?: string; response?: string; screenshotPath?: string; note?: string } }>(
+    '/api/findings/:id/evidence',
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      if (!Number.isFinite(id)) return reply.code(400).send({ error: 'invalid id' })
+      if (!getFinding(id)) return reply.code(404).send({ error: 'finding not found' })
+      const b = request.body ?? {}
+      const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
+      const res = appendEvidence(id, { request: str(b.request), response: str(b.response), screenshotPath: str(b.screenshotPath), note: str(b.note) })
+      if (!res) return reply.code(400).send({ error: 'provide at least one of: request, response, screenshotPath, note' })
+      return { finding: getFinding(id), evidenceCount: res.evidenceCount }
     },
   )
 }

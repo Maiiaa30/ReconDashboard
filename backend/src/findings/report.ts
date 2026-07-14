@@ -252,8 +252,8 @@ export function buildDomainReport(id: number, generatedAtIso: string): string | 
         lines.push('')
       }
       if ((f as any).note) lines.push(`**Analyst note:** ${cell((f as any).note)}`, '')
-      const ev = (f as any).data?.repro ?? (f as any).data?.evidence
-      if (ev) {
+      const ev = collectEvidence(f)
+      if (ev.length) {
         lines.push('**Evidence:**', '', '```', evidenceText(ev), '```', '')
       }
     }
@@ -282,17 +282,31 @@ export function buildDomainReport(id: number, generatedAtIso: string): string | 
   return lines.join('\n')
 }
 
-// Render an evidence object as compact plain text for a repro block.
+// All evidence for a finding: any auto-captured repro plus operator-attached
+// items (data.evidence array). Tolerates a legacy single-object data.evidence.
+function collectEvidence(f: any): any[] {
+  const out: any[] = []
+  if (f?.data?.repro) out.push(f.data.repro)
+  const att = f?.data?.evidence
+  if (Array.isArray(att)) out.push(...att)
+  else if (att && !f?.data?.repro) out.push(att)
+  return out
+}
+
+// Render an evidence object (or array of them) as compact plain text.
 function evidenceText(ev: any): string {
   if (typeof ev === 'string') return ev.slice(0, 2000)
+  if (Array.isArray(ev)) return ev.map(evidenceText).join('\n\n— — —\n\n').slice(0, 12_000)
   const parts: string[] = []
   if (ev.request) parts.push(`> ${ev.request}`)
   if (ev.payload) parts.push(`payload: ${ev.payload}`)
   if (ev.responseStatus != null) parts.push(`< HTTP ${ev.responseStatus}`)
   if (ev.headersSnippet) parts.push(String(ev.headersSnippet))
+  if (ev.response) parts.push(String(ev.response).slice(0, 2000))
   if (ev.bodyExcerpt) parts.push(String(ev.bodyExcerpt).slice(0, 800))
-  if (ev.note) parts.push(ev.note)
-  return parts.join('\n').slice(0, 2000) || JSON.stringify(ev).slice(0, 800)
+  if (ev.screenshotPath) parts.push(`[screenshot: ${ev.screenshotPath}]`)
+  if (ev.note) parts.push(`note: ${ev.note}`)
+  return parts.join('\n').slice(0, 3000) || JSON.stringify(ev).slice(0, 800)
 }
 
 // --- HTML (self-contained, printable to PDF) --------------------------------
@@ -322,8 +336,8 @@ export function buildDomainReportHtml(id: number, generatedAtIso: string): strin
       const reasons = scoreReasonsOf(f)
       const reasonsHtml = reasons.length ? `<div class="why"><strong>Why this score</strong><ul>${reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></div>` : ''
       const note = (f as any).note ? `<p><strong>Analyst note:</strong> ${esc((f as any).note)}</p>` : ''
-      const ev = (f as any).data?.repro ?? (f as any).data?.evidence
-      const evHtml = ev ? `<details open><summary>Evidence</summary><pre>${esc(evidenceText(ev))}</pre></details>` : ''
+      const ev = collectEvidence(f)
+      const evHtml = ev.length ? `<details open><summary>Evidence (${ev.length})</summary><pre>${esc(evidenceText(ev))}</pre></details>` : ''
       return `<div class="detail sev-${sev(f)}"><h3>${esc(summarize(f.type, (f as any).data))} <span class="score">${f.score ?? '—'}</span></h3><div class="badge">${esc(STATUS_LABEL[(f as any).status] ?? 'open')}</div>${reasonsHtml}${note}${evHtml}</div>`
     })
     .join('')

@@ -5,6 +5,7 @@ import { useApp } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, Spinner } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/Confirm'
+import { AttachToFinding } from '../components/AttachToFinding'
 import { takePendingReplay } from '../lib/replayHandoff'
 import { timeAgo } from '../lib/format'
 
@@ -133,6 +134,7 @@ export function Replay() {
             passive={passive}
             confirmActive={confirmActive}
             applyRequest={applyRequest}
+            reqStr={`${method} ${url}\n${headersText}\n\n${bodyText}`.trimEnd()}
             build={() => ({
               method,
               url,
@@ -250,6 +252,7 @@ function RepeaterPanel({
   passive,
   confirmActive,
   applyRequest,
+  reqStr,
   build,
   toast,
 }: {
@@ -257,6 +260,7 @@ function RepeaterPanel({
   passive: boolean
   confirmActive: (title: string, what: string) => Promise<boolean>
   applyRequest: (r: BuiltReq) => void
+  reqStr: string
   build: () => BuiltRequest
   toast: ReturnType<typeof useToast>
 }) {
@@ -323,6 +327,13 @@ function RepeaterPanel({
     }
   }
 
+  // Response as a plain-text blob for attaching as evidence (body capped).
+  const respStr = resp
+    ? `HTTP ${resp.status} ${resp.statusText}\n${resp.headers.map(([k, v]) => `${k}: ${v}`).join('\n')}\n\n${(
+        resp.body ?? ''
+      ).slice(0, 10000)}`.trimEnd()
+    : undefined
+
   return (
     <Card className="flex h-full min-h-0 flex-col">
       <div className="mb-3 flex items-center gap-2">
@@ -330,7 +341,7 @@ function RepeaterPanel({
           <Send size={15} /> {busy ? 'Sending…' : 'Send'}
         </Button>
         {resp && (
-          <div className="ml-auto flex items-center gap-3 text-xs text-zinc-400">
+          <div className="flex items-center gap-3 text-xs text-zinc-400">
             <Badge tone={statusTone(resp.status)}>
               {resp.status} {resp.statusText}
             </Badge>
@@ -342,6 +353,9 @@ function RepeaterPanel({
             </span>
           </div>
         )}
+        <div className="ml-auto">
+          <AttachToFinding domainId={domainId} request={reqStr} response={respStr} />
+        </div>
       </div>
 
       {!resp ? (

@@ -1,5 +1,7 @@
-import { mkdir, stat } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { pathToFileURL } from 'node:url'
 import { run, toolExists } from '../util/exec'
 import { BROWSER_UA } from '../util/http'
 
@@ -49,5 +51,41 @@ export async function captureScreenshot(url: string, outPath: string): Promise<b
     return s.size > 0
   } catch {
     return false
+  }
+}
+
+// Render a self-contained HTML string to a PDF buffer via headless Chromium's
+// print-to-PDF (reuses the same binary as screenshots). Returns null if Chromium
+// is unavailable or produced nothing. Never throws.
+export async function renderHtmlToPdf(html: string): Promise<Buffer | null> {
+  if (!(await screenshotAvailable())) return null
+  const dir = await mkdtemp(join(tmpdir(), 'recon-pdf-'))
+  const htmlPath = join(dir, 'report.html')
+  const pdfPath = join(dir, 'report.pdf')
+  try {
+    await writeFile(htmlPath, html, 'utf8')
+    try {
+      await run(
+        CHROMIUM,
+        [
+          '--headless=new',
+          '--no-sandbox',
+          '--disable-gpu',
+          '--disable-dev-shm-usage',
+          '--no-pdf-header-footer',
+          `--print-to-pdf=${pdfPath}`,
+          pathToFileURL(htmlPath).toString(),
+        ],
+        { timeoutMs: 45_000 },
+      )
+    } catch {
+      // Chromium can exit non-zero but still write the file; check below.
+    }
+    const s = await stat(pdfPath)
+    return s.size > 0 ? await readFile(pdfPath) : null
+  } catch {
+    return null
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {})
   }
 }
