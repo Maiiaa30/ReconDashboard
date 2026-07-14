@@ -84,6 +84,15 @@ RUN SLP="https://raw.githubusercontent.com/danielmiessler/SecLists/master"; \
     seq 0 9999    > /usr/share/wordlists/numbers-0-9999.txt; \
     seq -w 0 9999 > /usr/share/wordlists/numbers-0000-9999.txt
 
+# Chromium 150.0.7871.46 (the version bookworm-security pinned when this image was
+# first built) SIGTRAPs on EVERY headless launch — even about:blank — which silently
+# broke the screenshot job. The regression is fixed in the later 150.x security
+# patch (150.0.7871.114+). Pull the current bookworm-security chromium as its own
+# layer so a rebuild re-fetches the fix without busting the recon-tool layers above.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends --only-upgrade chromium \
+  && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Install dependencies first for better layer caching.

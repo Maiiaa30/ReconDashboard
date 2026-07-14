@@ -1,6 +1,7 @@
 import { mkdir, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { run, toolExists } from '../util/exec'
+import { BROWSER_UA } from '../util/http'
 
 const CHROMIUM = process.env.CHROMIUM_PATH ?? 'chromium'
 
@@ -31,6 +32,10 @@ export async function captureScreenshot(url: string, outPath: string): Promise<b
         '--force-color-profile=srgb',
         '--window-size=1366,768',
         '--virtual-time-budget=12000',
+        // Match the HTTP probe's browser UA — WAF-fronted hosts (Cloudflare
+        // "Just a moment…") serve a challenge page to a headless/bot UA, which
+        // produces a useless screenshot.
+        `--user-agent=${BROWSER_UA}`,
         `--screenshot=${outPath}`,
         url,
       ],
