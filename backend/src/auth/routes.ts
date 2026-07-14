@@ -65,6 +65,12 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         if (!token || !verifyTotp(token, op.totpSecret)) return fail()
       }
 
+      // Rotate the session id at the moment of authentication so a pre-login
+      // session id (which an attacker could have fixed) can't be reused after
+      // login. @fastify/session does not rotate on privilege change on its own.
+      // Login is single-step here (password + optional TOTP in one request), so
+      // this is the exact point the session becomes authenticated.
+      await request.session.regenerate()
       request.session.userId = op.id
       request.session.username = op.username
       return reply.send({ user: { username: op.username } })
