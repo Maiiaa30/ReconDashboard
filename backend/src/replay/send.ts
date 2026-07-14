@@ -75,6 +75,18 @@ function stripCredentialHeaders(h: Record<string, string>): void {
   }
 }
 
+// Pure variant: a copy of the headers with credential-bearing ones removed. Used
+// by the authz helper to build the anonymous / identity-B request variants.
+export function withoutCredentialHeaders(h: Record<string, string> = {}): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(h)) {
+    const lk = k.toLowerCase()
+    if (lk === 'cookie' || lk === 'authorization' || lk === 'proxy-authorization') continue
+    out[k] = v
+  }
+  return out
+}
+
 function sanitizeHeaders(headers: Record<string, string> = {}): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [k, v] of Object.entries(headers)) {

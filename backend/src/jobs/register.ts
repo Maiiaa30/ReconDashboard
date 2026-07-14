@@ -12,6 +12,7 @@ import { apiDiscoveryHandler } from './handlers/apiDiscovery'
 import { intruderHandler } from './handlers/intruder'
 import { codeLeakHandler } from './handlers/codeLeak'
 import { cveVerifyHandler } from './handlers/cveVerify'
+import { authzDiffHandler } from './handlers/authzDiff'
 
 // Wire every job type to its handler. Called once at startup.
 export function registerJobHandlers(): void {
@@ -30,4 +31,5 @@ export function registerJobHandlers(): void {
   registerHandler('intruder', intruderHandler)
   registerHandler('code_leak', codeLeakHandler)
   registerHandler('cve_verify', cveVerifyHandler)
+  registerHandler('authz_diff', authzDiffHandler)
 }

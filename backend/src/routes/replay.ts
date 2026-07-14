@@ -4,6 +4,7 @@ import { getDomain } from '../domains/store'
 import { assertDomainActive, assertHostInScope, assertScanAllowed, ScanPolicyError } from '../domains/scanPolicy'
 import { sendRawRequest, ReplayError, type ReplayRequest } from '../replay/send'
 import { applicableRules } from '../replay/matchReplaceStore'
+import { hasIdMarker } from '../replay/authz'
 import { attackCount, expandPayloads, MAX_PAYLOADS, positionsInTemplate, type AttackMode } from '../replay/intruder'
 import { insertReplayHistory, listReplayHistory, getReplayHistory, clearReplayHistory } from '../replay/history'
 import { buildSitemap } from '../replay/sitemap'
@@ -248,6 +249,69 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
         detail: { method, url: template.url, attack: mode, positions: positions.length, count },
       })
       return reply.code(202).send({ jobId, count })
+    } catch (err) {
+      if (err instanceof ScanPolicyError) {
+        if (err.retryAfterSec) reply.header('Retry-After', String(err.retryAfterSec))
+        return reply.code(err.status).send({ error: err.message, code: err.code })
+      }
+      throw err
+    }
+  })
+
+  // IDOR / broken-authz helper: replay one {{ID}}-marked object request under
+  // identity A (template creds), identity B (operator-supplied), and anonymous
+  // (credential-stripped), across a set of object ids, and diff. LOUD + gated.
+  app.post<{
+    Params: { id: string }
+    Body: {
+      template?: { method?: string; url?: string; headers?: Record<string, string>; body?: string; followRedirects?: boolean }
+      ids?: PayloadSpec
+      identityB?: { headers?: Record<string, string> }
+      confirm?: boolean
+    }
+  }>('/api/domains/:id/authz-diff', async (request, reply) => {
+    const id = Number(request.params.id)
+    const { template, confirm } = request.body ?? {}
+    if (!template || typeof template.url !== 'string' || !template.url) return reply.code(400).send({ error: 'template.url is required' })
+    const method = (template.method ?? 'GET').toUpperCase()
+    if (!hasIdMarker([template.url, template.body, ...Object.values(template.headers ?? {})])) {
+      return reply.code(400).send({ error: 'no {{ID}} marker in the request template', code: 'no_id_marker' })
+    }
+    let host: string
+    try {
+      host = new URL(template.url).hostname
+    } catch {
+      return reply.code(400).send({ error: 'invalid template.url', code: 'invalid_target' })
+    }
+    let ids: string[]
+    try {
+      ids = expandSpec(request.body?.ids)
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : 'invalid object ids' })
+    }
+    const identityBHeaders =
+      request.body?.identityB?.headers && typeof request.body.identityB.headers === 'object' ? request.body.identityB.headers : undefined
+
+    try {
+      const { domain } = await assertScanAllowed({ domainId: id, target: host, confirm: confirm === true, jobType: 'authz_diff' })
+      const jobId = enqueueJob('authz_diff', {
+        domainId: id,
+        target: host,
+        template: { method, url: template.url, headers: template.headers, body: template.body, followRedirects: template.followRedirects === true },
+        ids,
+        identityBHeaders,
+      })
+      writeAudit({
+        actor: actorName(request.session.userId),
+        action: 'enqueue:authz_diff',
+        domainId: id,
+        target: host,
+        mode: domain.mode,
+        jobId,
+        // Redact identity-B credential VALUES — log only the header names.
+        detail: { method, url: template.url, ids: ids.length, identityBHeaderNames: identityBHeaders ? Object.keys(identityBHeaders) : [] },
+      })
+      return reply.code(202).send({ jobId, count: ids.length })
     } catch (err) {
       if (err instanceof ScanPolicyError) {
         if (err.retryAfterSec) reply.header('Retry-After', String(err.retryAfterSec))

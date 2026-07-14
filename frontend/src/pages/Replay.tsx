@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Send, Crosshair, Repeat, ChevronRight, AlertTriangle, Clock, Ruler, StopCircle, History, Network } from 'lucide-react'
+import { Send, Crosshair, Repeat, ChevronRight, AlertTriangle, Clock, Ruler, StopCircle, History, Network, KeyRound } from 'lucide-react'
 import { api, ApiError, type ReplayResponse, type IntruderResult, type IntruderAttempt, type Job, type Wordlist, type ReplayHistoryItem, type SitemapHost, type MatchReplaceRule } from '../api'
 import { useApp } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, Spinner } from '../components/ui'
@@ -62,7 +62,7 @@ export function Replay() {
   const { selected } = useApp()
   const toast = useToast()
   const ask = useConfirm()
-  const [mode, setMode] = useState<'repeater' | 'intruder' | 'sitemap'>('repeater')
+  const [mode, setMode] = useState<'repeater' | 'intruder' | 'authz' | 'sitemap'>('repeater')
 
   // Shared request editor state.
   const [method, setMethod] = useState<(typeof METHODS)[number]>('GET')
@@ -123,6 +123,7 @@ export function Replay() {
           <div className="inline-flex rounded-lg border border-hair bg-ink-850 p-0.5">
             <ModeTab active={mode === 'repeater'} onClick={() => setMode('repeater')} icon={<Repeat size={14} />} label="Repeater" />
             <ModeTab active={mode === 'intruder'} onClick={() => setMode('intruder')} icon={<Crosshair size={14} />} label="Intruder" />
+            <ModeTab active={mode === 'authz'} onClick={() => setMode('authz')} icon={<KeyRound size={14} />} label="Authz" />
             <ModeTab active={mode === 'sitemap'} onClick={() => setMode('sitemap')} icon={<Network size={14} />} label="Sitemap" />
           </div>
         }
@@ -154,7 +155,7 @@ export function Replay() {
           followRedirects={followRedirects}
           setFollowRedirects={setFollowRedirects}
         />
-        {mode === 'repeater' ? (
+        {mode === 'repeater' && (
           <RepeaterPanel
             domainId={selected.id}
             passive={passive}
@@ -170,8 +171,24 @@ export function Replay() {
             })}
             toast={toast}
           />
-        ) : (
+        )}
+        {mode === 'intruder' && (
           <IntruderPanel
+            domainId={selected.id}
+            passive={passive}
+            confirmActive={confirmActive}
+            build={() => ({
+              method,
+              url,
+              headers: parseHeaders(headersText),
+              body: method === 'GET' || method === 'HEAD' ? undefined : bodyText || undefined,
+              followRedirects,
+            })}
+            toast={toast}
+          />
+        )}
+        {mode === 'authz' && (
+          <AuthzPanel
             domainId={selected.id}
             passive={passive}
             confirmActive={confirmActive}
@@ -293,7 +310,7 @@ function SitemapPanel({ domainId, onOpen }: { domainId: number; onOpen: (method:
 type BuiltRequest = { method: string; url: string; headers: Record<string, string>; body?: string; followRedirects: boolean }
 
 function RequestEditor(props: {
-  mode: 'repeater' | 'intruder'
+  mode: 'repeater' | 'intruder' | 'authz'
   method: (typeof METHODS)[number]
   setMethod: (m: (typeof METHODS)[number]) => void
   url: string
@@ -334,6 +351,13 @@ function RequestEditor(props: {
           <code className="rounded bg-ink-800 px-1 font-mono text-accent-fg">{'{{P2}}'}</code>, … (or{' '}
           <code className="rounded bg-ink-800 px-1 font-mono text-accent-fg">{PAYLOAD_MARKER}</code> = P1) — in the URL, a
           header value, or the body.
+        </p>
+      )}
+      {props.mode === 'authz' && (
+        <p className="mb-2 text-xs text-zinc-500">
+          Compose an <span className="text-zinc-300">authenticated</span> request for one of YOUR objects, marking the object id
+          with <code className="rounded bg-ink-800 px-1 font-mono text-accent-fg">{'{{ID}}'}</code>. It’s replayed under your creds,
+          a second identity, and anonymously to spot broken access control.
         </p>
       )}
       <label className="mb-1 block text-[10px] uppercase tracking-wide text-zinc-600">Headers (one per line: Name: Value)</label>
@@ -985,6 +1009,169 @@ function AttemptTable({ rows, highlight = false }: { rows: IntruderAttempt[]; hi
         </button>
       )}
     </div>
+  )
+}
+
+// --- Authz (IDOR) diff -------------------------------------------------------
+function AuthzPanel({
+  domainId,
+  passive,
+  confirmActive,
+  build,
+  toast,
+}: {
+  domainId: number
+  passive: boolean
+  confirmActive: (title: string, what: string) => Promise<boolean>
+  build: () => BuiltRequest
+  toast: ReturnType<typeof useToast>
+}) {
+  const [idsMode, setIdsMode] = useState<'list' | 'range'>('range')
+  const [list, setList] = useState('')
+  const [from, setFrom] = useState('1')
+  const [to, setTo] = useState('50')
+  const [identityB, setIdentityB] = useState('')
+  const [jobId, setJobId] = useState<number | null>(null)
+  const [job, setJob] = useState<Job | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (jobId == null) return
+    let stop = false
+    const tick = async () => {
+      try {
+        const { job: j } = await api.job(jobId)
+        if (stop) return
+        setJob(j)
+        if (['done', 'error', 'cancelled', 'dead'].includes(j.status)) return
+      } catch {
+        /* keep polling */
+      }
+      if (!stop) timer = setTimeout(tick, 1500)
+    }
+    let timer = setTimeout(tick, 600)
+    return () => {
+      stop = true
+      clearTimeout(timer)
+    }
+  }, [jobId])
+
+  const result = (job?.status === 'done' ? (job.result as { host: string; tested: number; flagged: number; verdicts: Record<string, number> } | null) : null) ?? null
+  const running = job != null && ['queued', 'running'].includes(job.status)
+
+  async function start() {
+    if (busy || running) return
+    const req = build()
+    if (!req.url) return toast.error('Enter a URL first.')
+    const hasId = [req.url, req.body ?? '', ...Object.values(req.headers)].some((s) => String(s).includes('{{ID}}'))
+    if (!hasId) return toast.error('Mark the object id with {{ID}} in the request first.')
+    if (!(await confirmActive('Run authorization diff?', 'Authz diff'))) return
+    setBusy(true)
+    setJob(null)
+    try {
+      const { jobId: id, count } = await api.authzDiff(domainId, {
+        template: req,
+        ids: idsMode === 'range' ? { mode: 'range', from: Number(from), to: Number(to) } : { mode: 'list', list },
+        identityB: identityB.trim() ? { headers: parseHeaders(identityB) } : undefined,
+        confirm: passive,
+      })
+      setJobId(id)
+      toast.success(`Authz diff queued (#${id}) — ${count} objects.`)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Failed to start authz diff.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function cancel() {
+    if (jobId == null) return
+    await api.cancelJob(jobId).then(() => toast.info('Cancel requested.')).catch(() => toast.error('Could not cancel.'))
+  }
+
+  return (
+    <Card className="flex h-full min-h-0 flex-col gap-3 overflow-auto">
+      <div>
+        <label className="mb-1 block text-[10px] uppercase tracking-wide text-zinc-600">
+          Identity B headers (a second account — its Cookie / Authorization)
+        </label>
+        <textarea
+          value={identityB}
+          onChange={(e) => setIdentityB(e.target.value)}
+          placeholder={'Cookie: session=OTHER_USER…\nAuthorization: Bearer OTHER…'}
+          rows={3}
+          spellCheck={false}
+          className="block w-full rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500"
+        />
+        <p className="mt-1 text-[11px] text-zinc-600">Leave blank to test only anonymous (credential-stripped) access.</p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="inline-flex rounded-lg border border-hair bg-ink-950 p-0.5 text-xs">
+          {(['range', 'list'] as const).map((m) => (
+            <button key={m} onClick={() => setIdsMode(m)} className={`rounded px-2.5 py-1 capitalize ${idsMode === m ? 'bg-accent-500/15 text-accent-fg' : 'text-zinc-400'}`}>
+              {m === 'range' ? 'ID range' : 'ID list'}
+            </button>
+          ))}
+        </div>
+        {idsMode === 'range' ? (
+          <div className="flex flex-wrap items-end gap-2 text-xs">
+            <NumField label="from" value={from} onChange={setFrom} />
+            <NumField label="to" value={to} onChange={setTo} />
+            <span className="text-zinc-600">object ids substituted into {'{{ID}}'}</span>
+          </div>
+        ) : (
+          <textarea
+            value={list}
+            onChange={(e) => setList(e.target.value)}
+            placeholder={'one object id per line\n1001\n1002\nuuid-…'}
+            rows={4}
+            spellCheck={false}
+            className="block w-full rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500"
+          />
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {running ? (
+          <Button variant="danger" onClick={cancel}>
+            <StopCircle size={15} /> Cancel
+          </Button>
+        ) : (
+          <Button variant="loud" onClick={start} disabled={busy}>
+            <KeyRound size={15} /> {busy ? 'Queuing…' : 'Run authz diff'}
+          </Button>
+        )}
+        {running && (
+          <span className="inline-flex items-center gap-1.5 text-amber-300">
+            <Spinner /> {job?.progress ?? 'running…'}
+          </span>
+        )}
+      </div>
+
+      {job?.status === 'error' && <p className="text-sm text-red-300">Failed: {job.error}</p>}
+      {result && (
+        <div className="space-y-2 text-xs">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-zinc-400">
+            <span>
+              <span className="font-semibold text-zinc-200">{result.tested}</span> objects tested
+            </span>
+            {result.flagged > 0 ? (
+              <Badge tone="red">{result.flagged} needs-review finding(s)</Badge>
+            ) : (
+              <Badge tone="green">nothing flagged</Badge>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(result.verdicts).map(([v, n]) => (
+              <Badge key={v} tone={v === 'missing_authz' ? 'red' : v === 'likely_idor' ? 'amber' : v === 'enforced' ? 'green' : 'zinc'}>
+                {v}: {n}
+              </Badge>
+            ))}
+          </div>
+          {result.flagged > 0 && <p className="text-zinc-500">Flagged objects are on the Findings page (type: authz) — every one is needs-review; confirm the object truly belongs to another identity.</p>}
+        </div>
+      )}
+    </Card>
   )
 }
 

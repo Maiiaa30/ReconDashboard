@@ -646,6 +646,17 @@ export const api = {
     },
   ) => post<{ jobId: number; count: number }>(`/domains/${id}/intruder`, bodyReq),
 
+  // IDOR / broken-authz diff: replay one {{ID}} object request under 3 identities
+  authzDiff: (
+    id: number,
+    bodyReq: {
+      template: { method: string; url: string; headers?: Record<string, string>; body?: string; followRedirects?: boolean }
+      ids: { mode: 'list' | 'range'; list?: string; from?: number; to?: number; pad?: number }
+      identityB?: { headers: Record<string, string> }
+      confirm?: boolean
+    },
+  ) => post<{ jobId: number; count: number }>(`/domains/${id}/authz-diff`, bodyReq),
+
   // payload library + encoders (session-authed, not scan-gated)
   payloads: () =>
     get<{

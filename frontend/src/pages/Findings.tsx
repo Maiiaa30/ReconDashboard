@@ -31,7 +31,7 @@ const STATUS_FILTERS = ['active', 'all', ...STATUSES] as const
 type StatusFilter = (typeof STATUS_FILTERS)[number]
 const STATUS_FILTER_LABEL: Record<StatusFilter, string> = { active: 'Active', all: 'All', ...STATUS_LABEL }
 
-const TYPE_OPTIONS = ['', 'new_subdomain', 'exposure', 'osint', 'origin', 'api', 'nmap', 'nuclei', 'ffuf', 'cve_new'] as const
+const TYPE_OPTIONS = ['', 'new_subdomain', 'exposure', 'osint', 'origin', 'api', 'nmap', 'nuclei', 'ffuf', 'cve_new', 'authz', 'param'] as const
 
 // "New since" presets — filters to findings first discovered within the window
 // (createdAt is the frozen first-seen timestamp, so re-scans of unchanged
@@ -60,6 +60,8 @@ const TYPE_LABEL: Record<string, string> = {
   nuclei: 'nuclei',
   ffuf: 'ffuf',
   cve_new: 'new CVE',
+  authz: 'authz/IDOR',
+  param: 'param',
 }
 
 // Left-border + score colors by risk level — the at-a-glance signal.

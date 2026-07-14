@@ -18,6 +18,8 @@ export type FindingType =
   | 'leak'
   | 'api'
   | 'secret'
+  | 'authz'
+  | 'param'
 
 // Triage lifecycle state.
 export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
@@ -59,6 +61,12 @@ export function findingKey(type: string, data: any): string | null {
       return data.specUrl ? `api:spec:${data.specUrl}` : null
     case 'cve_new':
       return data.ip && data.cveId ? `cvenew:${data.ip}:${data.cveId}` : null
+    case 'authz':
+      // One row per (endpoint, object id) tested for broken authorization.
+      return data.url && data.objectId != null ? `authz:${data.url}:${data.objectId}` : data.url ? `authz:${data.url}` : null
+    case 'param':
+      // One row per (url, param) that the target honored.
+      return data.url && data.param ? `param:${data.url}:${data.param}` : null
     case 'secret':
       // One row per (repo, path) so re-searching the same leaked file dedupes.
       return data.repo && data.path ? `secret:${data.repo}:${data.path}` : null
