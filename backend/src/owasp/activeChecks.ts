@@ -5,6 +5,7 @@ import { isInternalIp } from '../util/validate'
 import { analyzeCsp, analyzeHsts } from './csp'
 import { corsVerdict } from './cors'
 import { gitTriadComplete, type GitPart } from './vcs'
+import { isSsrfParam, redirectsToAttacker, REDIRECT_EVIL_HOST, REDIRECT_PAYLOADS } from './redirect'
 
 // Direct, HTTP-based OWASP active checks — the engine that makes the OWASP tab
 // useful without leaning entirely on nuclei. Each check sends benign probes a
@@ -304,27 +305,53 @@ async function checkReflectedXss(baseUrl: string, ctx: Ctx): Promise<ActiveFindi
 const REDIRECT_PARAMS = ['url', 'next', 'redirect', 'return', 'dest', 'r', 'u', 'continue']
 
 async function checkOpenRedirect(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
-  const evil = 'https://example.org/owasp-redirect-probe'
+  const out: ActiveFinding[] = []
+  const found = new Set<string>() // one finding per param
   for (const param of ctx.redirectParams) {
-    if (ctx.signal?.aborted) return []
-    const url = `${baseUrl}?${param}=${encodeURIComponent(evil)}`
-    // follow:false — we INSPECT the Location header, we do not chase it.
-    const res = await fetchRaw(url, { headers: ctx.headers, signal: ctx.signal })
-    if (res && res.status >= 300 && res.status < 400) {
-      const loc = res.headers.get('location') ?? ''
-      if (/^https?:\/\/(www\.)?example\.org/i.test(loc) || loc.startsWith('//example.org')) {
-        return [{
+    if (ctx.signal?.aborted) break
+    if (found.has(param)) continue
+    for (const payload of REDIRECT_PAYLOADS) {
+      if (ctx.signal?.aborted) break
+      const url = `${baseUrl}?${param}=${encodeURIComponent(payload)}`
+      // follow:false — we INSPECT the Location header, we never chase it.
+      const res = await fetchRaw(url, { headers: ctx.headers, signal: ctx.signal })
+      if (!res) continue
+
+      // Open redirect: a 30x whose Location resolves (browser-style) to the
+      // attacker host. WHATWG-URL confirmation rejects reflected-but-inert values.
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get('location') ?? ''
+        if (redirectsToAttacker(loc, url)) {
+          out.push({
+            category: 'A10',
+            name: 'Open redirect',
+            severity: 'medium',
+            url,
+            evidence: `?${param}=${payload} → Location resolves to ${REDIRECT_EVIL_HOST}`,
+            repro: { request: `GET ${url}`, payload, responseStatus: res.status, headersSnippet: `Location: ${loc}` },
+          })
+          found.add(param)
+          break
+        }
+      }
+      // SSRF candidate: an SSRF-shaped param that echoes the full external URL in
+      // the body (no redirect) MIGHT be fetched server-side. Flag for out-of-band
+      // review only — we never send a probe to an internal host.
+      else if (payload === REDIRECT_PAYLOADS[0] && isSsrfParam(param) && res.body.includes(`https://${REDIRECT_EVIL_HOST}`)) {
+        out.push({
           category: 'A10',
-          name: 'Open redirect',
-          severity: 'medium',
+          name: `SSRF candidate parameter: ${param}`,
+          severity: 'info',
           url,
-          evidence: `?${param}= redirects to ${loc}`,
-          repro: { request: `GET ${url}`, payload: evil, responseStatus: res.status, headersSnippet: `Location: ${loc}` },
-        }]
+          evidence: `?${param}= reflects an external URL in the response and the name suggests a server-side fetch — verify out-of-band (no probe was sent)`,
+          repro: { request: `GET ${url}`, payload, responseStatus: res.status },
+        })
+        found.add(param)
+        break
       }
     }
   }
-  return []
+  return out
 }
 
 async function checkCors(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
