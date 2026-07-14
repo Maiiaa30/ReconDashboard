@@ -76,6 +76,12 @@ export const scanRoutes: FastifyPluginAsync = async (app) => {
     wordlist: typeof body.wordlist === 'string' ? body.wordlist : undefined,
   }))
 
+  // Parameter discovery (Arjun-style): find honored-but-undocumented query params.
+  makeRoute('/api/domains/:id/param-discovery', 'param_discovery', (body) => ({
+    scheme: body.scheme === 'http' ? 'http' : 'https',
+    path: typeof body.path === 'string' ? body.path : '/',
+  }))
+
   // CVE verification: run the matching nuclei template against `target` to
   // confirm a passively-observed cve_new finding. Gated like any loud scan, with
   // a long cooldown. `ip` (optional) lets the handler upgrade the exact cve_new

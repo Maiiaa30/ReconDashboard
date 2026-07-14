@@ -608,6 +608,8 @@ export const api = {
     post<{ jobId: number }>(`/domains/${id}/scan/nuclei`, opts),
   ffuf: (id: number, opts: { target?: string; path?: string; wordlist?: string; scheme?: string; confirm?: boolean } = {}) =>
     post<{ jobId: number }>(`/domains/${id}/scan/ffuf`, opts),
+  paramDiscovery: (id: number, opts: { target?: string; scheme?: string; path?: string; confirm?: boolean } = {}) =>
+    post<{ jobId: number }>(`/domains/${id}/param-discovery`, opts),
   // Verify a passively-observed CVE by running its nuclei template (loud, gated).
   verifyCve: (
     id: number,

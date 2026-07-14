@@ -64,6 +64,11 @@ export function Scans() {
   const [ffufResult, setFfufResult] = useState<ScanResult>(emptyResult)
   const [ffufBusy, setFfufBusy] = useState(false)
 
+  const [paramPath, setParamPath] = useState('/')
+  const [paramScheme, setParamScheme] = useState<Scheme>('https')
+  const [paramResult, setParamResult] = useState<ScanResult>(emptyResult)
+  const [paramBusy, setParamBusy] = useState(false)
+
   const [results, setResults] = useState<Finding[]>([])
 
   const loadMeta = useCallback(() => {
@@ -380,6 +385,37 @@ export function Scans() {
           </div>
           <p className="mt-2 text-xs text-zinc-500">Path must contain FUZZ.</p>
           <ResultLine result={ffufResult} />
+        </Card>
+
+        <Card>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-200">Parameter discovery</h2>
+            <span className="text-xs text-zinc-500">Arjun-style — no binary</span>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-sm">
+              <span className="text-zinc-400">Path</span>
+              <input
+                value={paramPath}
+                onChange={(e) => setParamPath(e.target.value)}
+                placeholder="/"
+                className="mt-1 block w-44 rounded-lg border border-hair bg-ink-950 px-3 py-1.5 font-mono text-sm outline-none focus:border-accent-500"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="text-zinc-400">Scheme</span>
+              <SchemeSelect value={paramScheme} onChange={setParamScheme} />
+            </label>
+            <Button
+              variant="loud"
+              disabled={paramBusy || !target}
+              onClick={() => run('param discovery', setParamBusy, setParamResult, (confirm) => api.paramDiscovery(selected.id, { target, path: paramPath || '/', scheme: paramScheme, confirm }))}
+            >
+              {runLabel(paramBusy, 'discovery')}
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-zinc-500">Finds honored-but-undocumented query params (?debug=, ?is_admin=, …). Hits appear on Findings (type: param).</p>
+          <ResultLine result={paramResult} />
         </Card>
       </div>
 
