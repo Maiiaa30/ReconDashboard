@@ -17,6 +17,7 @@ import { correlateDomain } from '../domains/correlate'
 import { buildMethodology } from '../skills/methodology'
 import { setStepOverride } from '../skills/overrides'
 import { adviseIntel } from '../domains/advisor'
+import { suggestChains } from '../domains/chainSuggest'
 import { llmEnabled } from '../util/llm'
 import { safeJsonParse } from '../util/json'
 
@@ -192,6 +193,16 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
     const result = await adviseIntel(id)
     if (!result) return reply.code(502).send({ error: 'the LLM did not return an analysis (check the endpoint/model)' })
     return { advice: result.advice, model: result.model, note: 'AI draft — verify against the findings before acting.' }
+  })
+
+  // Deterministic attack-chain suggestions: pairs of already-filed findings turned
+  // into concrete next steps (grounded, no LLM). Read-only; any attached Run action
+  // is assertScanAllowed-gated when executed.
+  app.get<{ Params: { id: string } }>('/api/domains/:id/chains', async (request, reply) => {
+    const id = Number(request.params.id)
+    const domain = getDomain(id)
+    if (!domain) return reply.code(404).send({ error: 'domain not found' })
+    return { chains: suggestChains(id, domain.host) }
   })
 
   // --- Subdomains for a domain ----------------------------------------------

@@ -319,6 +319,14 @@ export interface IntelAdvice {
   quickWins: { item: string; why: string }[]
   deeperDigs: { item: string; why: string }[]
 }
+export interface ChainSuggestion {
+  id: string
+  title: string
+  rationale: string
+  severity: 'critical' | 'high' | 'medium'
+  findingIds: number[]
+  action?: AdviceAction
+}
 
 export type StepStatus = 'found' | 'done' | 'running' | 'todo' | 'skipped'
 export interface StepAction {
@@ -553,6 +561,7 @@ export const api = {
 
   // AI intel advisor: structured, prioritized testing plan (optional; llm.enabled)
   adviseIntel: (id: number) => post<{ advice: IntelAdvice; model: string; note: string }>(`/domains/${id}/intel/advise`),
+  chainSuggestions: (id: number) => get<{ chains: ChainSuggestion[] }>(`/domains/${id}/chains`),
 
   // subdomains
   subdomains: (id: number) => get<{ subdomains: Subdomain[] }>(`/domains/${id}/subdomains`),

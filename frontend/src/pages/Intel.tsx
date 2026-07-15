@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { api, type AdviceAction, type AttackPath, type Finding, type IntelAdvice } from '../api'
+import { api, type AdviceAction, type AttackPath, type ChainSuggestion, type Finding, type IntelAdvice } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
 import { riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
@@ -11,6 +11,7 @@ export function Intel({ navigate }: { navigate?: (page: string, domainId?: numbe
   const { domains, selected } = useApp()
   const [findings, setFindings] = useState<Finding[]>([])
   const [paths, setPaths] = useState<AttackPath[]>([])
+  const [chains, setChains] = useState<ChainSuggestion[]>([])
   const [pathView, setPathView] = useState<'graph' | 'table'>('graph')
   const [llmOn, setLlmOn] = useState(false)
   const [advice, setAdvice] = useState<{ data: IntelAdvice | null; note: string } | null>(null)
@@ -66,6 +67,10 @@ export function Intel({ navigate }: { navigate?: (page: string, domainId?: numbe
         }
       })
       .catch(() => setPaths([]))
+    api
+      .chainSuggestions(selected.id)
+      .then((r) => setChains(r.chains))
+      .catch(() => setChains([]))
   }, [selected, findings])
 
   const hostOf = useCallback(
@@ -130,6 +135,8 @@ export function Intel({ navigate }: { navigate?: (page: string, domainId?: numbe
       {selected && paths.length > 0 && (
         <AttackPathsSection paths={paths} host={selected.host} view={pathView} onViewChange={setPathView} navigate={navigate} />
       )}
+
+      {selected && chains.length > 0 && <ChainsSection chains={chains} domainId={selected.id} navigate={navigate} />}
 
       {findings.length === 0 ? (
         <Empty>No findings yet. Run discovery / exposure / OSINT on a domain to populate intel.</Empty>
@@ -342,6 +349,44 @@ function ItemList({ items }: { items: { item: string; why: string }[] }) {
 // IP-centric join: host(s) -> IP (ASN) -> ports -> CVEs, worst first. Graph
 // view is the default (spatial relationships read faster); table stays for
 // scanning/exporting exact values.
+// Deterministic attack-chain suggestions — pairs of already-filed findings turned
+// into concrete next steps, grounded in the finding ids (no LLM).
+const CHAIN_TONE: Record<ChainSuggestion['severity'], string> = {
+  critical: 'border-red-900/60 bg-red-950/20',
+  high: 'border-amber-900/50 bg-amber-950/15',
+  medium: 'border-hair bg-ink-900/50',
+}
+function ChainsSection({ chains, domainId, navigate }: { chains: ChainSuggestion[]; domainId: number; navigate?: (page: string, domainId?: number) => void }) {
+  return (
+    <div className="mb-6">
+      <h2 className="mb-2 text-sm font-semibold text-zinc-200">
+        🔗 Suggested attack chains <span className="text-zinc-500">— {chains.length} grounded in your findings</span>
+      </h2>
+      <div className="space-y-2">
+        {chains.map((c) => (
+          <div key={c.id} className={`rounded-lg border p-3 text-sm ${CHAIN_TONE[c.severity]}`}>
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <Badge tone={c.severity === 'critical' ? 'red' : c.severity === 'high' ? 'amber' : 'zinc'}>{c.severity}</Badge>
+              <span className="font-medium text-zinc-100">{c.title}</span>
+            </div>
+            <p className="text-zinc-400">{c.rationale}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {c.action && <RunButton domainId={domainId} action={c.action} />}
+              <button
+                onClick={() => navigate?.('findings')}
+                className="text-[11px] text-zinc-500 hover:text-zinc-300"
+                title={`Grounded in finding(s) #${c.findingIds.join(', #')}`}
+              >
+                {c.findingIds.length} source finding{c.findingIds.length > 1 ? 's' : ''} ↗
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function AttackPathsSection({
   paths,
   host,
