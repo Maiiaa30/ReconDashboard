@@ -28,11 +28,16 @@ export interface IntruderAttempt {
   length: number
   words: number
   timeMs: number
-  extract?: string // grep-extract capture
+  extract?: string // grep-extract capture (first match)
+  extractAll?: string[] // all grep-extract captures (token/CSRF harvesting), capped
   matched?: boolean // grep-match hit
+  bodyExcerpt?: string // short response snippet — retained ONLY on interesting rows
   assignment?: Record<string, string> // position→payload, for multi-position attacks
   error?: string
 }
+
+const EXTRACT_CAP = 20 // max grep-extract captures kept per response
+const BODY_EXCERPT_BYTES = 512
 
 export interface IntruderResult {
   total: number
@@ -192,12 +197,16 @@ function median(xs: number[]): number {
 
 // Modified z-score threshold. Above ~3.5 is the conventional outlier cutoff.
 const MAD_Z = 3.5
+// timeMs is noisy — a single slow network response is not a real deviation. Require
+// a much stronger deviation for time, and only flag SLOW outliers (a fast response
+// is never a blind-injection / heavy-processing signal).
+const MAD_Z_TIME = 6
 
 // Flag attempts that deviate from the baseline. Uses median + MAD (robust to a
 // few outliers) across status/length/words/time; when a dimension has zero spread
 // (MAD 0) any non-median value is flagged, recovering the old exact-match behavior.
 // Also always flags errors and grep-match hits.
-function findInteresting(attempts: IntruderAttempt[]): { interesting: IntruderAttempt[]; baseline: { status: number; length: number } | null } {
+export function findInteresting(attempts: IntruderAttempt[]): { interesting: IntruderAttempt[]; baseline: { status: number; length: number } | null } {
   const ok = attempts.filter((a) => !a.error)
   if (ok.length < 2) {
     const interesting = attempts.filter((a) => a.error || a.matched).slice(0, 200)
@@ -213,8 +222,15 @@ function findInteresting(attempts: IntruderAttempt[]): { interesting: IntruderAt
   const isOutlier = (a: IntruderAttempt): boolean =>
     stats.some(({ d, med, mad }) => {
       const v = Number(a[d] ?? 0)
-      if (mad === 0) return v !== med
-      return Math.abs(v - med) / (1.4826 * mad) > MAD_Z
+      if (mad === 0) {
+        // Zero spread → exact-match, but for time that plus jitter would flag
+        // everything, so a single deterministic-dimension mismatch still counts.
+        return d === 'timeMs' ? false : v !== med
+      }
+      const z = Math.abs(v - med) / (1.4826 * mad)
+      // Time: only a strong SLOW outlier counts (network jitter must not flag).
+      if (d === 'timeMs') return v > med && z > MAD_Z_TIME
+      return z > MAD_Z
     })
   const interesting = attempts.filter((a) => a.error || a.matched || isOutlier(a)).slice(0, 200)
   const statusMed = stats.find((s) => s.d === 'status')!.med
@@ -228,7 +244,9 @@ function compileGrep(cfg: GrepConfig | undefined): { extract: RegExp | null; mat
   let extract: RegExp | null = null
   if (cfg?.extract) {
     try {
-      extract = new RegExp(cfg.extract.slice(0, 500))
+      // Compile with the global flag so a single pass can matchAll (token/CSRF
+      // harvesting). matchAll clones the regex internally, so it's concurrency-safe.
+      extract = new RegExp(cfg.extract.slice(0, 500), 'g')
     } catch {
       extract = null // a bad regex is ignored, not fatal to the run
     }
@@ -292,11 +310,21 @@ export async function runIntruder(
         const res = await sendRawRequest(applyPayloads(template, assignment), { signal: opts.signal, rules: opts.rules })
         const words = res.body ? res.body.split(/\s+/).filter(Boolean).length : 0
         const attempt: IntruderAttempt = { payload: display, status: res.status, length: res.bodyBytes, words, timeMs: res.timeMs }
-        if (extract) {
-          const m = extract.exec(res.body)
-          if (m) attempt.extract = (m[1] ?? m[0]).slice(0, 200)
+        if (extract && res.body) {
+          const all: string[] = []
+          for (const m of res.body.matchAll(extract)) {
+            all.push((m[1] ?? m[0]).slice(0, 200))
+            if (all.length >= EXTRACT_CAP) break
+          }
+          if (all.length) {
+            attempt.extract = all[0]
+            if (all.length > 1) attempt.extractAll = all
+          }
         }
         if (match.length && res.body) attempt.matched = match.some((p) => res.body.includes(p))
+        // Retain a bounded excerpt now; stripped from non-interesting rows below so
+        // the operator can see WHY a flagged row deviated without storing 10k bodies.
+        if (res.body) attempt.bodyExcerpt = res.body.slice(0, BODY_EXCERPT_BYTES)
         if (multi) attempt.assignment = Object.fromEntries(positions.map((p) => [`P${p}`, assignment[p] ?? '']))
         attempts[i] = attempt
       } catch (err) {
@@ -311,5 +339,9 @@ export async function runIntruder(
   // Compact out any holes left by an abort (indices never reached).
   const settled = attempts.filter(Boolean)
   const { interesting, baseline } = findInteresting(settled)
+  // Keep the body excerpt only on the interesting rows (bounded set) — drop it
+  // everywhere else so the result payload stays small on large attacks.
+  const keep = new Set(interesting)
+  for (const a of settled) if (!keep.has(a)) delete a.bodyExcerpt
   return { total: assignments.length, sent: settled.length, aborted, attempts: settled, interesting, baseline }
 }

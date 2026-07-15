@@ -174,7 +174,9 @@ export interface IntruderAttempt {
   words?: number
   timeMs: number
   extract?: string
+  extractAll?: string[]
   matched?: boolean
+  bodyExcerpt?: string
   assignment?: Record<string, string>
   error?: string
 }

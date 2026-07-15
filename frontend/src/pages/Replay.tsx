@@ -1190,7 +1190,11 @@ function AttemptTable({ rows, highlight = false }: { rows: IntruderAttempt[]; hi
           </thead>
           <tbody>
             {shown.map((r, i) => (
-              <tr key={i} className={`border-t border-hair/40 ${highlight ? 'text-amber-100' : 'text-zinc-300'}`}>
+              <tr
+                key={i}
+                title={r.bodyExcerpt ? `Response excerpt:\n${r.bodyExcerpt}` : undefined}
+                className={`border-t border-hair/40 ${highlight ? 'text-amber-100' : 'text-zinc-300'} ${r.bodyExcerpt ? 'cursor-help' : ''}`}
+              >
                 <td className="px-2 py-1 break-all">{r.payload}</td>
                 <td className="px-2 py-1">
                   <Badge tone={statusTone(r.status)}>{r.error ? 'err' : r.status}</Badge>
@@ -1198,7 +1202,12 @@ function AttemptTable({ rows, highlight = false }: { rows: IntruderAttempt[]; hi
                 <td className="px-2 py-1">{r.length}</td>
                 {hasWords && <td className="px-2 py-1 text-zinc-500">{r.words ?? ''}</td>}
                 <td className="px-2 py-1 text-zinc-500">{r.timeMs}ms</td>
-                {hasExtract && <td className="px-2 py-1 break-all text-accent-fg">{r.extract ?? ''}</td>}
+                {hasExtract && (
+                  <td className="px-2 py-1 break-all text-accent-fg" title={r.extractAll?.join('\n')}>
+                    {r.extract ?? ''}
+                    {r.extractAll && r.extractAll.length > 1 && <span className="ml-1 text-zinc-500">+{r.extractAll.length - 1}</span>}
+                  </td>
+                )}
                 {hasMatched && <td className="px-2 py-1">{r.matched ? <Badge tone="red">hit</Badge> : ''}</td>}
               </tr>
             ))}
