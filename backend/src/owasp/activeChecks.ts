@@ -367,6 +367,7 @@ async function checkCors(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
     { origin: 'null', kind: 'null origin' },
     { origin: `https://${ctx.host}.evil.example.org`, kind: 'origin prefix confusion' },
     { origin: `https://evil-${ctx.host}`, kind: 'origin substring confusion' },
+    { origin: `https://${ctx.host}evil.example.org`, kind: 'origin suffix-escape' }, // defeats startsWith(host)
   ]
   const out: ActiveFinding[] = []
   const seen = new Set<string>()
@@ -376,13 +377,14 @@ async function checkCors(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
     if (!res) continue
     const acao = res.headers.get('access-control-allow-origin')
     const acac = res.headers.get('access-control-allow-credentials')
-    const v = corsVerdict(p.origin, acao, acac)
+    const v = corsVerdict(p.origin, acao, acac, res.headers.get('vary'))
     if (!v) continue
     // A wildcard reflects on every probe; collapse identical verdicts so one
     // misconfig isn't reported four times.
-    const key = `${v.reflected}:${v.withCreds}`
+    const key = `${v.reflected}:${v.withCreds}:${v.cacheable}`
     if (seen.has(key)) continue
     seen.add(key)
+    const cacheNote = v.cacheable && v.reflected !== 'wildcard' ? ' (no Vary: Origin — cacheable)' : ''
     out.push({
       category: 'A05',
       name:
@@ -390,10 +392,10 @@ async function checkCors(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
           ? 'Permissive CORS policy (wildcard origin)'
           : v.withCreds
             ? `CORS reflects ${p.kind} with credentials`
-            : `CORS reflects ${p.kind}`,
+            : `CORS reflects ${p.kind}${cacheNote}`,
       severity: v.severity,
       url: baseUrl,
-      evidence: `Origin: ${p.origin} → Access-Control-Allow-Origin: ${acao}${v.withCreds ? ' + Allow-Credentials: true' : ''}`,
+      evidence: `Origin: ${p.origin} → Access-Control-Allow-Origin: ${acao}${v.withCreds ? ' + Allow-Credentials: true' : ''}${v.cacheable && v.reflected !== 'wildcard' ? ' (no Vary: Origin — poisonable via shared caches)' : ''}`,
       repro: {
         request: `GET ${baseUrl}  (Origin: ${p.origin})`,
         responseStatus: res.status,
