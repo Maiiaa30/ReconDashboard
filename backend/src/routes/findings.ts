@@ -4,6 +4,7 @@ import {
   bulkUpdateTriage,
   FINDING_STATUSES,
   getFinding,
+  getFindingLinks,
   listFindings,
   updateFindingTriage,
   type FindingStatus,
@@ -111,4 +112,11 @@ export const findingRoutes: FastifyPluginAsync = async (app) => {
       return { finding: getFinding(id), evidenceCount: res.evidenceCount }
     },
   )
+
+  // Findings linked to/from this one (e.g. the PoC that confirms a CVE).
+  app.get<{ Params: { id: string } }>('/api/findings/:id/links', async (request, reply) => {
+    const id = Number(request.params.id)
+    if (!Number.isFinite(id) || !getFinding(id)) return reply.code(404).send({ error: 'finding not found' })
+    return { links: getFindingLinks(id) }
+  })
 }

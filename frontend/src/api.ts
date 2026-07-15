@@ -246,6 +246,12 @@ export interface Finding {
   lastSeenAt: string | null
 }
 
+export interface FindingLink {
+  finding: Finding
+  kind: 'confirms' | 'evidence_for' | 'same_asset' | 'chained_from'
+  direction: 'outgoing' | 'incoming'
+}
+
 export interface Note {
   id: number
   domainId: number | null
@@ -723,6 +729,7 @@ export const api = {
   // Attach evidence (request/response/screenshot/note) to a finding (merged).
   attachEvidence: (id: number, body: { request?: string; response?: string; screenshotPath?: string; note?: string }) =>
     post<{ finding: Finding; evidenceCount: number }>(`/findings/${id}/evidence`, body),
+  findingLinks: (id: number) => get<{ links: FindingLink[] }>(`/findings/${id}/links`),
 
   // immutable report snapshots (frozen deliverables)
   snapshots: (domainId: number) => get<{ snapshots: ReportSnapshot[] }>(`/domains/${domainId}/report/snapshots`),

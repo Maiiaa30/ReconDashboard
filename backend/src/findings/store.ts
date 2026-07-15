@@ -1,6 +1,6 @@
-import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNull, or } from 'drizzle-orm'
 import { db } from '../db/index'
-import { findings } from '../db/schema'
+import { findingLinks, findings } from '../db/schema'
 import { safeJsonParse } from '../util/json'
 import { severityBucket } from './severity'
 import { currentJobId } from '../jobs/jobContext'
@@ -207,6 +207,38 @@ export function updateFindingScore(id: number, score: number, tags: string[]): v
 export function getFinding(id: number) {
   const r = db.select().from(findings).where(eq(findings.id, id)).limit(1).all()[0]
   return r ? mapRow(r, safeJsonParse<unknown>(r.data, null)) : undefined
+}
+
+// --- relational edges between findings ---------------------------------------
+export type FindingLinkKind = 'confirms' | 'evidence_for' | 'same_asset' | 'chained_from'
+
+// Link two findings with a typed edge (idempotent; self-links ignored).
+export function linkFindings(fromId: number, toId: number, kind: FindingLinkKind): void {
+  if (fromId === toId) return
+  db.insert(findingLinks).values({ fromId, toId, kind }).onConflictDoNothing().run()
+}
+
+export interface LinkedFinding {
+  finding: ReturnType<typeof mapRow>
+  kind: FindingLinkKind
+  direction: 'outgoing' | 'incoming' // outgoing: this finding → related; incoming: related → this
+}
+
+// Findings linked to/from the given one (e.g. the PoC that confirms a CVE, or the
+// CVE a PoC confirms), each with the edge kind and direction.
+export function getFindingLinks(findingId: number): LinkedFinding[] {
+  const rows = db
+    .select()
+    .from(findingLinks)
+    .where(or(eq(findingLinks.fromId, findingId), eq(findingLinks.toId, findingId)))
+    .all()
+  const out: LinkedFinding[] = []
+  for (const l of rows) {
+    const outgoing = l.fromId === findingId
+    const other = getFinding(outgoing ? l.toId : l.fromId)
+    if (other) out.push({ finding: other, kind: l.kind as FindingLinkKind, direction: outgoing ? 'outgoing' : 'incoming' })
+  }
+  return out
 }
 
 // Locate a single finding by its stable dedupe key (e.g. the cve_verify job

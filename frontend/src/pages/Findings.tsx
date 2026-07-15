@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, Camera, Sparkles, AlertTriangle } from 'lucide-react'
-import { api, ApiError, type Finding, type FindingStatus, type ReportSnapshot, type TriageSuggestion } from '../api'
+import { api, ApiError, type Finding, type FindingLink, type FindingStatus, type ReportSnapshot, type TriageSuggestion } from '../api'
 import { useApp } from '../state'
 import { Badge, Button, Card, Empty, ExportLinks, PageHeader, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
@@ -882,6 +882,37 @@ function FindingPivots({ f, navigate }: { f: Finding; navigate?: (page: string, 
   )
 }
 
+const LINK_LABEL: Record<FindingLink['kind'], { out: string; in: string }> = {
+  confirms: { out: 'Confirms', in: 'Confirmed by' },
+  evidence_for: { out: 'Evidence for', in: 'Has evidence' },
+  same_asset: { out: 'Same asset as', in: 'Same asset as' },
+  chained_from: { out: 'Chained from', in: 'Chains to' },
+}
+
+// Related findings (e.g. the nuclei PoC that confirms a CVE) via finding_links —
+// a queryable edge, not a naming-convention guess. Fetches when the detail opens.
+function LinkedFindings({ id }: { id: number }) {
+  const [links, setLinks] = useState<FindingLink[]>([])
+  useEffect(() => {
+    api.findingLinks(id).then((r) => setLinks(r.links)).catch(() => {})
+  }, [id])
+  if (!links.length) return null
+  return (
+    <div className="rounded-lg border border-emerald-900/40 bg-emerald-950/15 p-2 text-xs">
+      <div className="mb-1 uppercase tracking-wide text-emerald-300/80">Linked findings</div>
+      <ul className="space-y-1">
+        {links.map((l, i) => (
+          <li key={i} className="flex flex-wrap items-center gap-1.5 text-zinc-300">
+            <Badge tone="green">{l.direction === 'outgoing' ? LINK_LABEL[l.kind].out : LINK_LABEL[l.kind].in}</Badge>
+            <span className="text-zinc-400">{TYPE_LABEL[l.finding.type] ?? l.finding.type}</span>
+            <span className="min-w-0 break-all font-mono">{summarizeFinding(l.finding.type, l.finding.data)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function FindingDetail({ f, onUpdate, navigate }: { f: Finding; onUpdate: (id: number, patch: { status?: FindingStatus; note?: string | null }) => void; navigate?: (page: string, domainId?: number) => void }) {
   const d = f.data ?? {}
   return (
@@ -958,6 +989,7 @@ function FindingDetail({ f, onUpdate, navigate }: { f: Finding; onUpdate: (id: n
           </>
         )}
       </div>
+      <LinkedFindings id={f.id} />
       <FindingPivots f={f} navigate={navigate} />
       <NoteEditor f={f} onUpdate={onUpdate} />
 

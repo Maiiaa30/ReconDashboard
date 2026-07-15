@@ -413,11 +413,28 @@ export const assetFindings = sqliteTable(
   (t) => [unique('asset_findings_uq').on(t.assetId, t.findingId), index('asset_findings_asset_idx').on(t.assetId)],
 )
 
+// Relational edges between findings. Nothing linked related findings before, so
+// the UI collapsed them by naming convention (e.g. a CVE-verify PoC and the
+// cve_new it confirms). A typed edge makes the relationship queryable: 'confirms'
+// (a PoC proves another finding), 'evidence_for', 'same_asset', 'chained_from'.
+export const findingLinks = sqliteTable(
+  'finding_links',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    fromId: integer('from_id').notNull().references(() => findings.id, { onDelete: 'cascade' }),
+    toId: integer('to_id').notNull().references(() => findings.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(), // confirms | evidence_for | same_asset | chained_from
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [unique('finding_links_uq').on(t.fromId, t.toId, t.kind), index('finding_links_to_idx').on(t.toId), index('finding_links_from_idx').on(t.fromId)],
+)
+
 export type User = typeof users.$inferSelect
 export type PayloadSet = typeof payloadSets.$inferSelect
 export type MatchReplaceRuleRow = typeof matchReplaceRules.$inferSelect
 export type UrlCorpusRow = typeof urlCorpus.$inferSelect
 export type AssetRow = typeof assets.$inferSelect
+export type FindingLinkRow = typeof findingLinks.$inferSelect
 export type Domain = typeof domains.$inferSelect
 export type CapturedRequest = typeof capturedRequests.$inferSelect
 export type ReplayHistoryRow = typeof replayHistory.$inferSelect

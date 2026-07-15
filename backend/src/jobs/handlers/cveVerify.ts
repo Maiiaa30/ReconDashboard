@@ -1,6 +1,6 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
-import { findingByKey, recordCveVerification } from '../../findings/store'
+import { findingByKey, linkFindings, recordCveVerification } from '../../findings/store'
 import { assertPublicHost } from '../../sources/guard'
 import { run, toolExists } from '../../util/exec'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
@@ -117,7 +117,7 @@ export async function cveVerifyHandler({ params, log, signal, progress }: JobCon
     const severity = hit.info?.severity ?? 'high'
 
     // Standalone nuclei evidence finding (the PoC), scored by the normal scorer.
-    await addScoredFinding({
+    const pocId = await addScoredFinding({
       domainId,
       type: 'nuclei',
       data: {
@@ -142,6 +142,8 @@ export async function cveVerifyHandler({ params, log, signal, progress }: JobCon
         { result, templateId: hit['template-id'] ?? cveId, matchedAt, curl, at },
         { confirm: true, score: kevKnown ? 100 : 95 },
       )
+      // Relational edge: this PoC confirms that cve_new (queryable, not by naming).
+      linkFindings(pocId, existing.id, 'confirms')
     }
     log.info({ target, cveId, matchedAt }, 'cve verify: CONFIRMED exploitable')
   } else {
