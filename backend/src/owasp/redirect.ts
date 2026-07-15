@@ -8,13 +8,20 @@
 export const REDIRECT_EVIL_HOST = 'evil.example.org'
 
 // Bypass payload forms a naive allowlist misses: absolute, protocol-relative,
-// backslash, scheme-with-one-slash, and URL-encoded slashes.
+// backslash, scheme-with-one-slash, URL-encoded slashes, @-userinfo (the host
+// after `@` is the real target), fullwidth slashes, and null-byte truncation.
+// redirectsToAttacker resolves the server's ACTUAL Location, so whichever the
+// server honors is attributed correctly.
 export const REDIRECT_PAYLOADS: readonly string[] = [
   `https://${REDIRECT_EVIL_HOST}/`,
   `//${REDIRECT_EVIL_HOST}/`,
   `/\\${REDIRECT_EVIL_HOST}/`,
   `https:/${REDIRECT_EVIL_HOST}`,
   `%2f%2f${REDIRECT_EVIL_HOST}`,
+  `https://legit.test@${REDIRECT_EVIL_HOST}/`, // @-userinfo: real host is after the @
+  `/%2f@${REDIRECT_EVIL_HOST}/`, // encoded-slash + @, defeats servers that decode %2f
+  `／／${REDIRECT_EVIL_HOST}/`, // fullwidth slashes some parsers normalize to //
+  `https://${REDIRECT_EVIL_HOST}%00.legit.test/`, // null-byte truncation
 ]
 
 // Params whose name suggests the server may FETCH the URL (SSRF) rather than just

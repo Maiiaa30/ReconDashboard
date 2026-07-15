@@ -28,6 +28,12 @@ describe('redirectsToAttacker', () => {
     expect(redirectsToAttacker('https://evil.example.org.attacker-not.com/', REQ)).toBe(false)
     expect(redirectsToAttacker('https://notevil.example.org.legit.com/', REQ)).toBe(false)
   })
+  it('confirms an @-userinfo bypass (the real host is AFTER the @)', () => {
+    expect(redirectsToAttacker('https://target.com@evil.example.org/', REQ)).toBe(true)
+  })
+  it('does NOT flag when the target is the host and the attacker is only in userinfo', () => {
+    expect(redirectsToAttacker('https://evil.example.org@target.com/', REQ)).toBe(false)
+  })
   it('handles an empty/garbage Location safely', () => {
     expect(redirectsToAttacker('', REQ)).toBe(false)
     expect(redirectsToAttacker('::::', REQ)).toBe(false)
