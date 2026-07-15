@@ -2,8 +2,9 @@ import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
 import { discoverApiSurface } from '../../sources/apiSurface'
 import { knownUrlsFor } from './owaspActive'
-import { listSubdomains } from '../../subdomains/store'
+import { diffAndStore, listSubdomains } from '../../subdomains/store'
 import { mapLimit } from '../../util/async'
+import { hostBelongsToDomain } from '../../util/validate'
 import type { JobContext } from '../worker'
 
 // Passive API-surface discovery: probe the apex + discovered subdomains for
@@ -43,6 +44,7 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
   const knownJs = knownUrls.filter((u) => /^https?:\/\/[^\s"']+\.m?js(\?|$)/i.test(u))
 
   const counts = { spec: 0, graphql: 0, jsEndpoints: 0, jsFiles: 0 }
+  const jsHosts = new Set<string>() // in-scope sibling hostnames mined from JS
   await mapLimit(
     hosts,
     HOST_CONCURRENCY,
@@ -68,6 +70,9 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
         counts.graphql++
       }
       const js = result.js
+      // Hostnames the bundle referenced (already scoped by mineJs); re-check
+      // belongs-to-domain here for defense in depth.
+      for (const h of js.hosts ?? []) if (h === domain.host || hostBelongsToDomain(h, domain.host)) jsHosts.add(h)
       if (js.endpoints.length || js.secrets.length || js.params.length || js.frameworks?.length || js.env?.length) {
         await addScoredFinding({
           domainId,
@@ -88,10 +93,25 @@ export async function apiDiscoveryHandler({ params, log, progress, signal }: Job
     null,
   )
 
-  log.info({ domain: domain.host, hosts: hosts.length, ...counts }, 'api discovery complete')
+  // Register in-scope hostnames the JS referenced (api.target.com, a staging
+  // sibling, …) as subdomains, so new-host diffing/alerting picks them up for
+  // free — the same feedback loop the cert-SAN fold uses in exposure.
+  let newHostsFromJs = 0
+  if (jsHosts.size) {
+    try {
+      const res = diffAndStore(domainId, [...jsHosts].map((host) => ({ host, source: 'js-recon' })))
+      newHostsFromJs = res.newHosts.length
+      if (newHostsFromJs) log.info({ domain: domain.host, newHostsFromJs }, 'api discovery: new subdomains from JS')
+    } catch (err) {
+      log.warn({ err }, 'js-recon host fold failed')
+    }
+  }
+
+  log.info({ domain: domain.host, hosts: hosts.length, jsHosts: jsHosts.size, newHostsFromJs, ...counts }, 'api discovery complete')
   return {
     domain: domain.host,
     hostsChecked: hosts.length,
+    newHostsFromJs,
     jsFilesScanned: counts.jsFiles,
     specs: counts.spec,
     graphql: counts.graphql,

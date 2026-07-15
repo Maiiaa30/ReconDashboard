@@ -14,7 +14,8 @@ import { urlscanSearch, type UrlscanResult } from '../../sources/urlscan'
 import { waybackUrls, type WaybackResult } from '../../sources/wayback'
 import { whoisDomain } from '../../sources/whois'
 import { zoneTransfer } from '../../sources/zoneTransfer'
-import { isValidIp } from '../../util/validate'
+import { diffAndStore } from '../../subdomains/store'
+import { hostBelongsToDomain, isValidIp } from '../../util/validate'
 import type { JobContext } from '../worker'
 
 // Phase 4: OSINT / info center. One screen's worth of passive intel about a
@@ -122,6 +123,23 @@ export async function osintHandler({ params, log }: JobContext) {
     log.info({ host, collected: corpus.length, added }, 'url corpus persisted')
   } catch (err) {
     log.warn({ host, err }, 'url corpus persist failed')
+  }
+
+  // OTX passive-DNS hostnames → subdomain inventory (in-scope only). These are
+  // historical hostname→IP observations that never re-entered discovery; folding
+  // them in gets new-host diffing/alerting for free (same as the cert-SAN fold).
+  if (!('error' in ox) && ox.passiveDns.length) {
+    try {
+      const inScope = [...new Set(ox.passiveDns.map((d) => d.hostname.toLowerCase()))].filter(
+        (h) => h === host || hostBelongsToDomain(h, host),
+      )
+      if (inScope.length) {
+        const res = diffAndStore(domainId, inScope.map((h) => ({ host: h, source: 'otx-dns' })))
+        if (res.newHosts.length) log.info({ host, newHosts: res.newHosts.length }, 'osint: new subdomains from OTX passive DNS')
+      }
+    } catch (err) {
+      log.warn({ host, err }, 'otx passive-dns fold failed')
+    }
   }
 
   // Store trimmed copies in the finding blob (drop the big `urls` arrays).

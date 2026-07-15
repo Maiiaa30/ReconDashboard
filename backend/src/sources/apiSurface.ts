@@ -108,6 +108,7 @@ export interface JsFindings {
   params: string[]
   secrets: { pattern: string; sample: string; file: string }[]
   fromCorpus?: number // how many endpoints came from the passive URL corpus (not JS)
+  hosts?: string[] // in-scope sibling hostnames the bundle references (→ subdomain inventory)
   // Frontend/SPA recon: the stack + config a React/Vue/… app exposes client-side.
   frameworks?: string[]
   routes?: string[]
@@ -531,10 +532,16 @@ async function mineJs(host: string, extraJsUrls: string[], knownUrls: string[] =
   // Absolute URLs on the target's own domain/subdomains that look like API calls.
   const base = baseDomain(host)
   const absolute: string[] = []
+  const hostSet = new Set<string>() // every in-scope hostname the bundle references
+  const noteHost = (raw: string) => {
+    const h = raw.toLowerCase()
+    if (h === host.toLowerCase() || h === base || h.endsWith('.' + base)) hostSet.add(h)
+  }
   for (const u of raw.urls) {
     try {
       const url = new URL(u)
       const h = url.hostname.toLowerCase()
+      noteHost(h) // capture the host even if the path doesn't look API-ish
       const inScope = h === host.toLowerCase() || h === base || h.endsWith('.' + base)
       if (!inScope) continue
       const looksApi = API_HOST_RE.test(h) || API_ENDPOINT_RE.test(url.pathname) || !!url.search
@@ -543,6 +550,17 @@ async function mineJs(host: string, extraJsUrls: string[], knownUrls: string[] =
       absolute.push(h === host.toLowerCase() ? url.pathname + url.search : `${h}${url.pathname}${url.search}`)
     } catch {
       /* skip */
+    }
+  }
+  // Baked-in env URL values (NEXT_PUBLIC_API_URL, VITE_API_BASE, …) also point at
+  // in-scope sibling hosts.
+  for (const e of raw.env) {
+    if (e.value && /^https?:\/\//i.test(e.value)) {
+      try {
+        noteHost(new URL(e.value).hostname)
+      } catch {
+        /* skip */
+      }
     }
   }
 
@@ -564,6 +582,7 @@ async function mineJs(host: string, extraJsUrls: string[], knownUrls: string[] =
     params,
     secrets: raw.secrets,
     fromCorpus: corpus.endpoints.length,
+    hosts: [...hostSet],
     frameworks,
     routes: raw.routes,
     env: raw.env,
