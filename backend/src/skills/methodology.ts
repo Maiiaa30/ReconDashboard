@@ -33,7 +33,24 @@ export interface Methodology {
   skills: MethodologySkill[]
 }
 
+// Short-TTL cache: the advisor + the methodology page both call this, and each
+// call re-scans up to 5000 findings + 1000 jobs. Same pattern as correlate.ts.
+const cache = new Map<number, { at: number; data: Methodology }>()
+const TTL_MS = 8_000
+
+export function invalidateMethodology(domainId: number): void {
+  cache.delete(domainId)
+}
+
 export function buildMethodology(domainId: number): Methodology {
+  const hit = cache.get(domainId)
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.data
+  const data = computeMethodology(domainId)
+  cache.set(domainId, { at: Date.now(), data })
+  return data
+}
+
+function computeMethodology(domainId: number): Methodology {
   const findings = listFindings({ domainId, limit: 5000 })
   const jobs = listJobs(1000)
     .map((j) => ({ ...j, p: safeJsonParse<{ tool?: string; domainId?: number }>(j.params, {}) }))

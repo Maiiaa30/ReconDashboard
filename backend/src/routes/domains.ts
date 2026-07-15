@@ -14,7 +14,7 @@ import { enqueueJob } from '../jobs/queue'
 import { acknowledgeNew, listSubdomains } from '../subdomains/store'
 import { domainOverviews } from '../domains/overview'
 import { correlateDomain, signatureClusters } from '../domains/correlate'
-import { buildMethodology } from '../skills/methodology'
+import { buildMethodology, invalidateMethodology } from '../skills/methodology'
 import { setStepOverride } from '../skills/overrides'
 import { adviseIntel } from '../domains/advisor'
 import { suggestChains } from '../domains/chainSuggest'
@@ -179,6 +179,7 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(400).send({ error: 'skillId, stepKey and state (done|skipped|clear) required' })
       }
       setStepOverride(id, skillId, stepKey, state)
+      invalidateMethodology(id) // reflect the manual change immediately, not after the TTL
       return buildMethodology(id)
     },
   )
