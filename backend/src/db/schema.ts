@@ -103,6 +103,11 @@ export const subdomains = sqliteTable(
     title: text('title'),
     server: text('server'),
     scheme: text('scheme'),
+    // Correlation signatures that survive CDN fronting: the TLS cert fingerprint
+    // and the mmh3 favicon hash. Two hosts sharing either are the same asset even
+    // on different IPs (correlate.ts clusters by these).
+    certFp: text('cert_fp'),
+    faviconHash: integer('favicon_hash'),
     // The HTTP probe saw a login form / auth wording — a high-value new host to
     // surface first in the "Today" panel.
     loginHint: integer('login_hint', { mode: 'boolean' }).notNull().default(false),

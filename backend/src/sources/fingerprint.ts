@@ -1,5 +1,6 @@
 import { resolveDns } from './dns'
-import { guardedFetchRaw } from './guard'
+import { guardedFetchBytes, guardedFetchRaw } from './guard'
+import { faviconHash } from '../util/mmh3'
 import { isInternalIp } from '../util/validate'
 
 // Passive technology fingerprint: one GET to the host, then map response
@@ -17,6 +18,25 @@ export interface Fingerprint {
   cdn: string | null
   technologies: string[]
   headers: Record<string, string>
+  faviconHash: number | null // mmh3 of the favicon — correlates assets across IPs
+}
+
+const MAX_FAVICON_BYTES = 256 * 1024
+
+// Fetch the site's favicon (the <link rel=icon> href if present, else /favicon.ico)
+// and compute its mmh3 hash. SSRF-guarded, byte-capped. Null on any failure.
+async function faviconHashFor(base: string, html: string): Promise<number | null> {
+  const linkHref = (html.match(/<link[^>]+rel=["'][^"']*icon[^"']*["'][^>]*>/i) || [])[0]
+  const href = linkHref ? (linkHref.match(/href=["']([^"']+)["']/i) || [])[1] : null
+  let url: string
+  try {
+    url = new URL(href || '/favicon.ico', base).toString()
+  } catch {
+    return null
+  }
+  const res = await guardedFetchBytes(url, { timeoutMs: TIMEOUT_MS, maxBytes: MAX_FAVICON_BYTES })
+  if (!res || res.status !== 200 || res.bytes.length === 0) return null
+  return faviconHash(res.bytes)
 }
 
 const TIMEOUT_MS = 9_000
@@ -156,7 +176,7 @@ async function fetchOnce(url: string): Promise<{
 export async function fingerprintHost(host: string, cpes: string[] = []): Promise<Fingerprint> {
   const empty: Fingerprint = {
     url: null, scheme: null, status: null, os: null, server: null, poweredBy: null,
-    cdn: null, technologies: [], headers: {},
+    cdn: null, technologies: [], headers: {}, faviconHash: null,
   }
 
   // SSRF defense: refuse if ANY resolved address (all A + AAAA, not just the
@@ -171,6 +191,7 @@ export async function fingerprintHost(host: string, cpes: string[] = []): Promis
     const server = res.headers['server'] ?? ''
     const poweredBy = res.headers['x-powered-by'] ?? res.headers['x-aspnet-version'] ?? ''
     const generator = res.headers['x-generator'] ?? (res.html.match(/<meta[^>]+name=["']generator["'][^>]+content=["']([^"']+)["']/i) || [])[1] ?? ''
+    const favicon = await faviconHashFor(`${scheme}://${host}`, res.html).catch(() => null)
     return {
       url: `${scheme}://${host}`,
       scheme,
@@ -181,6 +202,7 @@ export async function fingerprintHost(host: string, cpes: string[] = []): Promis
       cdn: cdnFromSignals(res.headers, server),
       technologies: techFromSignals(server, poweredBy, generator, res.cookieNames, res.html, cpes),
       headers: res.headers,
+      faviconHash: favicon,
     }
   }
   // Couldn't reach the host over HTTP(S); still surface any CPE-derived tech.
@@ -188,5 +210,6 @@ export async function fingerprintHost(host: string, cpes: string[] = []): Promis
     ...empty,
     os: osFromSignals('', '', [], cpes),
     technologies: techFromSignals('', '', '', [], '', cpes),
+    faviconHash: null,
   }
 }

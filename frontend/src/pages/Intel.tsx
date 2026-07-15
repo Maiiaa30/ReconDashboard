@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { api, type AdviceAction, type AttackPath, type ChainSuggestion, type Finding, type IntelAdvice } from '../api'
+import { api, type AdviceAction, type AttackPath, type ChainSuggestion, type Finding, type IntelAdvice, type SignatureCluster } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Card, Empty, PageHeader, ScoreBadge } from '../components/ui'
 import { riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
@@ -11,6 +11,7 @@ export function Intel({ navigate }: { navigate?: (page: string, domainId?: numbe
   const { domains, selected } = useApp()
   const [findings, setFindings] = useState<Finding[]>([])
   const [paths, setPaths] = useState<AttackPath[]>([])
+  const [clusters, setClusters] = useState<SignatureCluster[]>([])
   const [chains, setChains] = useState<ChainSuggestion[]>([])
   const [pathView, setPathView] = useState<'graph' | 'table'>('graph')
   const [llmOn, setLlmOn] = useState(false)
@@ -54,6 +55,7 @@ export function Intel({ navigate }: { navigate?: (page: string, domainId?: numbe
   useEffect(() => {
     if (!selected) {
       setPaths([])
+      setClusters([])
       pathSigRef.current = ''
       return
     }
@@ -65,8 +67,12 @@ export function Intel({ navigate }: { navigate?: (page: string, domainId?: numbe
           pathSigRef.current = sig
           setPaths(r.paths)
         }
+        setClusters(r.signatureClusters ?? [])
       })
-      .catch(() => setPaths([]))
+      .catch(() => {
+        setPaths([])
+        setClusters([])
+      })
     api
       .chainSuggestions(selected.id)
       .then((r) => setChains(r.chains))
@@ -135,6 +141,8 @@ export function Intel({ navigate }: { navigate?: (page: string, domainId?: numbe
       {selected && paths.length > 0 && (
         <AttackPathsSection paths={paths} host={selected.host} view={pathView} onViewChange={setPathView} navigate={navigate} />
       )}
+
+      {selected && clusters.length > 0 && <SignatureClustersSection clusters={clusters} />}
 
       {selected && chains.length > 0 && <ChainsSection chains={chains} domainId={selected.id} navigate={navigate} />}
 
@@ -383,6 +391,28 @@ function ChainsSection({ chains, domainId, navigate }: { chains: ChainSuggestion
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+function SignatureClustersSection({ clusters }: { clusters: SignatureCluster[] }) {
+  return (
+    <div className="mb-6">
+      <h2 className="mb-2 text-sm font-semibold text-zinc-200">
+        🔗 Same-asset clusters <span className="text-zinc-500">— shared TLS cert / favicon across IPs (survives CDN fronting)</span>
+      </h2>
+      <Card className="space-y-2">
+        {clusters.map((c) => (
+          <div key={c.key} className="flex flex-wrap items-center gap-2 text-xs">
+            <Badge tone={c.kind === 'cert' ? 'indigo' : 'purple'}>{c.kind}</Badge>
+            <span className="font-mono text-zinc-500" title={c.signature}>
+              {c.kind === 'cert' ? c.signature.slice(0, 24) : c.signature}
+            </span>
+            <span className="text-zinc-300">{c.hosts.join(', ')}</span>
+            {c.ips.length > 1 && <span className="text-amber-300">across {c.ips.length} IPs</span>}
+          </div>
+        ))}
+      </Card>
     </div>
   )
 }

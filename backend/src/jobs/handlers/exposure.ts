@@ -8,18 +8,20 @@ import { cdnForIp } from '../../sources/cdn'
 import { enrichCves } from '../../sources/cvedb'
 import { resolveDns } from '../../sources/dns'
 import { grabTlsCert } from '../../sources/tlsCert'
+import { collectHostSignature } from '../../sources/hostSignature'
 import { internetDbLookup } from '../../sources/internetdb'
-import { diffAndStore, listSubdomains } from '../../subdomains/store'
+import { diffAndStore, listSubdomains, updateSignature } from '../../subdomains/store'
 import { hostBelongsToDomain, isValidIp } from '../../util/validate'
 import { mapLimit } from '../../util/async'
 import type { JobContext } from '../worker'
 
 const MAX_HOSTS = 150
 const MAX_IPS = 150
+const MAX_SIGNATURES = 40 // bound the per-host cert/favicon fetches
 
 // Phase 3: "Shodan of each domain" — passive exposure via Shodan InternetDB
 // (free, no key) + CVE enrichment via cvedb. No active scanning.
-export async function exposureHandler({ params, log }: JobContext) {
+export async function exposureHandler({ params, log, signal }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
@@ -133,6 +135,24 @@ export async function exposureHandler({ params, log }: JobContext) {
     }
   } catch (err) {
     log.warn({ err }, 'tls cert grab failed')
+  }
+
+  // Per-host correlation signatures (TLS cert fingerprint + mmh3 favicon hash) for
+  // a bounded set of hosts — these cluster same-asset hosts across different IPs
+  // (correlate.signatureClusters), which CDN fronting would otherwise hide.
+  try {
+    const sigHosts = hosts.slice(0, MAX_SIGNATURES)
+    await mapLimit(
+      sigHosts,
+      6,
+      async (host) => {
+        const sig = await collectHostSignature(host, signal)
+        if (sig.certFp || sig.faviconHash != null) updateSignature(domainId, host, sig)
+      },
+      undefined,
+    )
+  } catch (err) {
+    log.warn({ err }, 'host signature collection failed')
   }
 
   // Fresh assets + exposure findings just landed — drop the correlation cache so

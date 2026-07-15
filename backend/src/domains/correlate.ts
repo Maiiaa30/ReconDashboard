@@ -1,6 +1,7 @@
 import { cdnForIp } from '../sources/cdn'
 import { listFindings } from '../findings/store'
 import { listAssets } from '../assets/store'
+import { listSignatures } from '../subdomains/store'
 
 // Attack-path correlation: the host->IP->ports/CVEs/ASN graph. It is now backed by
 // the durable `assets` table (host cross-linking + asn/cdn come from asset rows),
@@ -89,4 +90,53 @@ function buildCorrelation(domainId: number): AttackPath[] {
 
   // Worst first: KEV, then CVSS, then the exposure score.
   return paths.sort((a, b) => Number(b.kev) - Number(a.kev) || (b.worstCvss ?? 0) - (a.worstCvss ?? 0) || b.score - a.score)
+}
+
+// A cluster of hosts that share a TLS cert fingerprint or favicon hash — the same
+// underlying asset even when fronted behind different IPs (which the IP join can't
+// see, and which over-links on shared CDN IPs).
+export interface SignatureCluster {
+  key: string // "cert:<fp>" or "favicon:<hash>"
+  kind: 'cert' | 'favicon'
+  signature: string
+  hosts: string[]
+  ips: string[] // distinct resolved IPs across the cluster
+}
+
+export interface HostSignatureEntry {
+  host: string
+  ip?: string | null
+  certFp?: string | null
+  faviconHash?: number | null
+}
+
+// PURE: group hosts by shared cert fingerprint / favicon hash. Only clusters with
+// ≥2 distinct hosts are returned (a signature unique to one host isn't a link).
+// Cross-IP by construction — hosts are grouped by signature, not by address.
+export function clusterBySignature(entries: HostSignatureEntry[]): SignatureCluster[] {
+  const groups = new Map<string, { kind: 'cert' | 'favicon'; signature: string; hosts: Set<string>; ips: Set<string> }>()
+  const add = (kind: 'cert' | 'favicon', signature: string, host: string, ip?: string | null) => {
+    const key = `${kind}:${signature}`
+    let g = groups.get(key)
+    if (!g) {
+      g = { kind, signature, hosts: new Set(), ips: new Set() }
+      groups.set(key, g)
+    }
+    g.hosts.add(host)
+    if (ip) g.ips.add(ip)
+  }
+  for (const e of entries) {
+    if (e.certFp) add('cert', e.certFp, e.host, e.ip)
+    if (e.faviconHash != null) add('favicon', String(e.faviconHash), e.host, e.ip)
+  }
+  return [...groups.entries()]
+    .filter(([, g]) => g.hosts.size >= 2)
+    .map(([key, g]) => ({ key, kind: g.kind, signature: g.signature, hosts: [...g.hosts], ips: [...g.ips] }))
+    .sort((a, b) => b.hosts.length - a.hosts.length)
+}
+
+// Signature clusters for a domain, read from the per-host signatures stored during
+// exposure scans. Surfaces same-asset links CDN fronting would otherwise hide.
+export function signatureClusters(domainId: number): SignatureCluster[] {
+  return clusterBySignature(listSignatures(domainId))
 }

@@ -113,6 +113,24 @@ export function updateProbe(domainId: number, host: string, p: ProbeData): void 
     .run()
 }
 
+/** Store correlation signatures (TLS cert fingerprint + mmh3 favicon hash). */
+export function updateSignature(domainId: number, host: string, sig: { certFp?: string | null; faviconHash?: number | null }): void {
+  const set: Record<string, unknown> = {}
+  if (sig.certFp !== undefined) set.certFp = sig.certFp
+  if (sig.faviconHash !== undefined) set.faviconHash = sig.faviconHash
+  if (Object.keys(set).length === 0) return
+  db.update(subdomains).set(set).where(and(eq(subdomains.domainId, domainId), eq(subdomains.host, host))).run()
+}
+
+/** Per-host correlation signatures for a domain (for cross-IP asset clustering). */
+export function listSignatures(domainId: number): { host: string; ip: string | null; certFp: string | null; faviconHash: number | null }[] {
+  return db
+    .select({ host: subdomains.host, ip: subdomains.ipAddress, certFp: subdomains.certFp, faviconHash: subdomains.faviconHash })
+    .from(subdomains)
+    .where(eq(subdomains.domainId, domainId))
+    .all()
+}
+
 export function updateScreenshot(domainId: number, host: string, path: string): void {
   db.update(subdomains)
     .set({ screenshotPath: path, screenshotAt: new Date() })

@@ -161,6 +161,62 @@ export async function guardedFetchRaw(
   return null // too many redirects
 }
 
+// Like guardedFetch but returns the RAW response bytes (a Buffer), for callers
+// that need binary content (e.g. a favicon to hash). Single hop, SSRF-guarded,
+// byte-capped. Returns null on any failure / SSRF block.
+export async function guardedFetchBytes(
+  url: string,
+  opts: { timeoutMs?: number; headers?: Record<string, string>; maxBytes?: number; signal?: AbortSignal } = {},
+): Promise<{ status: number; bytes: Buffer; finalUrl: string } | null> {
+  const timeoutMs = opts.timeoutMs ?? 9_000
+  const maxBytes = opts.maxBytes ?? 256 * 1024
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return null
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+  try {
+    await assertPublicHost(u.hostname)
+  } catch {
+    return null
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, {
+      redirect: 'manual',
+      signal: opts.signal ? AbortSignal.any([controller.signal, opts.signal]) : controller.signal,
+      headers: { 'User-Agent': 'recon-dashboard/0.1', ...opts.headers },
+    })
+    // Read RAW bytes (not utf8) so binary content like a favicon is preserved.
+    if (!res.body) {
+      const buf = Buffer.from(await res.arrayBuffer())
+      return { status: res.status, bytes: buf.subarray(0, maxBytes), finalUrl: url }
+    }
+    const reader = res.body.getReader()
+    const chunks: Uint8Array[] = []
+    let total = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!value) continue
+      chunks.push(value)
+      total += value.byteLength
+      if (total >= maxBytes) {
+        await reader.cancel().catch(() => {})
+        break
+      }
+    }
+    return { status: res.status, bytes: Buffer.concat(chunks).subarray(0, maxBytes), finalUrl: url }
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
  * fetch() that re-resolves and SSRF-guards the host on EVERY redirect hop.
  * Node's redirect:'follow' would happily follow a public host's 30x into an

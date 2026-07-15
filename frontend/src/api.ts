@@ -322,6 +322,15 @@ export interface AttackPath {
   score: number
 }
 
+// Hosts sharing a TLS cert / favicon hash — same asset across different IPs.
+export interface SignatureCluster {
+  key: string
+  kind: 'cert' | 'favicon'
+  signature: string
+  hosts: string[]
+  ips: string[]
+}
+
 export type AdviceActionKind = 'nmap' | 'naabu' | 'nuclei' | 'ffuf' | 'dalfox' | 'sslscan' | 'katana' | 'owasp'
 export interface AdviceAction {
   kind: AdviceActionKind
@@ -564,7 +573,7 @@ export const api = {
     post<{ jobId: number; categories: string[]; tags: string[] }>(`/domains/${id}/owasp`, { categoryIds, scheme, confirm }),
 
   // attack-path correlation
-  correlate: (id: number) => get<{ paths: AttackPath[] }>(`/domains/${id}/correlate`),
+  correlate: (id: number) => get<{ paths: AttackPath[]; signatureClusters: SignatureCluster[] }>(`/domains/${id}/correlate`),
 
   // recon methodology / coverage
   methodology: (id: number) => get<Methodology>(`/domains/${id}/methodology`),
