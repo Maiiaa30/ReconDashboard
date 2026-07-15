@@ -1,3 +1,4 @@
+import { X509Certificate } from 'node:crypto'
 import { connect, type PeerCertificate } from 'node:tls'
 import { assertPublicHost } from './guard'
 import { normalizeHost } from '../util/validate'
@@ -14,6 +15,7 @@ export interface TlsCertInfo {
   fingerprint256: string | null
   issuer: string | null
   validTo: string | null
+  publicKeyPem: string | null // SPKI PEM of the leaf key (a JWT alg-confusion key source)
 }
 
 export async function grabTlsCert(host: string): Promise<TlsCertInfo | null> {
@@ -48,11 +50,21 @@ export async function grabTlsCert(host: string): Promise<TlsCertInfo | null> {
 
   const issuer = cert.issuer ? [cert.issuer.O, cert.issuer.CN].filter(Boolean).join(' / ') || null : null
 
+  // Extract the leaf's public key as SPKI PEM (from the DER `raw`). A JWT that a
+  // server verifies with this key can be forged via RS256->HS256 confusion.
+  let publicKeyPem: string | null = null
+  try {
+    if (cert.raw) publicKeyPem = new X509Certificate(cert.raw).publicKey.export({ type: 'spki', format: 'pem' }).toString()
+  } catch {
+    /* leave null — an exotic key type just means no cert-based confusion source */
+  }
+
   return {
     host,
     sans: [...sans],
     fingerprint256: cert.fingerprint256 ?? null,
     issuer,
     validTo: cert.valid_to ?? null,
+    publicKeyPem,
   }
 }

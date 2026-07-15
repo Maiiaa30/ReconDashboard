@@ -5,6 +5,7 @@ import { assertDomainActive, assertHostInScope, assertScanAllowed, ScanPolicyErr
 import { sendRawRequest, ReplayError, type ReplayRequest } from '../replay/send'
 import { applicableRules } from '../replay/matchReplaceStore'
 import { hasIdMarker } from '../replay/authz'
+import { algIsAsymmetric, decodeJwt } from '../owasp/jwt'
 import { attackCount, expandPayloads, MAX_PAYLOADS, positionsInTemplate, type AttackMode } from '../replay/intruder'
 import { insertReplayHistory, listReplayHistory, getReplayHistory, clearReplayHistory } from '../replay/history'
 import { buildSitemap } from '../replay/sitemap'
@@ -365,6 +366,57 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
         samples: request.body?.samples,
       })
       writeAudit({ actor: actorName(request.session.userId), action: 'enqueue:inject_confirm', domainId: id, target: host, mode: domain.mode, jobId, detail: { method, url: template.url, boolean: hasBoolean, timing: hasTiming } })
+      return reply.code(202).send({ jobId })
+    } catch (err) {
+      if (err instanceof ScanPolicyError) {
+        if (err.retryAfterSec) reply.header('Retry-After', String(err.retryAfterSec))
+        return reply.code(err.status).send({ error: err.message, code: err.code })
+      }
+      throw err
+    }
+  })
+
+  // JWT algorithm-confusion confirm: mark the token slot with {{JWT}} and supply
+  // the original (asymmetrically-signed) token; the job fetches the server's public
+  // key (jwks / TLS cert) and proves RS256->HS256 confusion. LOUD + gated.
+  app.post<{
+    Params: { id: string }
+    Body: {
+      template?: { method?: string; url?: string; headers?: Record<string, string>; body?: string; followRedirects?: boolean }
+      token?: string
+      publicKeyPem?: string
+      confirm?: boolean
+    }
+  }>('/api/domains/:id/jwt-confuse', async (request, reply) => {
+    const id = Number(request.params.id)
+    const { template, confirm } = request.body ?? {}
+    if (!template || typeof template.url !== 'string' || !template.url) return reply.code(400).send({ error: 'template.url is required' })
+    const marked = [template.url, template.body ?? '', ...Object.values(template.headers ?? {})].some((s) => String(s).includes('{{JWT}}'))
+    if (!marked) return reply.code(400).send({ error: 'no {{JWT}} marker in the request template', code: 'no_marker' })
+    const token = typeof request.body?.token === 'string' ? request.body.token.trim() : ''
+    const decoded = token ? decodeJwt(token) : null
+    if (!decoded) return reply.code(400).send({ error: 'a decodable original JWT (token) is required', code: 'no_token' })
+    if (!algIsAsymmetric(String(decoded.header.alg ?? ''))) {
+      return reply.code(400).send({ error: `token alg is symmetric (${decoded.header.alg ?? 'none'}) — not an alg-confusion candidate`, code: 'not_asymmetric' })
+    }
+    let host: string
+    try {
+      host = new URL(template.url).hostname
+    } catch {
+      return reply.code(400).send({ error: 'invalid template.url', code: 'invalid_target' })
+    }
+    try {
+      const { domain } = await assertScanAllowed({ domainId: id, target: host, confirm: confirm === true, jobType: 'jwt_confuse' })
+      const method = (template.method ?? 'GET').toUpperCase()
+      const jobId = enqueueJob('jwt_confuse', {
+        domainId: id,
+        target: host,
+        template: { method, url: template.url, headers: template.headers, body: template.body, followRedirects: template.followRedirects === true },
+        token,
+        publicKeyPem: typeof request.body?.publicKeyPem === 'string' ? request.body.publicKeyPem : undefined,
+      })
+      // Redact the token — log only a short fingerprint + the alg, never the value.
+      writeAudit({ actor: actorName(request.session.userId), action: 'enqueue:jwt_confuse', domainId: id, target: host, mode: domain.mode, jobId, detail: { method, url: template.url, alg: decoded.header.alg, tokenFp: token.slice(-6) } })
       return reply.code(202).send({ jobId })
     } catch (err) {
       if (err instanceof ScanPolicyError) {

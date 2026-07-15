@@ -680,6 +680,17 @@ export const api = {
     },
   ) => post<{ jobId: number }>(`/domains/${id}/inject-confirm`, bodyReq),
 
+  // JWT RS256->HS256 alg-confusion confirm ({{JWT}} marker + original token, gated)
+  jwtConfuse: (
+    id: number,
+    bodyReq: {
+      template: { method: string; url: string; headers?: Record<string, string>; body?: string; followRedirects?: boolean }
+      token: string
+      publicKeyPem?: string
+      confirm?: boolean
+    },
+  ) => post<{ jobId: number }>(`/domains/${id}/jwt-confuse`, bodyReq),
+
   // IDOR / broken-authz diff: replay one {{ID}} object request under 3 identities
   authzDiff: (
     id: number,

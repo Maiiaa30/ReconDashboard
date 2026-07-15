@@ -4,6 +4,7 @@ import {
   algIsAsymmetric,
   analyzeJwtToken,
   BUILTIN_JWT_SECRETS,
+  confusionConfirmed,
   crackHmacSecret,
   decodeJwt,
   findJwts,
@@ -168,6 +169,32 @@ describe('RS256->HS256 confusion forge', () => {
     expect(cands.length).toBeGreaterThanOrEqual(2)
     expect(cands.some((c) => c.includes('BEGIN PUBLIC KEY'))).toBe(true)
     expect(cands.some((c) => !c.includes('BEGIN'))).toBe(true) // the stripped body
+  })
+})
+
+describe('confusionConfirmed', () => {
+  const ok = { status: 200, body: 'a'.repeat(1000) }
+  const denied = { status: 401, body: 'unauthorized' }
+
+  it('confirms when forged is accepted like baseline and control is rejected', () => {
+    expect(confusionConfirmed(ok, denied, { status: 200, body: 'a'.repeat(1010) })).toBe(true)
+  })
+
+  it('does NOT confirm when the control (wrong key) is also accepted', () => {
+    // Endpoint accepts any token → cannot attribute acceptance to alg-confusion.
+    expect(confusionConfirmed(ok, { status: 200, body: 'a'.repeat(1000) }, ok)).toBe(false)
+  })
+
+  it('does NOT confirm when the forged token is rejected', () => {
+    expect(confusionConfirmed(ok, denied, denied)).toBe(false)
+  })
+
+  it('does NOT confirm when the baseline is itself unauthorized', () => {
+    expect(confusionConfirmed(denied, { status: 500, body: '' }, denied)).toBe(false)
+  })
+
+  it('does NOT confirm when the forged body diverges materially from baseline', () => {
+    expect(confusionConfirmed(ok, denied, { status: 200, body: 'a'.repeat(200) })).toBe(false)
   })
 })
 

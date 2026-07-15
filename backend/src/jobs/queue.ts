@@ -21,6 +21,7 @@ export type JobType =
   | 'authz_diff'
   | 'param_discovery'
   | 'inject_confirm'
+  | 'jwt_confuse'
 
 // Loud/active job types we deliberately do NOT auto-resume after a crash: a scan
 // interrupted mid-run would silently re-fire against the target on the next boot,
@@ -37,6 +38,7 @@ const LOUD_TYPES: ReadonlySet<JobType> = new Set([
   'authz_diff',
   'param_discovery',
   'inject_confirm',
+  'jwt_confuse',
 ])
 
 // After this many claims a job is dead-lettered instead of re-queued, so a job

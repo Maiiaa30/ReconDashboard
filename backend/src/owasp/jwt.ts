@@ -161,6 +161,41 @@ export function keyMaterialCandidates(pem: string): string[] {
   return out
 }
 
+// The response differential that CONFIRMS RS256->HS256 confusion. Three requests:
+//   baseline — the original (validly-signed) token: must be ACCEPTED.
+//   control  — an HS256 token signed with a WRONG secret: must be REJECTED.
+//   forged   — an HS256 token signed with the server's PUBLIC key.
+// Confirmed iff the forged token is accepted like the baseline WHILE the control
+// is rejected. The control is the false-positive killer: if a wrong-key token is
+// also accepted, the endpoint isn't verifying the signature (or isn't auth-gated),
+// so acceptance can't be attributed to alg-confusion. Body length within 10%
+// absorbs per-request jitter (csrf tokens, timestamps).
+export interface ConfusionResponse {
+  status: number
+  body: string
+}
+
+function bodySimilar(a: string, b: string): boolean {
+  const m = Math.max(a.length, b.length, 1)
+  return Math.abs(a.length - b.length) / m <= 0.1
+}
+
+// A response "looks like" the baseline when the status matches and the body is a
+// similar size — i.e. the same authorized page, not an auth-error page.
+function looksLikeBaseline(r: ConfusionResponse, baseline: ConfusionResponse): boolean {
+  return r.status === baseline.status && bodySimilar(r.body, baseline.body)
+}
+
+export function confusionConfirmed(
+  baseline: ConfusionResponse,
+  control: ConfusionResponse,
+  forged: ConfusionResponse,
+): boolean {
+  if (baseline.status >= 400) return false // baseline must be an authorized response
+  if (looksLikeBaseline(control, baseline)) return false // server accepts a wrong-key token → not conclusive
+  return looksLikeBaseline(forged, baseline) // forged accepted exactly like the valid token
+}
+
 // Path-jail for an offline JWT-secret wordlist: an absolute path under the
 // wordlists dir, no traversal — the same discipline the ffuf / intruder wordlist
 // readers use, so this can't be turned into an arbitrary file read. Pure predicate
