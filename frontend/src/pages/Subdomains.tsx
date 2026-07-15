@@ -126,6 +126,17 @@ export function Subdomains() {
     }
   }
 
+  async function runPermute() {
+    if (!selected) return
+    setRunning(true)
+    try {
+      const { jobId } = await api.dnsPermute(selected.id)
+      setLastJob(jobId)
+    } catch {
+      setRunning(false)
+    }
+  }
+
   async function ack() {
     if (!selected) return
     try {
@@ -155,6 +166,9 @@ export function Subdomains() {
                 Acknowledge {newCount} new
               </Button>
             )}
+            <Button variant="ghost" onClick={runPermute} disabled={running} title="Permute names from the wordlist + inventory and brute-resolve (wildcard-guarded)">
+              Permute DNS
+            </Button>
             <Button onClick={runDiscovery} disabled={running}>
               {running ? 'Discovering…' : 'Run discovery now'}
             </Button>

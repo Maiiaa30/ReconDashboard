@@ -16,6 +16,7 @@ import { authzDiffHandler } from './handlers/authzDiff'
 import { paramDiscoveryHandler } from './handlers/paramDiscovery'
 import { injectConfirmHandler } from './handlers/injectConfirm'
 import { jwtConfuseHandler } from './handlers/jwtConfuse'
+import { dnsPermuteHandler } from './handlers/dnsPermute'
 
 // Wire every job type to its handler. Called once at startup.
 export function registerJobHandlers(): void {
@@ -38,4 +39,5 @@ export function registerJobHandlers(): void {
   registerHandler('param_discovery', paramDiscoveryHandler)
   registerHandler('inject_confirm', injectConfirmHandler)
   registerHandler('jwt_confuse', jwtConfuseHandler)
+  registerHandler('dns_permute', dnsPermuteHandler)
 }

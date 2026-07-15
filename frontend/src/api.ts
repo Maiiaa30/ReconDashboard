@@ -581,6 +581,8 @@ export const api = {
   // subdomains
   subdomains: (id: number) => get<{ subdomains: Subdomain[] }>(`/domains/${id}/subdomains`),
   discover: (id: number) => post<{ jobId: number }>(`/domains/${id}/discover`),
+  // passive DNS permutation + brute-resolve (wildcard-guarded)
+  dnsPermute: (id: number) => post<{ jobId: number }>(`/domains/${id}/dns-permute`),
   acknowledgeNew: (id: number) => post<{ cleared: number }>(`/domains/${id}/subdomains/acknowledge`),
 
   // passive recon

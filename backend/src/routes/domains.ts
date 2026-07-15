@@ -223,6 +223,17 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
     },
   )
 
+  // Trigger passive DNS permutation + brute-resolve (wildcard-guarded).
+  app.post<{ Params: { id: string } }>(
+    '/api/domains/:id/dns-permute',
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+      const jobId = enqueueJob('dns_permute', { domainId: id })
+      return reply.code(202).send({ jobId })
+    },
+  )
+
   // Acknowledge (clear the "new" flag on) a domain's subdomains.
   app.post<{ Params: { id: string } }>(
     '/api/domains/:id/subdomains/acknowledge',
