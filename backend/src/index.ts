@@ -37,6 +37,7 @@ import { captureRoutes } from './routes/capture'
 import { payloadRoutes } from './routes/payloads'
 import { matchReplaceRoutes } from './routes/matchReplace'
 import { identityRoutes } from './routes/identities'
+import { aiRoutes } from './routes/ai'
 
 // Build and fully configure the app (migrations, seed, plugins, guard, routes)
 // WITHOUT listening or starting background workers — so an integration test can
@@ -129,6 +130,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(payloadRoutes)
   await app.register(matchReplaceRoutes)
   await app.register(identityRoutes)
+  await app.register(aiRoutes)
 
   return app
 }

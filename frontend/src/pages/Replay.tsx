@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Send, Crosshair, Repeat, ChevronRight, AlertTriangle, Clock, Ruler, StopCircle, History, Network, KeyRound, FlaskConical, Fingerprint, Users } from 'lucide-react'
 import { api, ApiError, type ReplayResponse, type IntruderResult, type IntruderAttempt, type Job, type Wordlist, type ReplayHistoryItem, type SitemapHost, type MatchReplaceRule, type Identity } from '../api'
 import { useApp } from '../state'
@@ -1136,7 +1136,7 @@ function IntruderPanel({
                 <AlertTriangle size={13} className="text-amber-400" /> {result.interesting.length} response(s) deviate from the baseline —
                 look here first
               </div>
-              <AttemptTable rows={result.interesting} highlight />
+              <AttemptTable rows={result.interesting} highlight explainJobId={jobId ?? undefined} toast={toast} />
             </div>
           )}
 
@@ -1165,14 +1165,42 @@ function NumField({ label, value, onChange }: { label: string; value: string; on
 }
 
 const ATTEMPT_PAGE = 500
-function AttemptTable({ rows, highlight = false }: { rows: IntruderAttempt[]; highlight?: boolean }) {
+function AttemptTable({
+  rows,
+  highlight = false,
+  explainJobId,
+  toast,
+}: {
+  rows: IntruderAttempt[]
+  highlight?: boolean
+  explainJobId?: number
+  toast?: ReturnType<typeof useToast>
+}) {
   // Cap the DOM: a 10k-payload run would otherwise commit 10k <tr> at once and
   // jank the tab. Render a page at a time; deviating rows are surfaced separately.
   const [limit, setLimit] = useState(ATTEMPT_PAGE)
+  const [explains, setExplains] = useState<Record<number, string>>({})
+  const [explaining, setExplaining] = useState<number | null>(null)
   const shown = rows.slice(0, limit)
   const hasWords = rows.some((r) => r.words != null)
   const hasExtract = rows.some((r) => r.extract != null)
   const hasMatched = rows.some((r) => r.matched)
+  const canExplain = explainJobId != null
+
+  async function explain(i: number) {
+    if (explainJobId == null || explaining != null) return
+    setExplaining(i)
+    try {
+      const r = await api.explainIntruderRow(explainJobId, i)
+      if (r.enabled && r.explanation) setExplains((m) => ({ ...m, [i]: r.explanation! }))
+      else toast?.info(r.note ?? 'No explanation available.')
+    } catch {
+      toast?.error('Could not get an explanation.')
+    } finally {
+      setExplaining(null)
+    }
+  }
+
   return (
     <div>
       <div className="max-h-72 overflow-auto rounded-lg border border-hair/60">
@@ -1186,12 +1214,13 @@ function AttemptTable({ rows, highlight = false }: { rows: IntruderAttempt[]; hi
               <th className="px-2 py-1 font-medium">time</th>
               {hasExtract && <th className="px-2 py-1 font-medium">extract</th>}
               {hasMatched && <th className="px-2 py-1 font-medium">match</th>}
+              {canExplain && <th className="px-2 py-1 font-medium">AI</th>}
             </tr>
           </thead>
           <tbody>
             {shown.map((r, i) => (
+              <Fragment key={i}>
               <tr
-                key={i}
                 title={r.bodyExcerpt ? `Response excerpt:\n${r.bodyExcerpt}` : undefined}
                 className={`border-t border-hair/40 ${highlight ? 'text-amber-100' : 'text-zinc-300'} ${r.bodyExcerpt ? 'cursor-help' : ''}`}
               >
@@ -1209,7 +1238,22 @@ function AttemptTable({ rows, highlight = false }: { rows: IntruderAttempt[]; hi
                   </td>
                 )}
                 {hasMatched && <td className="px-2 py-1">{r.matched ? <Badge tone="red">hit</Badge> : ''}</td>}
+                {canExplain && (
+                  <td className="px-2 py-1">
+                    <button onClick={() => explain(i)} disabled={explaining != null} className="text-accent-fg hover:underline disabled:opacity-40">
+                      {explaining === i ? '…' : 'explain'}
+                    </button>
+                  </td>
+                )}
               </tr>
+              {explains[i] && (
+                <tr className="border-t border-hair/20">
+                  <td colSpan={9} className="px-2 py-1.5 text-[11px] italic text-zinc-400">
+                    🤖 {explains[i]}
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>

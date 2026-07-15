@@ -706,6 +706,16 @@ export const api = {
     },
   ) => post<{ jobId: number }>(`/domains/${id}/inject-confirm`, bodyReq),
 
+  // AI assists (suggest-only; degrade to { enabled:false, note } with no LLM)
+  explainIntruderRow: (jobId: number, rowIndex: number) =>
+    post<{ enabled: boolean; explanation?: string; note?: string }>(`/intruder/${jobId}/explain`, { rowIndex }),
+  mutatePayload: (payload: string, status?: number) =>
+    post<{ enabled: boolean; chains: string[][]; note?: string }>('/payloads/mutate', { payload, status }),
+  secretTriage: (domainId: number) =>
+    post<{ enabled: boolean; verdicts: { findingId: number; verdict: string; reason: string }[]; note?: string }>(`/domains/${domainId}/secret-triage`, {}),
+  narrateChain: (domainId: number, chainId: string) =>
+    post<{ enabled: boolean; narrative?: string; note?: string }>(`/domains/${domainId}/chains/narrate`, { chainId }),
+
   // Named identities (A / B / anon) reused across Repeater / Intruder / authz_diff
   identities: (domainId: number) => get<{ identities: Identity[] }>(`/identities?domainId=${domainId}`),
   saveIdentity: (bodyReq: { domainId: number; name: string; headers?: Record<string, string>; isAnon?: boolean }) =>
