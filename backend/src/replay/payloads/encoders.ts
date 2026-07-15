@@ -39,6 +39,10 @@ const tryDecode = (fn: (s: string) => string) => (s: string): string => {
 export const TRANSFORMS: Record<string, Transform> = {
   base64: (s) => Buffer.from(s, 'utf8').toString('base64'),
   'base64-decode': tryDecode((s) => Buffer.from(s, 'base64').toString('utf8')),
+  base64url: (s) => Buffer.from(s, 'utf8').toString('base64url'),
+  'base64url-decode': tryDecode((s) => Buffer.from(s, 'base64url').toString('utf8')),
+  // JS-string evasion: wrap the payload as String.fromCharCode(...) (encode-only).
+  'from-char-code': (s) => `String.fromCharCode(${[...s].map((c) => c.charCodeAt(0)).join(',')})`,
   url: (s) => encodeURIComponent(s),
   'url-decode': tryDecode((s) => decodeURIComponent(s)),
   'double-url': (s) => encodeURIComponent(encodeURIComponent(s)),

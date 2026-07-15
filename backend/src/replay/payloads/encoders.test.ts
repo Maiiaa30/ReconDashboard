@@ -6,6 +6,7 @@ const SAMPLES = [`'"><svg/onload=confirm(1)>`, 'admin@example.com', 'héllo wör
 describe('encoder round-trips', () => {
   const pairs: [string, string][] = [
     ['base64', 'base64-decode'],
+    ['base64url', 'base64url-decode'],
     ['url', 'url-decode'],
     ['double-url', 'double-url-decode'],
     ['hex', 'hex-decode'],
@@ -28,6 +29,14 @@ describe('encoders produce the expected shape', () => {
   it('hex', () => expect(TRANSFORMS['hex']('AB')).toBe('4142'))
   it('unicode', () => expect(TRANSFORMS['unicode']('A')).toBe('\\u0041'))
   it('html-entity escapes <', () => expect(TRANSFORMS['html-entity']('<')).toBe('&#60;'))
+  it('base64url uses url-safe alphabet (no +/=)', () => {
+    const out = TRANSFORMS['base64url']('<<<???>>>')
+    expect(out).not.toMatch(/[+/=]/)
+    expect(TRANSFORMS['base64url-decode'](out)).toBe('<<<???>>>')
+  })
+  it('from-char-code wraps as a String.fromCharCode expression', () => {
+    expect(TRANSFORMS['from-char-code']('AB')).toBe('String.fromCharCode(65,66)')
+  })
 })
 
 describe('applyChain', () => {
