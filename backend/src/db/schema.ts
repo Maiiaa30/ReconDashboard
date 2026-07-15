@@ -176,6 +176,15 @@ export const findings = sqliteTable(
     // Triage lifecycle: open | confirmed | false_positive | resolved | ignored.
     status: text('status').notNull().default('open'),
     note: text('note'), // operator triage note
+    // Typed correlation columns (additive; derived on write). severity is the ONE
+    // canonical bucket for the score so the report and its snapshot summary agree;
+    // host/ip/url are the join keys correlation needs promoted out of the JSON
+    // blob; jobId links a finding to the scan that produced it.
+    severity: text('severity'), // critical | high | medium | low | info
+    host: text('host'),
+    ip: text('ip'),
+    url: text('url'),
+    jobId: integer('job_id').references(() => jobs.id, { onDelete: 'set null' }),
     // Stable identity per logical finding (host/ip/url/...) so re-scans update
     // the same row instead of inserting duplicates.
     dedupeKey: text('dedupe_key'),
@@ -191,6 +200,8 @@ export const findings = sqliteTable(
     index('findings_domain_idx').on(t.domainId),
     index('findings_score_idx').on(t.score, t.createdAt),
     index('findings_dedupe_idx').on(t.domainId, t.type, t.dedupeKey),
+    index('findings_status_idx').on(t.status),
+    index('findings_type_idx').on(t.type),
   ],
 )
 

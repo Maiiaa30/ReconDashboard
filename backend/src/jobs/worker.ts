@@ -14,6 +14,7 @@ import {
 import type { JobLane, JobType } from './queue'
 import { writeAudit } from '../audit/store'
 import { chainAfter } from './chains'
+import { runInJobContext } from './jobContext'
 
 export interface JobContext {
   job: Job
@@ -126,7 +127,8 @@ async function runClaimedJob(job: Job, log: FastifyBaseLogger): Promise<void> {
     progress: (m) => setJobProgress(job.id, m),
   }
   try {
-    const result = await withTimeout(handler(ctx), JOB_TIMEOUT_MS, () => controller.abort())
+    // Run inside the job context so addFinding() can stamp findings with job.id.
+    const result = await withTimeout(runInJobContext(job.id, () => handler(ctx)), JOB_TIMEOUT_MS, () => controller.abort())
     if (cancelRequested.has(job.id)) {
       markJobCancelled(job.id)
       log.warn({ jobId: job.id, type: job.type }, 'job cancelled')

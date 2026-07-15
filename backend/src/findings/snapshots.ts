@@ -4,6 +4,7 @@ import { reportSnapshots } from '../db/schema'
 import { getDomain } from '../domains/store'
 import { listFindings } from './store'
 import { buildDomainReport, buildDomainReportHtml } from './report'
+import { isHigh, severityBucket } from './severity'
 
 export interface SnapshotMeta {
   findings: number
@@ -19,12 +20,11 @@ function summariseFindings(domainId: number): SnapshotMeta {
   const findings = listFindings({ domainId, limit: 5000 }).filter(
     (f) => (f as any).status !== 'false_positive' && (f as any).status !== 'ignored',
   )
-  const s = (f: (typeof findings)[number]) => f.score ?? 0
   return {
     findings: findings.length,
-    high: findings.filter((f) => s(f) >= 70).length,
-    medium: findings.filter((f) => s(f) >= 40 && s(f) < 70).length,
-    low: findings.filter((f) => s(f) >= 20 && s(f) < 40).length,
+    high: findings.filter((f) => isHigh(severityBucket(f.score))).length,
+    medium: findings.filter((f) => severityBucket(f.score) === 'medium').length,
+    low: findings.filter((f) => severityBucket(f.score) === 'low').length,
     cves: findings
       .filter((f) => f.type === 'exposure')
       .reduce((n, f: any) => n + (f.data?.vulns?.length ?? 0), 0),

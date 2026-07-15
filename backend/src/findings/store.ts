@@ -2,6 +2,8 @@ import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm'
 import { db } from '../db/index'
 import { findings } from '../db/schema'
 import { safeJsonParse } from '../util/json'
+import { severityBucket } from './severity'
+import { currentJobId } from '../jobs/jobContext'
 
 // Finding types currently produced by the system.
 export type FindingType =
@@ -82,15 +84,32 @@ export function findingKey(type: string, data: any): string | null {
   }
 }
 
+// Promote the correlation join keys out of the JSON blob. Best-effort; all nullable.
+function deriveColumns(data: unknown): { host: string | null; ip: string | null; url: string | null } {
+  const d = (data ?? {}) as Record<string, any>
+  const str = (v: unknown): string | null => (typeof v === 'string' && v ? v.slice(0, 512) : null)
+  return {
+    host: str(d.host) ?? (Array.isArray(d.hostnames) ? str(d.hostnames[0]) : null) ?? str(d.target),
+    ip: str(d.ip),
+    url: str(d.url) ?? str(d.matched) ?? str(d.endpoint),
+  }
+}
+
 export function addFinding(f: NewFinding): number {
   const key = findingKey(f.type, f.data)
   const now = new Date()
+  const cols = deriveColumns(f.data)
   const values = {
     domainId: f.domainId,
     type: f.type,
     data: JSON.stringify(f.data ?? null),
     score: f.score ?? null,
     tags: JSON.stringify(f.tags ?? []),
+    severity: severityBucket(f.score),
+    host: cols.host,
+    ip: cols.ip,
+    url: cols.url,
+    jobId: currentJobId(),
     dedupeKey: key,
     lastSeenAt: now,
   }
@@ -115,7 +134,17 @@ export function addFinding(f: NewFinding): number {
       .all()[0]
     if (existing) {
       db.update(findings)
-        .set({ data: values.data, score: values.score, tags: values.tags, lastSeenAt: now })
+        .set({
+          data: values.data,
+          score: values.score,
+          tags: values.tags,
+          severity: values.severity,
+          host: values.host,
+          ip: values.ip,
+          url: values.url,
+          jobId: values.jobId ?? undefined, // keep the prior producing job if this re-scan has no job context
+          lastSeenAt: now,
+        })
         .where(eq(findings.id, existing.id))
         .run()
       return existing.id

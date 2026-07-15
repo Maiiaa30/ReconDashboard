@@ -4,6 +4,7 @@ import { listSubdomains } from '../subdomains/store'
 import { safeJsonParse } from '../util/json'
 import { parseScopeConfig } from '../util/scope'
 import { listFindings } from './store'
+import { isHigh, severityBucket } from './severity'
 
 // Engagement report for a single domain, built from stored recon data. A shared
 // model (gather) feeds both the Markdown and the self-contained HTML builders, so
@@ -108,10 +109,11 @@ function gather(id: number): ReportModel | null {
     findings.filter((f) => (f as any).status === 'false_positive' || (f as any).status === 'ignored'),
   )
   const reportable = findings.filter((f) => !noise.has(f))
-  const score = (f: Row) => f.score ?? 0
-  const high = reportable.filter((f) => score(f) >= 70)
-  const medium = reportable.filter((f) => score(f) >= 40 && score(f) < 70)
-  const low = reportable.filter((f) => score(f) < 40)
+  // Bucket via the shared severity helper so these match the snapshot summary
+  // exactly (info-level findings, score < 20, fall outside the high/medium/low split).
+  const high = reportable.filter((f) => isHigh(severityBucket(f.score)))
+  const medium = reportable.filter((f) => severityBucket(f.score) === 'medium')
+  const low = reportable.filter((f) => severityBucket(f.score) === 'low')
   const byStatus = (s: string) => findings.filter((f) => (f as any).status === s).length
   const confirmed = reportable.filter((f) => (f as any).status === 'confirmed')
 
