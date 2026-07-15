@@ -1,6 +1,7 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
 import { alertNewCves, markCvesAlerted, recordAndDetectNewCves, type AssetCve } from '../../findings/cveWatch'
+import { alertChanges, recordAndDetectChanges } from '../../findings/changeWatch'
 import { linkAssetFinding, upsertAsset } from '../../assets/store'
 import { invalidateCorrelation } from '../../domains/correlate'
 import { asnLookup } from '../../sources/asn'
@@ -112,6 +113,13 @@ export async function exposureHandler({ params, log, signal }: JobContext) {
           // this leaves the rows un-alerted so the next run re-drives them.
           markCvesAlerted(domainId, ip, fresh.map((c) => c.id))
         }
+
+        // Attribute change watch: diff this IP's ports/tech/up-ness vs the baseline
+        // and file a changed_* finding (+ alert) on a material change. Detect-only —
+        // never enqueues a scan (the finding carries a gated one-click suggestion).
+        const changes = recordAndDetectChanges(domainId, ip, { ports: rec.ports, tech: rec.cpes, up: rec.ports.length > 0 })
+        if (changes.length) await alertChanges(domainId, ip, [...hostSet], changes)
+
         return finding
       } catch (err) {
         log.warn({ ip, err }, 'internetdb enrichment failed')

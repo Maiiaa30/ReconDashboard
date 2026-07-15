@@ -426,6 +426,24 @@ export const assets = sqliteTable(
   (t) => [unique('assets_domain_kind_value_uq').on(t.domainId, t.kind, t.value), index('assets_domain_idx').on(t.domainId), index('assets_ip_idx').on(t.ip)],
 )
 
+// Per-IP attribute baseline for the change watch: the last-seen open ports, tech
+// (CPEs), and up-ness. Diffed on each exposure scan so a NEW port / tech / a host
+// coming up or going dark raises a `changed_*` finding (detect only — never fires
+// a loud scan). One row per (domain, ip); first scan just baselines.
+export const assetSnapshots = sqliteTable(
+  'asset_snapshots',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id').references(() => domains.id, { onDelete: 'cascade' }),
+    ip: text('ip').notNull(),
+    ports: text('ports').notNull().default('[]'), // JSON number[]
+    tech: text('tech').notNull().default('[]'), // JSON string[]
+    up: integer('up', { mode: 'boolean' }).notNull().default(false),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [unique('asset_snapshots_domain_ip_uq').on(t.domainId, t.ip), index('asset_snapshots_domain_idx').on(t.domainId)],
+)
+
 // Many-to-many link between an asset and the findings that mention it.
 export const assetFindings = sqliteTable(
   'asset_findings',

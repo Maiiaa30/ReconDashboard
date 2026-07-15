@@ -22,6 +22,7 @@ export type FindingType =
   | 'secret'
   | 'authz'
   | 'param'
+  | 'asset_change'
 
 // Triage lifecycle state.
 export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
@@ -70,6 +71,9 @@ export function findingKey(type: string, data: any): string | null {
       // One row per (url, param, transport) — the same name in query vs body vs
       // header is a distinct finding.
       return data.url && data.param ? `param:${data.url}:${data.param}:${data.transport ?? 'query'}` : null
+    case 'asset_change':
+      // One row per (ip, change-kind, detail) so a re-appearing change updates in place.
+      return data.ip && data.change ? `change:${data.ip}:${data.change}:${data.detail ?? ''}` : null
     case 'secret':
       // One row per (repo, path) so re-searching the same leaked file dedupes.
       return data.repo && data.path ? `secret:${data.repo}:${data.path}` : null
