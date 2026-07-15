@@ -67,34 +67,52 @@ export async function cveVerifyHandler({ params, log, signal, progress }: JobCon
 
   const scheme = params.scheme === 'http' ? 'http' : 'https'
   const url = `${scheme}://${target}`
-  progress(`verifying ${cveId} against ${target} with nuclei`)
 
-  // Run ONLY the template(s) whose id is this CVE. -id filters by template id;
-  // for the minority where template-id ≠ CVE-id nuclei still resolves it via the
-  // template's classification. argv-only; cveId is regex-validated above.
-  const args = ['-u', url, '-id', cveId, '-jsonl', '-silent', '-no-color']
-
-  let stdout = ''
-  let stderr = ''
-  try {
-    const res = await run('nuclei', args, { timeoutMs: 600_000, signal })
-    stdout = res.stdout
-    stderr = res.stderr
-  } catch (err) {
-    const e = err as Error & { stdout?: string; stderr?: string }
-    stdout = e.stdout ?? ''
-    stderr = e.stderr ?? ''
-    if (!stdout && !stderr) throw err
+  // One nuclei run with the given selector args; parses the JSONL matches and
+  // returns them plus stderr (which carries the "0 templates loaded" diagnostic).
+  const baseArgs = ['-u', url, '-jsonl', '-silent', '-no-color']
+  const runOnce = async (extra: string[]): Promise<{ matches: any[]; stderr: string }> => {
+    let stdout = ''
+    let stderr = ''
+    try {
+      const res = await run('nuclei', [...baseArgs, ...extra], { timeoutMs: 600_000, signal })
+      stdout = res.stdout
+      stderr = res.stderr
+    } catch (err) {
+      const e = err as Error & { stdout?: string; stderr?: string }
+      stdout = e.stdout ?? ''
+      stderr = e.stderr ?? ''
+      if (!stdout && !stderr) throw err
+    }
+    const matches: any[] = []
+    for (const line of stdout.split('\n')) {
+      const t = line.trim()
+      if (!t) continue
+      try {
+        matches.push(JSON.parse(t))
+      } catch {
+        /* ignore non-JSON diagnostic lines */
+      }
+    }
+    return { matches, stderr }
   }
 
-  const matches: any[] = []
-  for (const line of stdout.split('\n')) {
-    const t = line.trim()
-    if (!t) continue
-    try {
-      matches.push(JSON.parse(t))
-    } catch {
-      /* ignore non-JSON diagnostic lines */
+  // Primary: run ONLY the template(s) whose id is this CVE (argv-only; validated).
+  progress(`verifying ${cveId} against ${target} with nuclei (-id)`)
+  let { matches, stderr } = await runOnce(['-id', cveId])
+  let selector = 'id'
+
+  // Fallback: for the minority where template-id ≠ CVE-id, -id loads nothing.
+  // Retry once filtering by the CVE tag before concluding "no template exists".
+  if (!signal.aborted && classifyCveVerify(matches.length, stderr) === 'no_template') {
+    progress(`no template for -id ${cveId}; retrying via -tags`)
+    const retry = await runOnce(['-tags', cveId.toLowerCase()])
+    // Adopt the retry only if it actually loaded a template (matched, or ran but
+    // didn't reproduce) — a still-empty load leaves the original no_template.
+    if (retry.matches.length > 0 || !looksLikeNoTemplate(retry.stderr)) {
+      matches = retry.matches
+      stderr = retry.stderr
+      selector = 'tags'
     }
   }
 
@@ -115,6 +133,11 @@ export async function cveVerifyHandler({ params, log, signal, progress }: JobCon
     const matchedAt = hit['matched-at'] ?? hit.matched ?? url
     const curl = typeof hit['curl-command'] === 'string' ? hit['curl-command'] : `nuclei -u ${url} -id ${cveId}`
     const severity = hit.info?.severity ?? 'high'
+    // Richer evidence straight from the JSONL hit: which matcher fired, any
+    // extracted values, and the matched response line.
+    const matcherName = typeof hit['matcher-name'] === 'string' ? hit['matcher-name'] : undefined
+    const extracted = Array.isArray(hit['extracted-results']) ? hit['extracted-results'].slice(0, 5).map(String) : undefined
+    const matchedLine = typeof hit['matched-line'] === 'string' ? hit['matched-line'].slice(0, 300) : undefined
 
     // Standalone nuclei evidence finding (the PoC), scored by the normal scorer.
     const pocId = await addScoredFinding({
@@ -128,8 +151,12 @@ export async function cveVerifyHandler({ params, log, signal, progress }: JobCon
         matched: matchedAt,
         cveId,
         verifiesCveNew: true,
+        selector,
+        matcherName,
+        extracted,
+        matchedLine,
         info: hit.info,
-        repro: { request: `GET ${url}`, curl, at },
+        repro: { request: `GET ${url}`, curl, matchedAt, matcherName, matchedLine, extracted, at },
       },
       tags: ['nuclei', 'active', 'cve-verify', `cve:${cveId}`, ...(kev ? ['kev'] : [])],
     })
@@ -152,5 +179,5 @@ export async function cveVerifyHandler({ params, log, signal, progress }: JobCon
     log.info({ target, cveId, result }, `cve verify: ${result}`)
   }
 
-  return { available: true, target, cveId, result, matched: matches.length, upgraded: result === 'confirmed' && !!existing }
+  return { available: true, target, cveId, result, selector, matched: matches.length, upgraded: result === 'confirmed' && !!existing }
 }
