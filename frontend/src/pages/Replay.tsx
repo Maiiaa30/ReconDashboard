@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Send, Crosshair, Repeat, ChevronRight, AlertTriangle, Clock, Ruler, StopCircle, History, Network, KeyRound, FlaskConical, Fingerprint } from 'lucide-react'
-import { api, ApiError, type ReplayResponse, type IntruderResult, type IntruderAttempt, type Job, type Wordlist, type ReplayHistoryItem, type SitemapHost, type MatchReplaceRule } from '../api'
+import { Send, Crosshair, Repeat, ChevronRight, AlertTriangle, Clock, Ruler, StopCircle, History, Network, KeyRound, FlaskConical, Fingerprint, Users } from 'lucide-react'
+import { api, ApiError, type ReplayResponse, type IntruderResult, type IntruderAttempt, type Job, type Wordlist, type ReplayHistoryItem, type SitemapHost, type MatchReplaceRule, type Identity } from '../api'
 import { useApp } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, Spinner } from '../components/ui'
 import { useToast } from '../components/Toast'
@@ -71,6 +71,21 @@ export function Replay() {
   const [bodyText, setBodyText] = useState('')
   const [followRedirects, setFollowRedirects] = useState(false)
 
+  // Named identities (A / B / anon) reusable across Repeater / Intruder / authz.
+  const [identities, setIdentities] = useState<Identity[]>([])
+  const [identityId, setIdentityId] = useState<number | null>(null)
+  const reloadIdentities = useCallback(() => {
+    if (!selected) return
+    api
+      .identities(selected.id)
+      .then((r) => setIdentities(r.identities))
+      .catch(() => setIdentities([]))
+  }, [selected])
+  useEffect(() => {
+    setIdentityId(null)
+    reloadIdentities()
+  }, [reloadIdentities])
+
   // Load a request (from the Traffic handoff or a history entry) into the editor.
   const applyRequest = useCallback((r: BuiltReq) => {
     if ((METHODS as readonly string[]).includes(r.method)) setMethod(r.method as (typeof METHODS)[number])
@@ -133,6 +148,18 @@ export function Replay() {
 
       {mode !== 'sitemap' && <MatchReplacePanel domainId={selected.id} domainHost={selected.host} toast={toast} />}
 
+      {(mode === 'repeater' || mode === 'intruder' || mode === 'authz') && (
+        <IdentityBar
+          domainId={selected.id}
+          identities={identities}
+          identityId={identityId}
+          setIdentityId={setIdentityId}
+          onChange={reloadIdentities}
+          selectable={mode !== 'authz'}
+          toast={toast}
+        />
+      )}
+
       {mode === 'sitemap' ? (
         <SitemapPanel
           domainId={selected.id}
@@ -171,6 +198,7 @@ export function Replay() {
               body: method === 'GET' || method === 'HEAD' ? undefined : bodyText || undefined,
               followRedirects,
             })}
+            identityId={identityId}
             toast={toast}
           />
         )}
@@ -186,6 +214,7 @@ export function Replay() {
               body: method === 'GET' || method === 'HEAD' ? undefined : bodyText || undefined,
               followRedirects,
             })}
+            identityId={identityId}
             toast={toast}
           />
         )}
@@ -201,6 +230,7 @@ export function Replay() {
               body: method === 'GET' || method === 'HEAD' ? undefined : bodyText || undefined,
               followRedirects,
             })}
+            identities={identities}
             toast={toast}
           />
         )}
@@ -250,6 +280,131 @@ function ModeTab({ active, onClick, icon, label }: { active: boolean; onClick: (
     >
       {icon} {label}
     </button>
+  )
+}
+
+// --- Named identities (define once, reuse across Repeater/Intruder/authz) -----
+function IdentityBar({
+  domainId,
+  identities,
+  identityId,
+  setIdentityId,
+  onChange,
+  selectable,
+  toast,
+}: {
+  domainId: number
+  identities: Identity[]
+  identityId: number | null
+  setIdentityId: (id: number | null) => void
+  onChange: () => void
+  selectable: boolean
+  toast: ReturnType<typeof useToast>
+}) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [headersText, setHeadersText] = useState('')
+  const [isAnon, setIsAnon] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  async function save() {
+    if (busy) return
+    if (!name.trim()) return toast.error('Give the identity a name.')
+    setBusy(true)
+    try {
+      await api.saveIdentity({ domainId, name: name.trim(), headers: isAnon ? {} : parseHeaders(headersText), isAnon })
+      setName('')
+      setHeadersText('')
+      setIsAnon(false)
+      onChange()
+      toast.success('Identity saved.')
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Failed to save identity.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function remove(id: number) {
+    try {
+      await api.deleteIdentity(id)
+      if (identityId === id) setIdentityId(null)
+      onChange()
+    } catch {
+      toast.error('Failed to delete identity.')
+    }
+  }
+
+  return (
+    <div className="mb-3 rounded-lg border border-hair bg-ink-900/50 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="inline-flex items-center gap-1.5 text-zinc-400">
+          <Users size={14} /> Identities
+        </span>
+        {selectable ? (
+          <select
+            value={identityId ?? ''}
+            onChange={(e) => setIdentityId(e.target.value ? Number(e.target.value) : null)}
+            className="rounded-lg border border-hair bg-ink-950 px-2 py-1 text-xs outline-none focus:border-accent-500"
+          >
+            <option value="">Send as: default (typed headers)</option>
+            {identities.map((i) => (
+              <option key={i.id} value={i.id}>
+                Send as: {i.name}
+                {i.isAnon ? ' (anon)' : ''}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-zinc-600">defined once, selectable as identity B below</span>
+        )}
+        {selectable && identityId != null && <Badge tone="indigo">headers merged</Badge>}
+        <button onClick={() => setOpen((o) => !o)} className="ml-auto text-accent-fg hover:underline">
+          {open ? 'Close' : 'Manage'}
+        </button>
+      </div>
+
+      {open && (
+        <div className="mt-2 space-y-2 border-t border-hair pt-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="name (e.g. admin, userB)"
+              className="w-44 rounded-lg border border-hair bg-ink-950 px-2 py-1 text-xs outline-none focus:border-accent-500"
+            />
+            <label className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
+              <input type="checkbox" checked={isAnon} onChange={(e) => setIsAnon(e.target.checked)} /> anonymous (strip creds)
+            </label>
+            <Button variant="ghost" onClick={save} disabled={busy}>
+              {busy ? 'Saving…' : 'Save identity'}
+            </Button>
+          </div>
+          {!isAnon && (
+            <textarea
+              value={headersText}
+              onChange={(e) => setHeadersText(e.target.value)}
+              placeholder={'Cookie: session=…\nAuthorization: Bearer …'}
+              rows={2}
+              spellCheck={false}
+              className="block w-full rounded-lg border border-hair bg-ink-950 px-2 py-1.5 font-mono text-xs outline-none focus:border-accent-500"
+            />
+          )}
+          {identities.length > 0 && (
+            <ul className="space-y-1 text-xs">
+              {identities.map((i) => (
+                <li key={i.id} className="flex items-center gap-2">
+                  <span className="font-mono text-zinc-300">{i.name}</span>
+                  {i.isAnon ? <Badge tone="zinc">anon</Badge> : <span className="text-zinc-600">{Object.keys(i.headers).length} header(s)</span>}
+                  <button onClick={() => remove(i.id)} className="ml-auto text-red-300 hover:underline">
+                    delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -438,6 +593,7 @@ function RepeaterPanel({
   applyRequest,
   reqStr,
   build,
+  identityId,
   toast,
 }: {
   domainId: number
@@ -446,6 +602,7 @@ function RepeaterPanel({
   applyRequest: (r: BuiltReq) => void
   reqStr: string
   build: () => BuiltRequest
+  identityId?: number | null
   toast: ReturnType<typeof useToast>
 }) {
   const [busy, setBusy] = useState(false)
@@ -470,7 +627,7 @@ function RepeaterPanel({
     if (!(await confirmActive('Send this request?', 'Replay'))) return
     setBusy(true)
     try {
-      const { response } = await api.replaySend({ domainId, ...req, confirm: passive })
+      const { response } = await api.replaySend({ domainId, ...req, identityId: identityId ?? undefined, confirm: passive })
       setResp(response)
       loadHistory() // the send was recorded server-side — refresh the list
     } catch (e) {
@@ -664,12 +821,14 @@ function IntruderPanel({
   passive,
   confirmActive,
   build,
+  identityId,
   toast,
 }: {
   domainId: number
   passive: boolean
   confirmActive: (title: string, what: string) => Promise<boolean>
   build: () => BuiltRequest
+  identityId?: number | null
   toast: ReturnType<typeof useToast>
 }) {
   const [payloadMode, setPayloadMode] = useState<'list' | 'range' | 'wordlist'>('list')
@@ -758,6 +917,7 @@ function IntruderPanel({
         grep: grepExtract.trim() || match.length ? { extract: grepExtract.trim() || undefined, match } : undefined,
         concurrency: Number(concurrency) || 1,
         throttleMs: Number(throttle) || 0,
+        identityId: identityId ?? undefined,
         confirm: passive,
       })
       setJobId(id)
@@ -1348,18 +1508,21 @@ function AuthzPanel({
   passive,
   confirmActive,
   build,
+  identities,
   toast,
 }: {
   domainId: number
   passive: boolean
   confirmActive: (title: string, what: string) => Promise<boolean>
   build: () => BuiltRequest
+  identities: Identity[]
   toast: ReturnType<typeof useToast>
 }) {
   const [idsMode, setIdsMode] = useState<'list' | 'range'>('range')
   const [list, setList] = useState('')
   const [from, setFrom] = useState('1')
   const [to, setTo] = useState('50')
+  const [identityBId, setIdentityBId] = useState<number | null>(null)
   const [identityB, setIdentityB] = useState('')
   const [jobId, setJobId] = useState<number | null>(null)
   const [job, setJob] = useState<Job | null>(null)
@@ -1402,7 +1565,9 @@ function AuthzPanel({
       const { jobId: id, count } = await api.authzDiff(domainId, {
         template: req,
         ids: idsMode === 'range' ? { mode: 'range', from: Number(from), to: Number(to) } : { mode: 'list', list },
-        identityB: identityB.trim() ? { headers: parseHeaders(identityB) } : undefined,
+        // A named identity B (resolved server-side) takes precedence over ad-hoc headers.
+        identityBId: identityBId ?? undefined,
+        identityB: identityBId == null && identityB.trim() ? { headers: parseHeaders(identityB) } : undefined,
         confirm: passive,
       })
       setJobId(id)
@@ -1421,18 +1586,34 @@ function AuthzPanel({
   return (
     <Card className="flex h-full min-h-0 flex-col gap-3 overflow-auto">
       <div>
-        <label className="mb-1 block text-[10px] uppercase tracking-wide text-zinc-600">
-          Identity B headers (a second account — its Cookie / Authorization)
-        </label>
+        <label className="mb-1 block text-[10px] uppercase tracking-wide text-zinc-600">Identity B</label>
+        {identities.length > 0 && (
+          <select
+            value={identityBId ?? ''}
+            onChange={(e) => setIdentityBId(e.target.value ? Number(e.target.value) : null)}
+            className="mb-2 block w-full rounded-lg border border-hair bg-ink-950 px-2 py-1.5 text-xs outline-none focus:border-accent-500"
+          >
+            <option value="">Ad-hoc headers (below)</option>
+            {identities.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.name}
+                {i.isAnon ? ' (anon)' : ''}
+              </option>
+            ))}
+          </select>
+        )}
         <textarea
           value={identityB}
           onChange={(e) => setIdentityB(e.target.value)}
+          disabled={identityBId != null}
           placeholder={'Cookie: session=OTHER_USER…\nAuthorization: Bearer OTHER…'}
           rows={3}
           spellCheck={false}
-          className="block w-full rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500"
+          className="block w-full rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-xs outline-none focus:border-accent-500 disabled:opacity-40"
         />
-        <p className="mt-1 text-[11px] text-zinc-600">Leave blank to test only anonymous (credential-stripped) access.</p>
+        <p className="mt-1 text-[11px] text-zinc-600">
+          Pick a saved identity or paste headers. Leave both empty to test only anonymous (credential-stripped) access.
+        </p>
       </div>
 
       <div className="space-y-2">

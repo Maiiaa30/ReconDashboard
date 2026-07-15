@@ -215,6 +215,7 @@ export interface Capture {
 // Repeater history entry (list form — no response body).
 export interface ReplayHistoryItem {
   id: number
+  identityId?: number | null
   method: string
   url: string
   reqHeaders: [string, string][]
@@ -224,6 +225,14 @@ export interface ReplayHistoryItem {
   timeMs: number | null
   respBytes: number | null
   createdAt: string
+}
+// A named request identity (A / B / anon) reusable across Repeater/Intruder/authz.
+export interface Identity {
+  id: number
+  domainId: number | null
+  name: string
+  headers: Record<string, string>
+  isAnon: boolean
 }
 // Full entry (with the stored response) — fetched when a history row is opened.
 export interface ReplayHistoryDetail extends ReplayHistoryItem {
@@ -641,11 +650,14 @@ export const api = {
     headers?: Record<string, string>
     body?: string
     followRedirects?: boolean
+    identityId?: number
     confirm?: boolean
   }) => post<{ response: ReplayResponse }>('/replay/send', bodyReq),
-  // repeater history
-  replayHistory: (domainId: number, limit?: number) =>
-    get<{ history: ReplayHistoryItem[] }>(`/replay/history?domainId=${domainId}${limit ? `&limit=${limit}` : ''}`),
+  // repeater history (optionally scoped to one identity)
+  replayHistory: (domainId: number, limit?: number, identityId?: number) =>
+    get<{ history: ReplayHistoryItem[] }>(
+      `/replay/history?domainId=${domainId}${limit ? `&limit=${limit}` : ''}${identityId != null ? `&identityId=${identityId}` : ''}`,
+    ),
   replayHistoryDetail: (id: number) => get<{ entry: ReplayHistoryDetail }>(`/replay/history/${id}`),
   clearReplayHistory: (domainId: number) => del<{ cleared: number }>(`/replay/history?domainId=${domainId}`),
   // intruder: iterate payloads through a request template (gated LOUD job). One or
@@ -661,6 +673,7 @@ export const api = {
       grep?: { extract?: string; match?: string[] }
       concurrency?: number
       throttleMs?: number
+      identityId?: number
       confirm?: boolean
     },
   ) => post<{ jobId: number; count: number }>(`/domains/${id}/intruder`, bodyReq),
@@ -680,6 +693,12 @@ export const api = {
     },
   ) => post<{ jobId: number }>(`/domains/${id}/inject-confirm`, bodyReq),
 
+  // Named identities (A / B / anon) reused across Repeater / Intruder / authz_diff
+  identities: (domainId: number) => get<{ identities: Identity[] }>(`/identities?domainId=${domainId}`),
+  saveIdentity: (bodyReq: { domainId: number; name: string; headers?: Record<string, string>; isAnon?: boolean }) =>
+    post<{ identity: Identity }>('/identities', bodyReq),
+  deleteIdentity: (id: number) => del<{ ok: true }>(`/identities/${id}`),
+
   // JWT RS256->HS256 alg-confusion confirm ({{JWT}} marker + original token, gated)
   jwtConfuse: (
     id: number,
@@ -698,6 +717,7 @@ export const api = {
       template: { method: string; url: string; headers?: Record<string, string>; body?: string; followRedirects?: boolean }
       ids: { mode: 'list' | 'range'; list?: string; from?: number; to?: number; pad?: number }
       identityB?: { headers: Record<string, string> }
+      identityBId?: number
       confirm?: boolean
     },
   ) => post<{ jobId: number; count: number }>(`/domains/${id}/authz-diff`, bodyReq),

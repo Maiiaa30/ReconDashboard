@@ -10,6 +10,7 @@ const KEEP_PER_DOMAIN = 100
 
 export interface NewReplayHistory {
   domainId: number | null
+  identityId?: number | null
   method: string
   url: string
   reqHeaders: [string, string][]
@@ -27,6 +28,7 @@ export function insertReplayHistory(h: NewReplayHistory): number {
     .insert(replayHistory)
     .values({
       domainId: h.domainId,
+      identityId: h.identityId ?? null,
       method: h.method,
       url: h.url,
       reqHeaders: JSON.stringify(h.reqHeaders ?? []),
@@ -61,10 +63,16 @@ function pruneDomainHistory(domainId: number): void {
 
 // List rows WITHOUT the heavy response body (the list is polled). The request is
 // small, so it's included — clicking a row can restore it without a detail fetch.
-export function listReplayHistory(domainId: number, limit = 100) {
+// `identityId` filters to "every request I sent as this identity".
+export function listReplayHistory(domainId: number, limit = 100, identityId?: number) {
+  const where =
+    identityId != null
+      ? and(eq(replayHistory.domainId, domainId), eq(replayHistory.identityId, identityId))
+      : eq(replayHistory.domainId, domainId)
   const rows = db
     .select({
       id: replayHistory.id,
+      identityId: replayHistory.identityId,
       method: replayHistory.method,
       url: replayHistory.url,
       reqHeaders: replayHistory.reqHeaders,
@@ -76,7 +84,7 @@ export function listReplayHistory(domainId: number, limit = 100) {
       createdAt: replayHistory.createdAt,
     })
     .from(replayHistory)
-    .where(eq(replayHistory.domainId, domainId))
+    .where(where)
     .orderBy(desc(replayHistory.id))
     .limit(Math.min(Math.max(limit, 1), 200))
     .all()

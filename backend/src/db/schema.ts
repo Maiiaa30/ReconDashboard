@@ -305,6 +305,24 @@ export const capturedRequests = sqliteTable(
   (t) => [index('captured_domain_idx').on(t.domainId), index('captured_created_idx').on(t.createdAt)],
 )
 
+// Named request identities (A / B / anonymous) reusable across Repeater, Intruder
+// and authz_diff, so credentials are defined ONCE instead of re-typed per run.
+// `headers` is a JSON map { Name: Value } merged onto the outgoing request;
+// `isAnon` marks a credential-stripped identity (headers usually empty).
+export const identities = sqliteTable(
+  'identities',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id').references(() => domains.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    headers: text('headers').notNull().default('{}'), // JSON { name: value }
+    isAnon: integer('is_anon', { mode: 'boolean' }).notNull().default(false),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [unique('identities_domain_name_uq').on(t.domainId, t.name), index('identities_domain_idx').on(t.domainId)],
+)
+
 // Repeater history: one row per request sent from the Replay tool, with its
 // response, so the operator can revisit/re-send past requests (Caido-style).
 export const replayHistory = sqliteTable(
@@ -312,6 +330,7 @@ export const replayHistory = sqliteTable(
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
     domainId: integer('domain_id').references(() => domains.id, { onDelete: 'cascade' }),
+    identityId: integer('identity_id').references(() => identities.id, { onDelete: 'set null' }), // which named identity sent it
     method: text('method').notNull(),
     url: text('url').notNull(),
     reqHeaders: text('req_headers'), // JSON [ [name, value], … ]
@@ -435,6 +454,7 @@ export type MatchReplaceRuleRow = typeof matchReplaceRules.$inferSelect
 export type UrlCorpusRow = typeof urlCorpus.$inferSelect
 export type AssetRow = typeof assets.$inferSelect
 export type FindingLinkRow = typeof findingLinks.$inferSelect
+export type IdentityRow = typeof identities.$inferSelect
 export type Domain = typeof domains.$inferSelect
 export type CapturedRequest = typeof capturedRequests.$inferSelect
 export type ReplayHistoryRow = typeof replayHistory.$inferSelect

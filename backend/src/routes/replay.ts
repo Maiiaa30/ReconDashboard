@@ -2,10 +2,22 @@ import { readFileSync } from 'node:fs'
 import type { FastifyPluginAsync } from 'fastify'
 import { getDomain } from '../domains/store'
 import { assertDomainActive, assertHostInScope, assertScanAllowed, ScanPolicyError } from '../domains/scanPolicy'
-import { sendRawRequest, ReplayError, type ReplayRequest } from '../replay/send'
+import { sendRawRequest, withoutCredentialHeaders, ReplayError, type ReplayRequest } from '../replay/send'
 import { applicableRules } from '../replay/matchReplaceStore'
 import { hasIdMarker } from '../replay/authz'
 import { algIsAsymmetric, decodeJwt } from '../owasp/jwt'
+import { identityHeadersFor } from '../identities/store'
+
+// Apply a named identity to a request's headers: an anonymous identity strips
+// credential headers; a normal one merges its headers on top (identity wins).
+function applyIdentity(
+  base: Record<string, string> | undefined,
+  idn: { headers: Record<string, string>; isAnon: boolean } | null,
+): Record<string, string> | undefined {
+  if (!idn) return base
+  if (idn.isAnon) return withoutCredentialHeaders(base ?? {})
+  return { ...(base ?? {}), ...idn.headers }
+}
 import { attackCount, expandPayloads, MAX_PAYLOADS, positionsInTemplate, type AttackMode } from '../replay/intruder'
 import { insertReplayHistory, listReplayHistory, getReplayHistory, clearReplayHistory } from '../replay/history'
 import { buildSitemap } from '../replay/sitemap'
@@ -54,6 +66,7 @@ const sendSchema = {
       headers: { type: 'object', additionalProperties: { type: 'string' } },
       body: { type: 'string', maxLength: MAX_BODY },
       followRedirects: { type: 'boolean' },
+      identityId: { type: 'integer' },
       confirm: { type: 'boolean' },
     },
   },
@@ -68,6 +81,7 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
       headers?: Record<string, string>
       body?: string
       followRedirects?: boolean
+      identityId?: number
       confirm?: boolean
     }
   }>('/api/replay/send', { schema: sendSchema, config: { rateLimit: RATE_LIMIT } }, async (request, reply) => {
@@ -81,6 +95,10 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
     } catch {
       return reply.code(400).send({ error: 'invalid url', code: 'invalid_target' })
     }
+
+    // Resolve a named identity (if selected) and apply its headers.
+    const identity = b.identityId != null ? identityHeadersFor(b.identityId, domain.id) : null
+    if (b.identityId != null && !identity) return reply.code(400).send({ error: 'identity not found for this domain', code: 'no_identity' })
 
     try {
       // Domain rails (mode/confirm + authorization window) and that the target
@@ -98,7 +116,7 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
     const req: ReplayRequest = {
       method: b.method ?? 'GET',
       url: b.url,
-      headers: b.headers,
+      headers: applyIdentity(b.headers, identity),
       body: b.body,
       followRedirects: b.followRedirects === true,
     }
@@ -109,7 +127,8 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
       domainId: domain.id,
       target: host,
       mode: domain.mode,
-      detail: { method: req.method, url: b.url },
+      // Redact identity credentials — log only the identity name.
+      detail: { method: req.method, url: b.url, ...(identity ? { identity: identity.name } : {}) },
     })
 
     try {
@@ -118,6 +137,7 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
       try {
         insertReplayHistory({
           domainId: domain.id,
+          identityId: b.identityId ?? null,
           method: req.method,
           url: req.url,
           reqHeaders: Object.entries(req.headers ?? {}),
@@ -161,6 +181,7 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
       grep?: { extract?: string; match?: string[] }
       concurrency?: number
       throttleMs?: number
+      identityId?: number
       confirm?: boolean
     }
   }>('/api/domains/:id/intruder', async (request, reply) => {
@@ -173,10 +194,15 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: 'template.url is required' })
     }
 
+    // A named identity (if selected) merges its headers into the template so every
+    // fuzzed request carries those creds. Resolved once, at enqueue.
+    const identity = request.body?.identityId != null ? identityHeadersFor(request.body.identityId, id) : null
+    if (request.body?.identityId != null && !identity) return reply.code(400).send({ error: 'identity not found for this domain', code: 'no_identity' })
+
     // Positions come from the template markers ({{P1}}…{{Pn}}, or legacy
     // {{PAYLOAD}} = P1). At least one must appear, or every request is identical.
     const method = (template.method ?? 'GET').toUpperCase()
-    const reqTemplate = { method, url: template.url, headers: template.headers, body: template.body, followRedirects: template.followRedirects === true }
+    const reqTemplate = { method, url: template.url, headers: applyIdentity(template.headers, identity), body: template.body, followRedirects: template.followRedirects === true }
     const positions = positionsInTemplate(reqTemplate)
     if (positions.length === 0) return reply.code(400).send({ error: 'no {{P1}} / {{PAYLOAD}} marker in the request template' })
 
@@ -247,7 +273,7 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
         target: host,
         mode: domain.mode,
         jobId,
-        detail: { method, url: template.url, attack: mode, positions: positions.length, count },
+        detail: { method, url: template.url, attack: mode, positions: positions.length, count, ...(identity ? { identity: identity.name } : {}) },
       })
       return reply.code(202).send({ jobId, count })
     } catch (err) {
@@ -268,6 +294,7 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
       template?: { method?: string; url?: string; headers?: Record<string, string>; body?: string; followRedirects?: boolean }
       ids?: PayloadSpec
       identityB?: { headers?: Record<string, string> }
+      identityBId?: number // a named identity used as identity B (overrides identityB.headers)
       confirm?: boolean
     }
   }>('/api/domains/:id/authz-diff', async (request, reply) => {
@@ -290,8 +317,16 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
     } catch (err) {
       return reply.code(400).send({ error: err instanceof Error ? err.message : 'invalid object ids' })
     }
-    const identityBHeaders =
+    // Identity B is either a named identity (resolved server-side) or ad-hoc headers.
+    let identityBHeaders =
       request.body?.identityB?.headers && typeof request.body.identityB.headers === 'object' ? request.body.identityB.headers : undefined
+    let identityBName: string | undefined
+    if (request.body?.identityBId != null) {
+      const idn = identityHeadersFor(request.body.identityBId, id)
+      if (!idn) return reply.code(400).send({ error: 'identity not found for this domain', code: 'no_identity' })
+      identityBHeaders = idn.isAnon ? {} : idn.headers
+      identityBName = idn.name
+    }
 
     try {
       const { domain } = await assertScanAllowed({ domainId: id, target: host, confirm: confirm === true, jobType: 'authz_diff' })
@@ -309,8 +344,8 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
         target: host,
         mode: domain.mode,
         jobId,
-        // Redact identity-B credential VALUES — log only the header names.
-        detail: { method, url: template.url, ids: ids.length, identityBHeaderNames: identityBHeaders ? Object.keys(identityBHeaders) : [] },
+        // Redact identity-B credential VALUES — log only the identity name + header names.
+        detail: { method, url: template.url, ids: ids.length, ...(identityBName ? { identityB: identityBName } : {}), identityBHeaderNames: identityBHeaders ? Object.keys(identityBHeaders) : [] },
       })
       return reply.code(202).send({ jobId, count: ids.length })
     } catch (err) {
@@ -429,11 +464,12 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
 
   // Repeater history: list (lightweight — no response body), full entry (with
   // response body), and clear. Session-authed like the rest of the dashboard.
-  app.get<{ Querystring: { domainId?: string; limit?: string } }>('/api/replay/history', async (request, reply) => {
+  app.get<{ Querystring: { domainId?: string; limit?: string; identityId?: string } }>('/api/replay/history', async (request, reply) => {
     const domainId = Number(request.query.domainId)
     if (!Number.isFinite(domainId)) return reply.code(400).send({ error: 'domainId required' })
     const limit = request.query.limit != null && Number.isFinite(Number(request.query.limit)) ? Number(request.query.limit) : undefined
-    return { history: listReplayHistory(domainId, limit) }
+    const identityId = request.query.identityId != null && Number.isFinite(Number(request.query.identityId)) ? Number(request.query.identityId) : undefined
+    return { history: listReplayHistory(domainId, limit, identityId) }
   })
 
   app.get<{ Params: { id: string } }>('/api/replay/history/:id', async (request, reply) => {
