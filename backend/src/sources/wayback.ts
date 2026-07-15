@@ -9,6 +9,7 @@ export interface WaybackResult {
   count: number
   sample: string[]
   withParams: string[] // URLs carrying query params — the most testable
+  urls: string[] // the FULL deduped list (persisted to url_corpus; not stored in the finding blob)
 }
 
 export async function waybackUrls(domain: string): Promise<WaybackResult> {
@@ -31,5 +32,6 @@ export async function waybackUrls(domain: string): Promise<WaybackResult> {
     count: all.length,
     sample: all.slice(0, 50),
     withParams: withParams.slice(0, 50),
+    urls: all.slice(0, 5000),
   }
 }

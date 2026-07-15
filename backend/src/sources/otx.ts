@@ -32,5 +32,7 @@ export async function otxIntel(domain: string): Promise<OtxResult> {
     if (passiveDns.length >= 100) break
   }
   const urls = (urlList.url_list ?? []).map((u) => u.url).filter((u): u is string => !!u)
-  return { passiveDns, urlCount: urlList.actual_size ?? urls.length, urls: urls.slice(0, 50) }
+  // Keep the full fetched set (up to the API's 500) so the corpus captures it; the
+  // handler trims what it stores in the display blob.
+  return { passiveDns, urlCount: urlList.actual_size ?? urls.length, urls: urls.slice(0, 500) }
 }

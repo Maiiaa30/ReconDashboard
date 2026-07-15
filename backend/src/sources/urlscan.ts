@@ -30,7 +30,7 @@ export async function urlscanSearch(domain: string): Promise<UrlscanResult> {
   for (const r of results) {
     const u = r.page?.url
     if (u) pages.push({ url: u, time: r.task?.time ?? null, screenshot: r.screenshot ?? null })
-    if (pages.length >= 50) break
+    if (pages.length >= 100) break
   }
   return { count: data.total ?? results.length, pages }
 }

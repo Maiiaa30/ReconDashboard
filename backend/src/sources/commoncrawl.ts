@@ -12,6 +12,7 @@ export interface CommonCrawlResult {
   truncated: boolean
   sample: string[]
   withParams: string[]
+  urls: string[] // the FULL deduped list (persisted to url_corpus; not stored in the finding blob)
 }
 
 interface CollInfo {
@@ -26,7 +27,7 @@ export async function commonCrawlUrls(domain: string): Promise<CommonCrawlResult
   // collinfo.json lists indexes newest-first.
   const indexes = await getJson<CollInfo[]>('https://index.commoncrawl.org/collinfo.json', { timeoutMs: 15_000 })
   const recent = (indexes ?? []).slice(0, INDEXES_TO_QUERY)
-  if (!recent.length) return { indexes: [], count: 0, truncated: false, sample: [], withParams: [] }
+  if (!recent.length) return { indexes: [], count: 0, truncated: false, sample: [], withParams: [], urls: [] }
 
   const urls = new Set<string>()
   const queried: string[] = []
@@ -63,5 +64,6 @@ export async function commonCrawlUrls(domain: string): Promise<CommonCrawlResult
     truncated,
     sample: all.slice(0, 50),
     withParams: all.filter((u) => u.includes('?')).slice(0, 50),
+    urls: all.slice(0, 5000),
   }
 }

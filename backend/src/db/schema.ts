@@ -351,9 +351,27 @@ export const matchReplaceRules = sqliteTable(
   (t) => [index('match_replace_domain_idx').on(t.domainId)],
 )
 
+// The full passive URL corpus for a domain (Wayback / Common Crawl / urlscan /
+// OTX). Previously only ~50 URLs per source survived in a finding blob; persisting
+// every URL here feeds JS-recon, parameter discovery and the OWASP checks the whole
+// attack surface instead of ~1% of it. One row per (domain, url).
+export const urlCorpus = sqliteTable(
+  'url_corpus',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id').references(() => domains.id, { onDelete: 'cascade' }),
+    url: text('url').notNull(),
+    host: text('host'),
+    source: text('source').notNull(), // wayback | commoncrawl | urlscan | otx
+    firstSeen: integer('first_seen', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [unique('url_corpus_domain_url_uq').on(t.domainId, t.url), index('url_corpus_domain_idx').on(t.domainId)],
+)
+
 export type User = typeof users.$inferSelect
 export type PayloadSet = typeof payloadSets.$inferSelect
 export type MatchReplaceRuleRow = typeof matchReplaceRules.$inferSelect
+export type UrlCorpusRow = typeof urlCorpus.$inferSelect
 export type Domain = typeof domains.$inferSelect
 export type CapturedRequest = typeof capturedRequests.$inferSelect
 export type ReplayHistoryRow = typeof replayHistory.$inferSelect

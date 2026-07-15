@@ -169,6 +169,13 @@
       "when": 1784071473508,
       "tag": "0023_yielding_karnak",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1784145661909,
+      "tag": "0024_colorful_scalphunter",
+      "breakpoints": true
     }
   ]
 }

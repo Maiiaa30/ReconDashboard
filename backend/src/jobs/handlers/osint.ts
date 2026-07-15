@@ -1,4 +1,5 @@
 import { getDomain } from '../../domains/store'
+import { recordCorpusUrls, type CorpusUrl } from '../../corpus/store'
 import { addScoredFinding } from '../../findings/score'
 import { addFinding } from '../../findings/store'
 import { enumerateBuckets } from '../../sources/buckets'
@@ -6,11 +7,11 @@ import { certSpotterSubdomains } from '../../sources/certspotter'
 import { crtShSubdomains } from '../../sources/crtsh'
 import { resolveDns } from '../../sources/dns'
 import { fingerprintHost } from '../../sources/fingerprint'
-import { commonCrawlUrls } from '../../sources/commoncrawl'
+import { commonCrawlUrls, type CommonCrawlResult } from '../../sources/commoncrawl'
 import { internetDbLookup } from '../../sources/internetdb'
-import { otxIntel } from '../../sources/otx'
-import { urlscanSearch } from '../../sources/urlscan'
-import { waybackUrls } from '../../sources/wayback'
+import { otxIntel, type OtxResult } from '../../sources/otx'
+import { urlscanSearch, type UrlscanResult } from '../../sources/urlscan'
+import { waybackUrls, type WaybackResult } from '../../sources/wayback'
 import { whoisDomain } from '../../sources/whois'
 import { zoneTransfer } from '../../sources/zoneTransfer'
 import { isValidIp } from '../../util/validate'
@@ -102,10 +103,32 @@ export async function osintHandler({ params, log }: JobContext) {
   ])
   const settle = (r: PromiseSettledResult<unknown>) =>
     r.status === 'fulfilled' ? r.value : { error: r.reason instanceof Error ? r.reason.message : String(r.reason) }
-  result.wayback = settle(wayback)
-  result.commoncrawl = settle(commoncrawl)
-  result.urlscan = settle(urlscan)
-  result.otx = settle(otx)
+  const wb = settle(wayback) as WaybackResult | { error: string }
+  const cc = settle(commoncrawl) as CommonCrawlResult | { error: string }
+  const us = settle(urlscan) as UrlscanResult | { error: string }
+  const ox = settle(otx) as OtxResult | { error: string }
+
+  // Persist the FULL URL corpus (thousands of URLs) to url_corpus so the whole
+  // attack surface reaches JS-recon / param-discovery / OWASP — the finding blob
+  // keeps only a small display sample. urlscan pages and OTX urls are folded in
+  // (they were collected then dropped before).
+  const corpus: CorpusUrl[] = []
+  if (!('error' in wb)) corpus.push(...wb.urls.map((url) => ({ url, source: 'wayback' })))
+  if (!('error' in cc)) corpus.push(...cc.urls.map((url) => ({ url, source: 'commoncrawl' })))
+  if (!('error' in us)) corpus.push(...us.pages.map((p) => ({ url: p.url, source: 'urlscan' })))
+  if (!('error' in ox)) corpus.push(...ox.urls.map((url) => ({ url, source: 'otx' })))
+  try {
+    const added = recordCorpusUrls(domainId, corpus)
+    log.info({ host, collected: corpus.length, added }, 'url corpus persisted')
+  } catch (err) {
+    log.warn({ host, err }, 'url corpus persist failed')
+  }
+
+  // Store trimmed copies in the finding blob (drop the big `urls` arrays).
+  result.wayback = 'error' in wb ? wb : { count: wb.count, sample: wb.sample, withParams: wb.withParams }
+  result.commoncrawl = 'error' in cc ? cc : { indexes: cc.indexes, count: cc.count, truncated: cc.truncated, sample: cc.sample, withParams: cc.withParams }
+  result.urlscan = 'error' in us ? us : { count: us.count, pages: us.pages.slice(0, 50) }
+  result.otx = 'error' in ox ? ox : { passiveDns: ox.passiveDns, urlCount: ox.urlCount, urls: ox.urls.slice(0, 50) }
 
   // Technology fingerprint: OS, server, and stack from HTTP headers/cookies/HTML,
   // enriched with any CPEs InternetDB surfaced for the apex IP.

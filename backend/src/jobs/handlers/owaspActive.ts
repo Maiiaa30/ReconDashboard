@@ -2,6 +2,7 @@ import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
 import { listFindings } from '../../findings/store'
 import { listCaptures } from '../../capture/store'
+import { getCorpusUrls } from '../../corpus/store'
 import { jsRecon } from '../../sources/jsRecon'
 import { runActiveChecks, type OwaspChecksOptions } from '../../owasp/activeChecks'
 import { analyzeJwtToken, findJwts } from '../../owasp/jwt'
@@ -32,23 +33,27 @@ function discoveredParamsFor(domainId: number): string[] {
   return paramsFromUrls(knownUrlsFor(domainId)).slice(0, 40)
 }
 
-// All URL strings this target is known to have (wayback / commoncrawl / katana /
-// prior findings) — the corpus for both param mining and JS recon.
+// All URL strings this target is known to have — the corpus for param mining and
+// JS recon. The bulk comes from the persisted url_corpus (the full Wayback /
+// Common Crawl / urlscan / OTX set, thousands of URLs); we still fold in the
+// dynamic URLs the corpus doesn't hold: katana/ffuf tool hits and any url/matched
+// on other findings. (Also reads the legacy wayback/commoncrawl blob samples as a
+// fallback for domains scanned before the corpus table existed.)
 export function knownUrlsFor(domainId: number): string[] {
+  const urls = new Set<string>(getCorpusUrls(domainId, { limit: 20_000 }))
   const findings = listFindings({ domainId, limit: 2000 })
-  const urls: string[] = []
   for (const f of findings) {
     const d = f.data as any
     if (!d) continue
-    if (Array.isArray(d?.wayback?.withParams)) urls.push(...d.wayback.withParams)
-    if (Array.isArray(d?.wayback?.sample)) urls.push(...d.wayback.sample)
-    if (Array.isArray(d?.commoncrawl?.withParams)) urls.push(...d.commoncrawl.withParams)
-    if (Array.isArray(d?.commoncrawl?.sample)) urls.push(...d.commoncrawl.sample)
-    if (f.type === 'tool' && Array.isArray(d.items)) urls.push(...d.items.filter((x: unknown) => typeof x === 'string'))
-    if (typeof d.url === 'string') urls.push(d.url)
-    if (typeof d.matched === 'string') urls.push(d.matched)
+    if (f.type === 'tool' && Array.isArray(d.items)) for (const x of d.items) if (typeof x === 'string') urls.add(x)
+    if (typeof d.url === 'string') urls.add(d.url)
+    if (typeof d.matched === 'string') urls.add(d.matched)
+    // Legacy fallback: pre-corpus osint findings kept ~50 URLs in their blob.
+    for (const arr of [d?.wayback?.withParams, d?.wayback?.sample, d?.commoncrawl?.withParams, d?.commoncrawl?.sample]) {
+      if (Array.isArray(arr)) for (const u of arr) if (typeof u === 'string') urls.add(u)
+    }
   }
-  return [...new Set(urls)]
+  return [...urls]
 }
 
 // Gather JWTs the tool already holds — the operator's auth header, JWTs mined
