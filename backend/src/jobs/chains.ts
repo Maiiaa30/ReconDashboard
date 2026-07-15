@@ -24,6 +24,19 @@ export function chainAfter(job: Job, result: unknown, log: FastifyBaseLogger): v
         log.info({ domainId, chainFrom: job.id }, 'chain: enqueued screenshots for new live hosts')
       }
     }
+
+    if (job.type === 'exposure_scan') {
+      // Exposure done → refresh the PASSIVE intel that feeds the URL corpus and
+      // the API surface, so param-discovery / JS-recon / OWASP see fresh data
+      // instead of a stale sample. Both are passive (not in LOUD_TYPES) and
+      // deduped; nothing loud is auto-enqueued here.
+      for (const t of ['osint_gather', 'api_discovery'] as const) {
+        if (!hasPendingJob(t, domainId)) {
+          enqueueJob(t, { domainId })
+          log.info({ domainId, chainFrom: job.id }, `chain: enqueued ${t} after exposure`)
+        }
+      }
+    }
   } catch (err) {
     log.warn({ err, jobId: job.id }, 'chain step failed')
   }

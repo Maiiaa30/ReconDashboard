@@ -34,6 +34,11 @@ export function startScheduler(log: FastifyBaseLogger): void {
       try {
         if (!hasPendingJob('subdomain_discovery', d.id)) enqueueJob('subdomain_discovery', { domainId: d.id })
         if (!hasPendingJob('exposure_scan', d.id)) enqueueJob('exposure_scan', { domainId: d.id })
+        // Refresh the passive intel that feeds the URL corpus + API surface so the
+        // downstream attack tools don't work off stale data. Both are passive
+        // (not in LOUD_TYPES); nothing loud is ever scheduled.
+        if (!hasPendingJob('osint_gather', d.id)) enqueueJob('osint_gather', { domainId: d.id })
+        if (!hasPendingJob('api_discovery', d.id)) enqueueJob('api_discovery', { domainId: d.id })
         markMonitored(d.id)
         log.info({ domain: d.host, everyHours: d.monitorIntervalHours }, 'auto-monitor enqueued recon')
       } catch (err) {
