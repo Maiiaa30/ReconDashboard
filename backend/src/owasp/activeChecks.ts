@@ -165,25 +165,33 @@ function checkCsp(base: RawResponse, baseUrl: string): ActiveFinding[] {
 // that never matches these KEY=VALUE / binary / config signatures) doesn't
 // produce false positives. `git` marks the three .git members whose simultaneous
 // presence proves a dumpable repository (escalated to critical below).
-const SENSITIVE_FILES: { path: string; signatures: RegExp[]; name: string; severity: Severity; git?: GitPart }[] = [
+export const SENSITIVE_FILES: { path: string; signatures: RegExp[]; name: string; severity: Severity; git?: GitPart }[] = [
   { path: '/.env', signatures: [/^[A-Z0-9_]+=/m, /APP_KEY|SECRET|PASSWORD|DB_/i], name: 'Exposed .env file', severity: 'high' },
   { path: '/.env.local', signatures: [/^[A-Z0-9_]+=/m, /APP_KEY|SECRET|PASSWORD|DB_/i], name: 'Exposed .env.local file', severity: 'high' },
+  { path: '/.env.production', signatures: [/^[A-Z0-9_]+=/m, /APP_KEY|SECRET|PASSWORD|DB_/i], name: 'Exposed .env.production file', severity: 'high' },
   { path: '/.env.bak', signatures: [/^[A-Z0-9_]+=/m, /APP_KEY|SECRET|PASSWORD|DB_/i], name: 'Exposed .env backup', severity: 'high' },
   { path: '/.git/config', signatures: [/\[core\]/, /\[remote/], name: 'Exposed .git/config', severity: 'high', git: 'config' },
   { path: '/.git/HEAD', signatures: [/^ref:\s+refs\//], name: 'Exposed .git repository', severity: 'high', git: 'head' },
   { path: '/.git/index', signatures: [/^DIRC/], name: 'Exposed .git index', severity: 'high', git: 'index' },
+  { path: '/.git/logs/HEAD', signatures: [/^[0-9a-f]{40} [0-9a-f]{40} /m], name: 'Exposed .git reflog (/.git/logs/HEAD)', severity: 'high' },
   { path: '/.svn/wc.db', signatures: [/^SQLite format 3/], name: 'Exposed .svn repository (wc.db)', severity: 'high' },
   { path: '/.hg/requires', signatures: [/^(revlogv1|store|dotencode|fncache|generaldelta)$/m], name: 'Exposed Mercurial (.hg) repository', severity: 'high' },
   { path: '/phpinfo.php', signatures: [/phpinfo\(\)|PHP Version/i], name: 'Exposed phpinfo()', severity: 'medium' },
   { path: '/server-status', signatures: [/Apache Server Status/i], name: 'Apache server-status exposed', severity: 'medium' },
   { path: '/.aws/credentials', signatures: [/aws_access_key_id/i], name: 'Exposed AWS credentials', severity: 'critical' },
   { path: '/config.json', signatures: [/"(password|secret|api[_-]?key|token)"/i], name: 'Exposed config.json with secrets', severity: 'high' },
+  { path: '/appsettings.json', signatures: [/"(ConnectionStrings|DefaultConnection|Password|Secret|ApiKey|Jwt)"/i], name: 'Exposed appsettings.json (.NET config)', severity: 'high' },
+  { path: '/web.config', signatures: [/<configuration|<connectionStrings|<appSettings/i], name: 'Exposed web.config (IIS)', severity: 'high' },
+  { path: '/.terraform/terraform.tfstate', signatures: [/"(terraform_version|lineage|serial)"\s*:/], name: 'Exposed Terraform state (secrets + infra)', severity: 'high' },
+  { path: '/terraform.tfstate', signatures: [/"(terraform_version|lineage|serial)"\s*:/], name: 'Exposed Terraform state (secrets + infra)', severity: 'high' },
+  { path: '/id_rsa', signatures: [/-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----/], name: 'Exposed private key (id_rsa)', severity: 'critical' },
   { path: '/.htpasswd', signatures: [/^[^:\s]+:(\$(?:apr1|2y|1|6)\$|\{SHA\})/m], name: 'Exposed .htpasswd (password hashes)', severity: 'high' },
   { path: '/.npmrc', signatures: [/(_authToken|_auth|_password)=/], name: 'Exposed .npmrc (registry token)', severity: 'high' },
   { path: '/backup.sql', signatures: [/(CREATE TABLE|INSERT INTO|MySQL dump|PostgreSQL database dump)/i], name: 'Exposed SQL backup (backup.sql)', severity: 'high' },
   { path: '/dump.sql', signatures: [/(CREATE TABLE|INSERT INTO|MySQL dump|PostgreSQL database dump)/i], name: 'Exposed SQL dump (dump.sql)', severity: 'high' },
   { path: '/wp-config.php.bak', signatures: [/DB_PASSWORD|DB_NAME|DB_USER/], name: 'Exposed wp-config backup (DB credentials)', severity: 'critical' },
-  { path: '/.DS_Store', signatures: [/Bud1|\x00\x00\x00/], name: 'Exposed .DS_Store (path leak)', severity: 'low' },
+  // Bud1 magic ONLY — the old `\x00\x00\x00` alternative false-matched most binaries.
+  { path: '/.DS_Store', signatures: [/Bud1/], name: 'Exposed .DS_Store (path leak)', severity: 'low' },
 ]
 
 // Catch-all / SPA guard: fetch a path that cannot legitimately exist and see if
