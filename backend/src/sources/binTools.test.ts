@@ -19,6 +19,7 @@ import {
   runSqlmap,
   runWpEnum,
   runBypass403,
+  runDatastores,
   sameAsDenied,
 } from './binTools'
 
@@ -276,6 +277,37 @@ describe('runBypass403', () => {
       return null
     })
     expect(await runBypass403('https', 'a.com')).toBeNull()
+  })
+})
+
+describe('runDatastores — infra control planes', () => {
+  it('files a critical for an unauthenticated Docker API /version', async () => {
+    mockFetch.mockImplementation(async (url) => {
+      if (url === `http://a.com:2375/version`) {
+        return { status: 200, body: '{"Version":"24.0.7","ApiVersion":"1.43","GitCommit":"abc"}', finalUrl: url }
+      }
+      return null // every other datastore/panel/infra probe: nothing there
+    })
+    const f = await runDatastores('https', 'a.com')
+    expect(f?.severity).toBe('critical')
+    expect(f?.items.join(' ')).toMatch(/Docker Engine API/)
+  })
+
+  it('does NOT file when the Docker API rejects with 401', async () => {
+    mockFetch.mockImplementation(async (url) => {
+      if (url === `http://a.com:2375/version`) return { status: 401, body: 'unauthorized', finalUrl: url }
+      return null
+    })
+    expect(await runDatastores('https', 'a.com')).toBeNull()
+  })
+
+  it('files a critical for an unauthenticated etcd', async () => {
+    mockFetch.mockImplementation(async (url) => {
+      if (url === `http://a.com:2379/version`) return { status: 200, body: '{"etcdserver":"3.5.9","etcdcluster":"3.5.0"}', finalUrl: url }
+      return null
+    })
+    const f = await runDatastores('https', 'a.com')
+    expect(f?.items.join(' ')).toMatch(/etcd/)
   })
 })
 

@@ -478,6 +478,30 @@ export async function runDatastores(scheme: string, host: string, signal?: Abort
     }
   }
 
+  // Orchestration / infra control planes — the crown jewels. An unauthenticated
+  // Docker/kubelet/etcd endpoint is host- or cluster-level RCE. Content-signature
+  // gated (a SPA catch-all 200s everything), proof-only.
+  const infra: { name: string; url: string; sig: RegExp; severity: Severity; detail: string }[] = [
+    { name: 'Docker API', url: `http://${host}:2375/version`, sig: /"ApiVersion"|"GitCommit"/, severity: 'critical', detail: 'Unauthenticated Docker Engine API on :2375 (/version reachable) — full host takeover' },
+    { name: 'Docker API', url: `https://${host}:2376/version`, sig: /"ApiVersion"|"GitCommit"/, severity: 'critical', detail: 'Unauthenticated Docker Engine API on :2376 — full host takeover' },
+    { name: 'kubelet', url: `https://${host}:10250/pods`, sig: /"kind"\s*:\s*"PodList"/, severity: 'critical', detail: 'Unauthenticated kubelet /pods on :10250 — cluster foothold' },
+    { name: 'etcd', url: `http://${host}:2379/version`, sig: /"etcdserver"|"etcdcluster"/, severity: 'critical', detail: 'Unauthenticated etcd on :2379 — cluster secrets' },
+    { name: 'Consul', url: `http://${host}:8500/v1/agent/self`, sig: /"Config"\s*:|"Member"\s*:/, severity: 'high', detail: 'Unauthenticated Consul agent API on :8500' },
+    { name: 'Prometheus', url: `http://${host}:9090/api/v1/status/config`, sig: /"status"\s*:\s*"success"/, severity: 'high', detail: 'Unauthenticated Prometheus config on :9090 — internal targets/labels leak' },
+    { name: 'Jenkins script console', url: `${scheme}://${host}/script`, sig: /Script Console|System Groovy/i, severity: 'critical', detail: 'Jenkins /script Groovy console reachable — RCE' },
+    { name: 'Grafana (anon)', url: `${scheme}://${host}/api/org`, sig: /"id"\s*:\s*\d+\s*,\s*"name"/, severity: 'medium', detail: 'Grafana /api/org reachable without auth — anonymous access enabled' },
+  ]
+  const seenInfra = new Set<string>()
+  for (const probe of infra) {
+    if (signal?.aborted) break
+    if (seenInfra.has(probe.name)) continue
+    const r = await get(probe.url)
+    if (r && r.status === 200 && probe.sig.test(r.body)) {
+      seenInfra.add(probe.name)
+      hits.push({ label: probe.name, severity: probe.severity, detail: probe.detail })
+    }
+  }
+
   if (!hits.length) return null
   const worst: Severity = hits.some((h) => h.severity === 'critical')
     ? 'critical'
