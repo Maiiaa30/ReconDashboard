@@ -53,6 +53,7 @@ export interface OwaspChecksOptions {
   authHeader?: string // "Name: value" — sent on every request
   discoveredParams?: string[] // real query params seen for this target
   jwtSecrets?: string[] // extra candidate secrets for the offline JWT HMAC crack
+  jwtWordlist?: string // jailed path to an offline JWT-secret wordlist (crack depth)
   signal?: AbortSignal // job cancel/timeout — stops probing mid-loop
 }
 

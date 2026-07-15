@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
 import { listFindings } from '../../findings/store'
@@ -5,13 +6,31 @@ import { listCaptures } from '../../capture/store'
 import { getCorpusUrls } from '../../corpus/store'
 import { jsRecon } from '../../sources/jsRecon'
 import { runActiveChecks, type OwaspChecksOptions } from '../../owasp/activeChecks'
-import { analyzeJwtToken, findJwts } from '../../owasp/jwt'
+import { analyzeJwtToken, findJwts, jwtWordlistPathOk } from '../../owasp/jwt'
 import { scanDeserialization } from '../../owasp/deser'
 import { safeJsonParse } from '../../util/json'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
 import type { JobContext } from '../worker'
 
 const PARAM_RE = /^[a-zA-Z0-9_.[\]-]{1,64}$/
+
+// Load extra JWT-crack candidates from an installed wordlist so a real offline
+// run is possible (the builtin list is only ~40 words). Path is jailed to the
+// wordlists dir; best-effort — any problem (bad path, missing file) returns [] and
+// the crack still runs against the builtin + operator secrets.
+const MAX_JWT_WORDS = 200_000
+function jwtWordlistSecrets(path: string | undefined): string[] {
+  if (!path || !jwtWordlistPathOk(path)) return []
+  try {
+    return readFileSync(path, 'utf8')
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .slice(0, MAX_JWT_WORDS)
+  } catch {
+    return []
+  }
+}
 
 // Collect query-parameter names from URL strings.
 function paramsFromUrls(urls: string[]): string[] {
@@ -161,12 +180,14 @@ export async function owaspActiveHandler({ params, log, progress, signal }: JobC
   // among the highest-signal findings the tool produces.
   try {
     const tokens = gatherTokens(domainId, cfg.authHeader, jsJwts)
+    // Builtin list + operator secrets + an optional jailed offline wordlist.
+    const extraSecrets = [...(cfg.jwtSecrets ?? []), ...jwtWordlistSecrets(cfg.jwtWordlist)]
     let jwtFindings = 0
     for (const [token, source] of tokens) {
       // A short token fingerprint keeps distinct tokens from the same source from
       // collapsing under the owasp dedupe key (owasp:cat:name@url).
       const fp = token.slice(-6)
-      for (const f of analyzeJwtToken(token, source, cfg.jwtSecrets ?? [])) {
+      for (const f of analyzeJwtToken(token, source, extraSecrets)) {
         await addScoredFinding({
           domainId,
           type: 'owasp',

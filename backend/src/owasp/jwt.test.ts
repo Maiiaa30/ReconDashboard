@@ -1,6 +1,18 @@
-import { createHmac } from 'node:crypto'
+import { createHmac, generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { analyzeJwtToken, BUILTIN_JWT_SECRETS, crackHmacSecret, decodeJwt, findJwts } from './jwt'
+import {
+  algIsAsymmetric,
+  analyzeJwtToken,
+  BUILTIN_JWT_SECRETS,
+  crackHmacSecret,
+  decodeJwt,
+  findJwts,
+  forgeAlgConfusion,
+  jwkToPem,
+  jwtWordlistPathOk,
+  keyMaterialCandidates,
+  verifyHs256,
+} from './jwt'
 
 // Build a real HS256 token so the crack is exercised against a genuine signature.
 function b64url(input: Buffer | string): string {
@@ -79,5 +91,93 @@ describe('analyzeJwtToken', () => {
 
   it('returns [] for a non-JWT', () => {
     expect(analyzeJwtToken('not-a-jwt', 'test')).toEqual([])
+  })
+
+  it('flags an asymmetric alg as an RS256->HS256 confusion candidate', () => {
+    const rs256 = `${b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))}.${b64url(JSON.stringify({ sub: 1, exp: 9999999999 }))}.AAAA`
+    expect(analyzeJwtToken(rs256, 'test').some((f) => /confusion candidate/.test(f.name))).toBe(true)
+  })
+
+  it('does not flag confusion for an HS256 token', () => {
+    const t = makeHs256({ sub: 1, exp: 9999999999 }, 'strong-uncrackable-secret-xyz-123')
+    expect(analyzeJwtToken(t, 'test').some((f) => /confusion candidate/.test(f.name))).toBe(false)
+  })
+
+  it('flags a crit header', () => {
+    const t = makeHs256({ sub: 1 }, 'x', { alg: 'HS256', crit: ['b64'], b64: false })
+    expect(analyzeJwtToken(t, 'test').some((f) => /crit \(critical\) header/.test(f.name))).toBe(true)
+  })
+
+  it('flags an unusual typ but not the standard ones', () => {
+    const weird = makeHs256({ sub: 1 }, 'x', { alg: 'HS256', typ: 'x-custom' })
+    expect(analyzeJwtToken(weird, 'test').some((f) => /unusual typ/.test(f.name))).toBe(true)
+    const normal = makeHs256({ sub: 1 }, 'x', { alg: 'HS256', typ: 'at+jwt' })
+    expect(analyzeJwtToken(normal, 'test').some((f) => /unusual typ/.test(f.name))).toBe(false)
+  })
+})
+
+describe('algIsAsymmetric', () => {
+  it('is true for RS/ES/PS/EdDSA and false for HS/none', () => {
+    for (const a of ['RS256', 'rs512', 'ES256', 'PS384', 'EdDSA']) expect(algIsAsymmetric(a)).toBe(true)
+    for (const a of ['HS256', 'HS512', 'none', '', undefined]) expect(algIsAsymmetric(a)).toBe(false)
+  })
+})
+
+describe('RS256->HS256 confusion forge', () => {
+  // A real RSA keypair so the forge round-trips against a genuine public key.
+  const { publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const pem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
+  const jwk = publicKey.export({ format: 'jwk' }) as Record<string, unknown>
+  const rs256 = `${b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))}.${b64url(JSON.stringify({ sub: 'u', role: 'user' }))}.sig`
+
+  it('forges an HS256 token signed with the public key and it self-verifies', () => {
+    const forged = forgeAlgConfusion(rs256, pem)!
+    expect(decodeJwt(forged)?.header.alg).toBe('HS256')
+    expect(verifyHs256(forged, pem)).toBe(true)
+    // A different key must NOT verify — the forge is bound to that public key.
+    expect(verifyHs256(forged, 'not-the-key')).toBe(false)
+  })
+
+  it('applies claim overrides (privilege escalation)', () => {
+    const forged = forgeAlgConfusion(rs256, pem, { role: 'admin', is_admin: true })!
+    const p = decodeJwt(forged)?.payload
+    expect(p?.role).toBe('admin')
+    expect(p?.is_admin).toBe(true)
+    expect(p?.sub).toBe('u') // untouched claims carried over
+  })
+
+  it('returns null for an undecodable token', () => {
+    expect(forgeAlgConfusion('nope', pem)).toBeNull()
+  })
+
+  it('jwkToPem round-trips an RSA jwk to a key the forge accepts', () => {
+    const derived = jwkToPem(jwk)!
+    expect(derived).toContain('BEGIN PUBLIC KEY')
+    const forged = forgeAlgConfusion(rs256, derived)!
+    expect(verifyHs256(forged, derived)).toBe(true)
+  })
+
+  it('jwkToPem rejects non-RSA / malformed jwks', () => {
+    expect(jwkToPem({ kty: 'EC', crv: 'P-256', x: 'a', y: 'b' })).toBeNull()
+    expect(jwkToPem({ kty: 'RSA' })).toBeNull()
+    expect(jwkToPem(null)).toBeNull()
+  })
+
+  it('keyMaterialCandidates yields distinct representations including the base64 body', () => {
+    const cands = keyMaterialCandidates(pem)
+    expect(cands.length).toBeGreaterThanOrEqual(2)
+    expect(cands.some((c) => c.includes('BEGIN PUBLIC KEY'))).toBe(true)
+    expect(cands.some((c) => !c.includes('BEGIN'))).toBe(true) // the stripped body
+  })
+})
+
+describe('jwtWordlistPathOk', () => {
+  it('accepts an absolute path under the wordlists dir', () => {
+    expect(jwtWordlistPathOk('/usr/share/wordlists/jwt.secrets.list')).toBe(true)
+  })
+  it('rejects traversal and out-of-jail paths', () => {
+    expect(jwtWordlistPathOk('/usr/share/wordlists/../../etc/passwd')).toBe(false)
+    expect(jwtWordlistPathOk('/etc/passwd')).toBe(false)
+    expect(jwtWordlistPathOk('relative/path.txt')).toBe(false)
   })
 })
