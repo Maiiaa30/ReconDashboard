@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { discoverParams, type Probe, type ProbeResult } from './paramDiscovery'
+import { discoverParams, makeProbe, type Probe, type ProbeFetch, type ProbeResult } from './paramDiscovery'
 
 const opts = { runToken: 'tok', maxProbes: 500 }
 
@@ -52,5 +52,55 @@ describe('discoverParams', () => {
     const hits = await discoverParams(['a', 'b'], fakeTarget({ reflect: ['a'] }), { ...opts, signal: controller.signal })
     // baseline probes short-circuit on abort → no hits
     expect(hits).toEqual([])
+  })
+})
+
+describe('makeProbe transports', () => {
+  // Capture the request the probe would send for one candidate param.
+  async function capture(transport: Parameters<typeof makeProbe>[0]) {
+    let seen: { url: string; method: string; headers: Record<string, string>; body?: string } | null = null
+    const doFetch: ProbeFetch = async (url, init) => {
+      seen = { url, ...init }
+      return { status: 200, body: '' }
+    }
+    await makeProbe(transport, 'https://t.com/api', doFetch)({ is_admin: 'CANARY' })
+    return seen!
+  }
+
+  it('query → GET with the param in the query string', async () => {
+    const r = await capture('query')
+    expect(r.method).toBe('GET')
+    expect(r.url).toContain('is_admin=CANARY')
+  })
+
+  it('json → POST with a JSON body', async () => {
+    const r = await capture('json')
+    expect(r.method).toBe('POST')
+    expect(r.headers['Content-Type']).toBe('application/json')
+    expect(JSON.parse(r.body!)).toEqual({ is_admin: 'CANARY' })
+  })
+
+  it('form → POST with a urlencoded body', async () => {
+    const r = await capture('form')
+    expect(r.headers['Content-Type']).toBe('application/x-www-form-urlencoded')
+    expect(r.body).toBe('is_admin=CANARY')
+  })
+
+  it('header → GET with the param as a request header', async () => {
+    const r = await capture('header')
+    expect(r.headers.is_admin).toBe('CANARY')
+    expect(r.url).toBe('https://t.com/api') // not in the URL
+  })
+
+  it('discovers a BODY-only honored param end to end', async () => {
+    // Backend that ignores query but honors a JSON body field (mass assignment).
+    const doFetch: ProbeFetch = async (_url, init) => {
+      let body = 'x'.repeat(500)
+      if (init.body && init.body.includes('is_admin')) body += 'y'.repeat(300) // honored → length delta
+      return { status: 200, body }
+    }
+    const jsonProbe = makeProbe('json', 'https://t.com/api', doFetch)
+    const hits = await discoverParams(['debug', 'is_admin', 'role'], jsonProbe, opts)
+    expect(hits.map((h) => h.param)).toContain('is_admin')
   })
 })

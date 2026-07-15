@@ -19,6 +19,48 @@ export interface ProbeResult {
 
 export type Probe = (params: Record<string, string>) => Promise<ProbeResult | null>
 
+// Where a candidate parameter is placed. Mass-assignment / IDOR params live in the
+// request body; a few auth/routing params only take effect as headers.
+export type Transport = 'query' | 'json' | 'form' | 'header'
+
+// Request-header params that commonly change server behavior (access control /
+// routing / host confusion) — the candidate list for the 'header' transport.
+export const HEADER_PARAMS: readonly string[] = [
+  'X-Forwarded-For', 'X-Forwarded-Host', 'X-Forwarded-Proto', 'X-Forwarded-Port', 'X-Forwarded-Server',
+  'X-Original-URL', 'X-Rewrite-URL', 'X-Original-Host', 'X-Host', 'X-Real-IP', 'X-Client-IP',
+  'X-Remote-IP', 'X-Remote-Addr', 'X-Custom-IP-Authorization', 'X-Override-URL', 'X-HTTP-Method-Override',
+]
+
+// A minimal fetch the probe factory drives — injected so makeProbe is testable
+// without a network (the handler supplies the SSRF-guarded implementation).
+export type ProbeFetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<ProbeResult | null>
+
+// Build a Probe that places the candidate params in the chosen transport. The
+// bisection engine is transport-agnostic — it just calls the Probe — so adding
+// body/header discovery is purely this factory.
+export function makeProbe(transport: Transport, baseUrl: string, doFetch: ProbeFetch): Probe {
+  return async (kv) => {
+    if (transport === 'query') {
+      let u: URL
+      try {
+        u = new URL(baseUrl)
+      } catch {
+        return null
+      }
+      for (const [k, v] of Object.entries(kv)) u.searchParams.set(k, v)
+      return doFetch(u.toString(), { method: 'GET', headers: {} })
+    }
+    if (transport === 'header') {
+      return doFetch(baseUrl, { method: 'GET', headers: { ...kv } })
+    }
+    if (transport === 'json') {
+      return doFetch(baseUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(kv) })
+    }
+    // form-encoded body
+    return doFetch(baseUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(kv).toString() })
+  }
+}
+
 // A compact, high-signal candidate list. The handler prepends params actually
 // observed for the target (from JS recon / the URL corpus), which are the most
 // likely to be honored.
@@ -28,6 +70,8 @@ export const BUILTIN_PARAMS: readonly string[] = [
   'file', 'path', 'template', 'lang', 'locale', 'format', 'view', 'action', 'cmd', 'exec', 'query', 'q', 'search',
   'sort', 'order', 'filter', 'fields', 'include', 'expand', 'limit', 'offset', 'preview', 'draft', 'test_mode',
   'api_key', 'apikey', 'token', 'access_token', 'key', 'secret', 'password', 'email', 'username', 'ref', 'source',
+  // mass-assignment fields — most valuable in a JSON/form body.
+  'verified', 'is_verified', 'active', 'is_active', 'enabled', 'approved', 'confirmed', 'owner', 'owner_id', 'is_staff',
 ]
 
 const CHUNK_SIZE = 25

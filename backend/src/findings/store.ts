@@ -67,8 +67,9 @@ export function findingKey(type: string, data: any): string | null {
       // One row per (endpoint, object id) tested for broken authorization.
       return data.url && data.objectId != null ? `authz:${data.url}:${data.objectId}` : data.url ? `authz:${data.url}` : null
     case 'param':
-      // One row per (url, param) that the target honored.
-      return data.url && data.param ? `param:${data.url}:${data.param}` : null
+      // One row per (url, param, transport) — the same name in query vs body vs
+      // header is a distinct finding.
+      return data.url && data.param ? `param:${data.url}:${data.param}:${data.transport ?? 'query'}` : null
     case 'secret':
       // One row per (repo, path) so re-searching the same leaked file dedupes.
       return data.repo && data.path ? `secret:${data.repo}:${data.path}` : null
