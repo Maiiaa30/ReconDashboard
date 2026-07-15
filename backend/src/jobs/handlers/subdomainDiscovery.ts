@@ -8,6 +8,7 @@ import { probeHost } from '../../sources/httpProbe'
 import { detectTakeover } from '../../sources/takeover'
 import { subfinderSubdomains } from '../../sources/subfinder'
 import { diffAndStore, listUnprobed, updateProbe } from '../../subdomains/store'
+import { upsertAsset } from '../../assets/store'
 import { mapLimit } from '../../util/async'
 import type { JobContext } from '../worker'
 
@@ -66,6 +67,10 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
   }
 
   const diff = diffAndStore(domainId, discovered)
+
+  // Materialize newly-discovered hosts as durable assets (their IP + asn/cdn are
+  // enriched later by the exposure scan, which upserts the same host asset).
+  for (const host of diff.newHosts.slice(0, 1000)) upsertAsset({ domainId, kind: 'host', value: host })
 
   // Lightweight HTTP probe: all new hosts, plus back-fill any existing hosts
   // that were never probed (e.g. discovered before probing existed). Bounded

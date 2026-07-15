@@ -1,7 +1,9 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
 import { alertNewCves, markCvesAlerted, recordAndDetectNewCves, type AssetCve } from '../../findings/cveWatch'
+import { linkAssetFinding, upsertAsset } from '../../assets/store'
 import { asnLookup } from '../../sources/asn'
+import { cdnForIp } from '../../sources/cdn'
 import { enrichCves } from '../../sources/cvedb'
 import { resolveDns } from '../../sources/dns'
 import { grabTlsCert } from '../../sources/tlsCert'
@@ -81,7 +83,16 @@ export async function exposureHandler({ params, log }: JobContext) {
           asn,
         }
         const asnTags = asn?.asn ? [`asn:${asn.asn}`] : []
-        await addScoredFinding({ domainId, type: 'exposure', data: finding, tags: ['exposure', ...asnTags] })
+        const fid = await addScoredFinding({ domainId, type: 'exposure', data: finding, tags: ['exposure', ...asnTags] })
+
+        // Materialize durable assets from what this record already computed: one
+        // 'ip' asset (with asn/cdn) and a 'host' asset per hostname, each linked to
+        // this exposure finding. correlateDomain reads these instead of re-joining
+        // JSON blobs on every request.
+        const cdn = cdnForIp(ip)
+        const ipAssetId = upsertAsset({ domainId, kind: 'ip', value: ip, ip, asn: asn?.asn ?? null, asnName: asn?.asName ?? null, cdn })
+        linkAssetFinding(ipAssetId, fid)
+        for (const h of hostSet) linkAssetFinding(upsertAsset({ domainId, kind: 'host', value: h, ip }), fid)
 
         // "New CVE on a known asset" watch: rec.vulns is the authoritative CVE-id
         // set for this IP; enrich each with cvss/kev from the cvedb records. Record

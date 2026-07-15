@@ -379,10 +379,45 @@ export const urlCorpus = sqliteTable(
   (t) => [unique('url_corpus_domain_url_uq').on(t.domainId, t.url), index('url_corpus_domain_idx').on(t.domainId)],
 )
 
+// Durable asset inventory. correlateDomain() used to rebuild the host->IP->port->
+// CVE graph from finding JSON blobs on every request and throw it away; persisting
+// it here makes an asset indexable, diffable over time, linkable and clickable.
+// One row per (domain, kind, value): kind 'ip' = an address (with asn/cdn), 'host'
+// = a hostname (with its resolved ip), 'service' = an ip:port.
+export const assets = sqliteTable(
+  'assets',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id').references(() => domains.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(), // host | ip | service
+    value: text('value').notNull(),
+    ip: text('ip'), // the owning/resolved IP (for host + service assets)
+    port: integer('port'), // for service assets
+    asn: text('asn'),
+    asnName: text('asn_name'),
+    cdn: text('cdn'),
+    firstSeen: integer('first_seen', { mode: 'timestamp_ms' }).notNull().default(now),
+    lastSeen: integer('last_seen', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [unique('assets_domain_kind_value_uq').on(t.domainId, t.kind, t.value), index('assets_domain_idx').on(t.domainId), index('assets_ip_idx').on(t.ip)],
+)
+
+// Many-to-many link between an asset and the findings that mention it.
+export const assetFindings = sqliteTable(
+  'asset_findings',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    assetId: integer('asset_id').notNull().references(() => assets.id, { onDelete: 'cascade' }),
+    findingId: integer('finding_id').notNull().references(() => findings.id, { onDelete: 'cascade' }),
+  },
+  (t) => [unique('asset_findings_uq').on(t.assetId, t.findingId), index('asset_findings_asset_idx').on(t.assetId)],
+)
+
 export type User = typeof users.$inferSelect
 export type PayloadSet = typeof payloadSets.$inferSelect
 export type MatchReplaceRuleRow = typeof matchReplaceRules.$inferSelect
 export type UrlCorpusRow = typeof urlCorpus.$inferSelect
+export type AssetRow = typeof assets.$inferSelect
 export type Domain = typeof domains.$inferSelect
 export type CapturedRequest = typeof capturedRequests.$inferSelect
 export type ReplayHistoryRow = typeof replayHistory.$inferSelect
