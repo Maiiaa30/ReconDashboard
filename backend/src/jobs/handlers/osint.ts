@@ -6,6 +6,7 @@ import { enumerateBuckets } from '../../sources/buckets'
 import { certSpotterSubdomains } from '../../sources/certspotter'
 import { crtShSubdomains } from '../../sources/crtsh'
 import { resolveDns } from '../../sources/dns'
+import { gatherDnsIntel } from '../../sources/dnsIntel'
 import { fingerprintHost } from '../../sources/fingerprint'
 import { commonCrawlUrls, type CommonCrawlResult } from '../../sources/commoncrawl'
 import { internetDbLookup } from '../../sources/internetdb'
@@ -183,6 +184,27 @@ export async function osintHandler({ params, log }: JobContext) {
     }
   } catch (err) {
     result.buckets = { error: err instanceof Error ? err.message : String(err) }
+  }
+
+  // SPF / DMARC / CAA intel from the raw TXT/CAA already resolved above. Weak
+  // policy = spoofable (osint findings); SPF ip4:/ip6: ranges become infra pivots.
+  try {
+    const dns = result.dns as { txt?: string[]; caa?: string[] } | undefined
+    if (dns && !('error' in (dns as object))) {
+      const intel = await gatherDnsIntel(host, dns.txt ?? [], dns.caa ?? [], async (h) => (await resolveDns(h)).txt)
+      result.dnsIntel = { spf: intel.spf, dmarc: intel.dmarc, caaIssuers: intel.caaIssuers, candidateRanges: intel.candidateRanges }
+      for (const f of intel.findings) {
+        addFinding({
+          domainId,
+          type: 'osint',
+          data: { kind: f.kind, domain: host, name: f.name, severity: f.severity, evidence: f.evidence, _scoreReasons: [f.evidence] },
+          tags: ['osint', 'dns-intel', `sev:${f.severity}`],
+          score: f.score,
+        })
+      }
+    }
+  } catch (err) {
+    log.warn({ host, err }, 'osint dns-intel failed')
   }
 
   await addScoredFinding({ domainId, type: 'osint', data: result, tags: ['osint'] })

@@ -8,6 +8,7 @@ export interface DnsRecords {
   mx: { exchange: string; priority: number }[]
   ns: string[]
   txt: string[]
+  caa: string[] // normalized "issue:host" / "issuewild:host" / "iodef:uri"
 }
 
 // Passive DNS resolution via public resolvers. Each record type is best-effort;
@@ -28,13 +29,14 @@ export async function resolveDns(host: string): Promise<DnsRecords> {
     }
   }
 
-  const [a, aaaa, cname, mx, ns, txt] = await Promise.all([
+  const [a, aaaa, cname, mx, ns, txt, caa] = await Promise.all([
     safe(resolver.resolve4(host)),
     safe(resolver.resolve6(host)),
     safe(resolver.resolveCname(host)),
     safe(resolver.resolveMx(host)),
     safe(resolver.resolveNs(host)),
     safe(resolver.resolveTxt(host)),
+    safe(resolver.resolveCaa(host)),
   ])
 
   return {
@@ -47,6 +49,13 @@ export async function resolveDns(host: string): Promise<DnsRecords> {
     })),
     ns: ns as string[],
     txt: (txt as string[][]).map((parts) => parts.join('')),
+    // node returns CaaRecord objects ({ critical, issue?, issuewild?, iodef? }) —
+    // normalize the meaningful properties to "tag:value" strings.
+    caa: (caa as Record<string, string | number>[]).flatMap((r) =>
+      (['issue', 'issuewild', 'iodef', 'contactemail', 'contactphone'] as const)
+        .filter((k) => typeof r[k] === 'string')
+        .map((k) => `${k}:${r[k]}`),
+    ),
   }
 }
 
