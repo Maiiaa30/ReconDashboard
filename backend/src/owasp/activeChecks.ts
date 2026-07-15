@@ -273,6 +273,36 @@ async function checkSensitiveFiles(baseUrl: string, ctx: Ctx): Promise<ActiveFin
 const XSS_PARAMS = ['q', 's', 'search', 'id', 'page', 'query']
 const DEFAULT_XSS = { inject: `"'><svg/onload=rxss9842>`, needle: `<svg/onload=rxss9842>` }
 
+// Where a reflected needle LANDS in the response — the dominant XSS-FP killer. An
+// unencoded `<svg…>` in HTML text executes (high); the same string inside a
+// <script> (JS text), an HTML comment, or an RCDATA/raw-text element (textarea/
+// title/style/xmp/noscript) does NOT run as-is and should be downgraded.
+export type ReflectionContext = 'html' | 'script' | 'comment' | 'rcdata'
+
+export function reflectionContext(body: string, needle: string): ReflectionContext {
+  const i = body.indexOf(needle)
+  if (i < 0) return 'html'
+  const before = body.slice(0, i).toLowerCase()
+  const lastComment = before.lastIndexOf('<!--')
+  if (lastComment >= 0 && before.indexOf('-->', lastComment) < 0) return 'comment'
+  for (const tag of ['script', 'textarea', 'title', 'style', 'xmp', 'noscript']) {
+    const open = before.lastIndexOf(`<${tag}`)
+    if (open >= 0 && before.indexOf(`</${tag}`, open) < 0) return tag === 'script' ? 'script' : 'rcdata'
+  }
+  return 'html'
+}
+
+function xssContextVerdict(context: ReflectionContext): { severity: Severity; note: string } {
+  switch (context) {
+    case 'html':
+      return { severity: 'high', note: 'HTML context — the injected tag executes' }
+    case 'script':
+      return { severity: 'medium', note: 'inside <script> — exploitable only if it breaks the JS string/expression' }
+    default:
+      return { severity: 'low', note: `inert ${context} context — the tag does not execute as-is` }
+  }
+}
+
 async function checkReflectedXss(baseUrl: string, ctx: Ctx): Promise<ActiveFinding[]> {
   const out: ActiveFinding[] = []
   // 1) Parameter coverage with the marker payload — tests the real params the
@@ -282,12 +312,14 @@ async function checkReflectedXss(baseUrl: string, ctx: Ctx): Promise<ActiveFindi
     const url = `${baseUrl}?${param}=${encodeURIComponent(DEFAULT_XSS.inject)}`
     const res = await fetchRaw(url, { follow: true, headers: ctx.headers, signal: ctx.signal })
     if (res && res.body.includes(DEFAULT_XSS.needle)) {
+      const context = reflectionContext(res.body, DEFAULT_XSS.needle)
+      const { severity, note } = xssContextVerdict(context)
       out.push({
         category: 'A03',
-        name: 'Reflected XSS — unencoded input',
-        severity: 'high',
+        name: context === 'html' ? 'Reflected XSS — unencoded input' : `Reflected input (${context} context — review)`,
+        severity,
         url,
-        evidence: `Payload reflected unencoded via ?${param}=`,
+        evidence: `Payload reflected unencoded via ?${param}= (${note})`,
         repro: { request: `GET ${url}`, payload: DEFAULT_XSS.inject, responseStatus: res.status, bodyExcerpt: excerptAround(res.body, DEFAULT_XSS.needle) },
       })
       break // one confirmed sink is enough to flag
@@ -299,12 +331,14 @@ async function checkReflectedXss(baseUrl: string, ctx: Ctx): Promise<ActiveFindi
     const url = `${baseUrl}?q=${encodeURIComponent(p)}`
     const res = await fetchRaw(url, { follow: true, headers: ctx.headers, signal: ctx.signal })
     if (res && res.body.includes(p)) {
+      const context = reflectionContext(res.body, p)
+      const { severity, note } = xssContextVerdict(context)
       out.push({
         category: 'A03',
-        name: 'Custom XSS payload reflected',
-        severity: 'high',
+        name: context === 'html' ? 'Custom XSS payload reflected' : `Custom payload reflected (${context} context — review)`,
+        severity,
         url,
-        evidence: `Custom payload reflected unencoded: ${p.slice(0, 80)}`,
+        evidence: `Custom payload reflected unencoded: ${p.slice(0, 80)} (${note})`,
         repro: { request: `GET ${url}`, payload: p, responseStatus: res.status, bodyExcerpt: excerptAround(res.body, p) },
       })
     }
