@@ -9,6 +9,7 @@ import { BROWSER_UA } from '../util/http'
 
 const MAX_FILES = 40
 const MAX_BYTES = 2 * 1024 * 1024
+const MAX_MAP_BYTES = 8 * 1024 * 1024 // source maps embed the whole source — larger cap
 
 // High-signal secret patterns. Kept conservative to limit false positives.
 const SECRET_PATTERNS: { name: string; re: RegExp }[] = [
@@ -54,6 +55,7 @@ const ENV_NAME_RE = /\b((?:REACT_APP|NEXT_PUBLIC|VITE|VUE_APP|GATSBY|EXPO_PUBLIC
 
 export interface JsReconResult {
   filesScanned: number
+  mapsScanned: number // reachable .js.map source maps parsed (un-minified sources)
   endpoints: string[]
   urls: string[] // absolute URLs found (unscoped; callers filter to the target)
   params: string[]
@@ -63,11 +65,107 @@ export interface JsReconResult {
   env: { key: string; value: string | null }[] // baked-in public env vars
 }
 
+export interface JsSignals {
+  endpoints: string[]
+  urls: string[]
+  params: string[]
+  secrets: { pattern: string; sample: string }[]
+  frameworks: string[]
+  routes: string[]
+  env: { key: string; value: string | null }[]
+}
+
 // Show the secret in full so the operator can verify it (these are their own
 // authorized findings, flagged needs-review); only trim pathologically long
 // matches so a minified blob can't blow up the UI.
 function truncSecret(s: string): string {
   return s.length > 200 ? `${s.slice(0, 160)}…${s.slice(-24)}` : s
+}
+
+// Pull every signal out of ONE source body — a minified bundle OR an un-minified
+// source-map source. Pure + per-body bounded, so it can be reused across both.
+export function extractSignals(body: string): JsSignals {
+  const endpoints = new Set<string>()
+  const urls = new Set<string>()
+  const params = new Set<string>()
+  const secrets: { pattern: string; sample: string }[] = []
+  const frameworks = new Set<string>()
+  const routes = new Set<string>()
+  const env = new Map<string, string | null>()
+
+  for (const m of body.matchAll(ENDPOINT_RE)) {
+    const p = m[1]
+    if (p && !/\.(png|jpe?g|gif|svg|css|woff2?|ttf|ico|map)$/i.test(p)) endpoints.add(p)
+    for (const pm of p.matchAll(PARAM_IN_URL)) params.add(pm[1])
+  }
+  for (const m of body.matchAll(ENDPOINT_NOSLASH_RE)) {
+    endpoints.add('/' + m[1])
+    for (const pm of m[1].matchAll(PARAM_IN_URL)) params.add(pm[1])
+  }
+  for (const m of body.matchAll(ABS_URL_RE)) {
+    if (urls.size >= 500) break
+    urls.add(m[0])
+    for (const pm of m[0].matchAll(PARAM_IN_URL)) params.add(pm[1])
+  }
+  for (const { name, re } of SECRET_PATTERNS) {
+    for (const sm of body.matchAll(re)) {
+      if (secrets.length >= 100) break
+      secrets.push({ pattern: name, sample: truncSecret(sm[0]) })
+    }
+  }
+  for (const { name, re } of FRAMEWORK_SIGS) if (re.test(body)) frameworks.add(name)
+  for (const m of body.matchAll(ROUTE_RE)) if (routes.size < 300) routes.add(m[1])
+  for (const m of body.matchAll(ENV_ASSIGN_RE)) env.set(m[1], m[2] || null)
+  for (const m of body.matchAll(ENV_NAME_RE)) if (!env.has(m[1])) env.set(m[1], null)
+
+  return {
+    endpoints: [...endpoints],
+    urls: [...urls],
+    params: [...params],
+    secrets,
+    frameworks: [...frameworks],
+    routes: [...routes],
+    env: [...env.entries()].map(([key, value]) => ({ key, value })),
+  }
+}
+
+// Find the source-map reference at the tail of a bundle (//# or the older //@).
+// Skips inline data: maps (already in-body). Resolves relative to the bundle URL;
+// only http(s) targets are returned (the caller SSRF-guards the fetch).
+export function sourceMapUrl(body: string, baseUrl: string): string | null {
+  const m = body.match(/\/\/[#@]\s*sourceMappingURL=([^\s'"]+)/)
+  if (!m) return null
+  const ref = m[1].trim()
+  if (!ref || ref.startsWith('data:')) return null
+  try {
+    const u = new URL(ref, baseUrl)
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : null
+  } catch {
+    return null
+  }
+}
+
+// Parse a source map's original sources (sourcesContent). Bounded; skips empty
+// entries. Names come from `sources` for labelling.
+export function parseSourceMapSources(mapText: string): { name: string; content: string }[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(mapText)
+  } catch {
+    return []
+  }
+  if (!parsed || typeof parsed !== 'object') return []
+  const p = parsed as { sources?: unknown; sourcesContent?: unknown }
+  const contents = Array.isArray(p.sourcesContent) ? p.sourcesContent : []
+  const names = Array.isArray(p.sources) ? p.sources : []
+  const out: { name: string; content: string }[] = []
+  for (let i = 0; i < contents.length && out.length < 500; i++) {
+    const c = contents[i]
+    if (typeof c === 'string' && c) {
+      out.push({ name: typeof names[i] === 'string' ? String(names[i]) : `source[${i}]`, content: c })
+    }
+  }
+  return out
 }
 
 export async function jsRecon(jsUrls: string[]): Promise<JsReconResult> {
@@ -80,6 +178,19 @@ export async function jsRecon(jsUrls: string[]): Promise<JsReconResult> {
   const frameworks = new Set<string>()
   const routes = new Set<string>()
   const env = new Map<string, string | null>()
+  let mapsScanned = 0
+
+  // Fold one body's extracted signals into the shared accumulators (globally
+  // capped), tagging secrets with where they came from.
+  const merge = (sig: JsSignals, fileLabel: string) => {
+    for (const e of sig.endpoints) endpoints.add(e)
+    for (const u of sig.urls) if (abs.size < 500) abs.add(u)
+    for (const p of sig.params) params.add(p)
+    for (const s of sig.secrets) if (secrets.length < 50) secrets.push({ ...s, file: fileLabel })
+    for (const f of sig.frameworks) frameworks.add(f)
+    for (const r of sig.routes) if (routes.size < 300) routes.add(r)
+    for (const { key, value } of sig.env) if (!env.has(key) || (value && !env.get(key))) env.set(key, value)
+  }
 
   await mapLimit(
     files,
@@ -87,45 +198,35 @@ export async function jsRecon(jsUrls: string[]): Promise<JsReconResult> {
     async (url) => {
       const res = await guardedFetch(url, { timeoutMs: 9_000, maxBytes: MAX_BYTES, headers: { 'User-Agent': BROWSER_UA } })
       if (!res || res.status !== 200) return
-      const body = res.body
+      merge(extractSignals(res.body), url)
 
-      for (const m of body.matchAll(ENDPOINT_RE)) {
-        const p = m[1]
-        if (p && !/\.(png|jpe?g|gif|svg|css|woff2?|ttf|ico|map)$/i.test(p)) endpoints.add(p)
-        for (const pm of p.matchAll(PARAM_IN_URL)) params.add(pm[1])
-      }
-      for (const m of body.matchAll(ENDPOINT_NOSLASH_RE)) {
-        endpoints.add('/' + m[1])
-        for (const pm of m[1].matchAll(PARAM_IN_URL)) params.add(pm[1])
-      }
-      for (const m of body.matchAll(ABS_URL_RE)) {
-        if (abs.size >= 500) break
-        abs.add(m[0])
-        for (const pm of m[0].matchAll(PARAM_IN_URL)) params.add(pm[1])
-      }
-      for (const { name, re } of SECRET_PATTERNS) {
-        for (const sm of body.matchAll(re)) {
-          if (secrets.length >= 50) break
-          secrets.push({ pattern: name, sample: truncSecret(sm[0]), file: url })
+      // A reachable source map reverses the minified bundle back to its original
+      // TypeScript/JS sources — route tables, API clients, comments, far more
+      // secrets than survive minification. SSRF-guarded fetch, byte-capped.
+      const mapUrl = sourceMapUrl(res.body, url)
+      if (mapUrl) {
+        const mres = await guardedFetch(mapUrl, { timeoutMs: 12_000, maxBytes: MAX_MAP_BYTES, headers: { 'User-Agent': BROWSER_UA } })
+        if (mres && mres.status === 200) {
+          const sources = parseSourceMapSources(mres.body)
+          if (sources.length) {
+            mapsScanned++
+            for (const s of sources) merge(extractSignals(s.content), `${url}.map:${s.name}`)
+          }
         }
       }
-      // SPA framework / routes / baked-in public env config.
-      for (const { name, re } of FRAMEWORK_SIGS) if (re.test(body)) frameworks.add(name)
-      for (const m of body.matchAll(ROUTE_RE)) if (routes.size < 300) routes.add(m[1])
-      for (const m of body.matchAll(ENV_ASSIGN_RE)) env.set(m[1], m[2] || null)
-      for (const m of body.matchAll(ENV_NAME_RE)) if (!env.has(m[1])) env.set(m[1], null)
     },
     undefined,
   )
 
   return {
     filesScanned: files.length,
-    endpoints: [...endpoints].slice(0, 200),
+    mapsScanned,
+    endpoints: [...endpoints].slice(0, 300),
     urls: [...abs].slice(0, 500),
     params: [...params].slice(0, 100),
     secrets,
     frameworks: [...frameworks],
-    routes: [...routes].slice(0, 200),
+    routes: [...routes].slice(0, 300),
     env: [...env.entries()].map(([key, value]) => ({ key, value })).slice(0, 100),
   }
 }

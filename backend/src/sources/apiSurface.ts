@@ -525,7 +525,7 @@ async function mineJs(host: string, extraJsUrls: string[], knownUrls: string[] =
   const jsUrls = [...new Set([...home.jsUrls, ...extraJsUrls])]
   const raw: JsReconResult = jsUrls.length
     ? await jsRecon(jsUrls)
-    : { filesScanned: 0, endpoints: [], urls: [], params: [], secrets: [], frameworks: [], routes: [], env: [] }
+    : { filesScanned: 0, mapsScanned: 0, endpoints: [], urls: [], params: [], secrets: [], frameworks: [], routes: [], env: [] }
 
   const relative = raw.endpoints.filter(isApiEndpoint)
 
