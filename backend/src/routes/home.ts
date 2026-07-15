@@ -9,6 +9,9 @@ import { listFindings } from '../findings/store'
 // How soon an authorization window has to expire to be flagged on the Today panel.
 const EXPIRING_WITHIN_DAYS = 7
 const DAY_MS = 24 * 60 * 60 * 1000
+// Re-baseline the "last viewed" marker at most this often, so polling the Today
+// panel doesn't reset its diff window every few seconds.
+const VIEW_DEBOUNCE_MS = 10 * 60 * 1000
 
 export const homeRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/home', async () => {
@@ -89,9 +92,14 @@ export const homeRoutes: FastifyPluginAsync = async (app) => {
         daysLeft: d.authorizedUntil ? Math.max(0, Math.ceil((d.authorizedUntil.getTime() - now.getTime()) / DAY_MS)) : null,
       }))
 
-    // Advance the "last viewed" marker so the next visit diffs from now. Done
-    // after computing `since` so this response still reflects the previous visit.
-    db.update(users).set({ lastDashboardViewedAt: now, updatedAt: now }).where(eq(users.id, userId)).run()
+    // Advance the "last viewed" marker so the next visit diffs from now — but
+    // DEBOUNCED: the panel is polled every few seconds, and advancing on every GET
+    // both hammered the DB and shrank the "since" window to the poll interval (so
+    // the panel emptied instantly). Only re-baseline once the marker is stale, so
+    // the window stays stable across a session's polling.
+    if (op && now.getTime() - sinceMs >= VIEW_DEBOUNCE_MS) {
+      db.update(users).set({ lastDashboardViewedAt: now, updatedAt: now }).where(eq(users.id, userId)).run()
+    }
 
     return {
       since: since.toISOString(),

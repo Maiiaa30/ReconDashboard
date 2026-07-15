@@ -21,7 +21,7 @@ import type { JobContext } from '../worker'
 
 // Phase 4: OSINT / info center. One screen's worth of passive intel about a
 // target, aggregated from several sources. All passive.
-export async function osintHandler({ params, log }: JobContext) {
+export async function osintHandler({ params, log, signal }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
@@ -163,7 +163,7 @@ export async function osintHandler({ params, log }: JobContext) {
   // Cloud storage buckets derived from the domain name (keyless; requests go to
   // AWS/GCP/Azure, not the target). Open buckets are high-value findings.
   try {
-    const buckets = await enumerateBuckets(host)
+    const buckets = await enumerateBuckets(host, [], signal)
     const open = buckets.filter((b) => b.state === 'open')
     const locked = buckets.filter((b) => b.state === 'locked')
     result.buckets = { open: open.map((b) => b.url), locked: locked.map((b) => b.url) }

@@ -46,11 +46,14 @@ function classify(status: number): BucketState | null {
 // Azure endpoint below is a `?comp=list` container-listing, which is GET-only,
 // and S3/GCS answer GET the same as HEAD for existence. The body is cancelled
 // immediately, so this stays a status-only probe (no body download).
-async function probeStatus(url: string): Promise<number | null> {
+async function probeStatus(url: string, signal?: AbortSignal): Promise<number | null> {
   const c = new AbortController()
   const t = setTimeout(() => c.abort(), TIMEOUT_MS)
+  // Combine the per-probe timeout with the caller's job signal so an aborted /
+  // timed-out job stops the bucket sweep promptly instead of running to the end.
+  const sig = signal ? AbortSignal.any([c.signal, signal]) : c.signal
   try {
-    const res = await fetch(url, { method: 'GET', redirect: 'manual', signal: c.signal, headers: { 'User-Agent': 'recon-dashboard/0.1' } })
+    const res = await fetch(url, { method: 'GET', redirect: 'manual', signal: sig, headers: { 'User-Agent': 'recon-dashboard/0.1' } })
     await res.body?.cancel().catch(() => {})
     return res.status
   } catch {
@@ -68,14 +71,15 @@ function endpoints(name: string): { provider: BucketHit['provider']; url: string
   ]
 }
 
-export async function enumerateBuckets(domain: string, seeds: string[] = []): Promise<BucketHit[]> {
+export async function enumerateBuckets(domain: string, seeds: string[] = [], signal?: AbortSignal): Promise<BucketHit[]> {
   const names = bucketCandidates(domain, seeds)
   const targets = names.flatMap((name) => endpoints(name).map((e) => ({ name, ...e })))
   const results = await mapLimit(
     targets,
     12,
     async (t) => {
-      const status = await probeStatus(t.url)
+      if (signal?.aborted) return null
+      const status = await probeStatus(t.url, signal)
       if (status == null) return null
       const state = classify(status)
       if (!state || state === 'absent') return null
