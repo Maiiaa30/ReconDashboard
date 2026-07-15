@@ -321,6 +321,60 @@ export const replayRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
+  // Blind-injection confirmation: mark the injection point with {{INJ}} and supply
+  // the differential payloads; the job proves boolean/time-based SQLi. LOUD + gated.
+  app.post<{
+    Params: { id: string }
+    Body: {
+      template?: { method?: string; url?: string; headers?: Record<string, string>; body?: string; followRedirects?: boolean }
+      baseValue?: string
+      truePayload?: string
+      falsePayload?: string
+      sleepPayload?: string
+      sleepSeconds?: number
+      samples?: number
+      confirm?: boolean
+    }
+  }>('/api/domains/:id/inject-confirm', async (request, reply) => {
+    const id = Number(request.params.id)
+    const { template, confirm } = request.body ?? {}
+    if (!template || typeof template.url !== 'string' || !template.url) return reply.code(400).send({ error: 'template.url is required' })
+    const marked = [template.url, template.body ?? '', ...Object.values(template.headers ?? {})].some((s) => String(s).includes('{{INJ}}'))
+    if (!marked) return reply.code(400).send({ error: 'no {{INJ}} marker in the request template', code: 'no_marker' })
+    const hasBoolean = typeof request.body?.truePayload === 'string' && typeof request.body?.falsePayload === 'string'
+    const hasTiming = typeof request.body?.sleepPayload === 'string' && Number(request.body?.sleepSeconds) > 0
+    if (!hasBoolean && !hasTiming) return reply.code(400).send({ error: 'provide true+false payloads and/or a sleep payload + seconds', code: 'no_payloads' })
+    let host: string
+    try {
+      host = new URL(template.url).hostname
+    } catch {
+      return reply.code(400).send({ error: 'invalid template.url', code: 'invalid_target' })
+    }
+    try {
+      const { domain } = await assertScanAllowed({ domainId: id, target: host, confirm: confirm === true, jobType: 'inject_confirm' })
+      const method = (template.method ?? 'GET').toUpperCase()
+      const jobId = enqueueJob('inject_confirm', {
+        domainId: id,
+        target: host,
+        template: { method, url: template.url, headers: template.headers, body: template.body, followRedirects: template.followRedirects === true },
+        baseValue: request.body?.baseValue,
+        truePayload: request.body?.truePayload,
+        falsePayload: request.body?.falsePayload,
+        sleepPayload: request.body?.sleepPayload,
+        sleepSeconds: request.body?.sleepSeconds,
+        samples: request.body?.samples,
+      })
+      writeAudit({ actor: actorName(request.session.userId), action: 'enqueue:inject_confirm', domainId: id, target: host, mode: domain.mode, jobId, detail: { method, url: template.url, boolean: hasBoolean, timing: hasTiming } })
+      return reply.code(202).send({ jobId })
+    } catch (err) {
+      if (err instanceof ScanPolicyError) {
+        if (err.retryAfterSec) reply.header('Retry-After', String(err.retryAfterSec))
+        return reply.code(err.status).send({ error: err.message, code: err.code })
+      }
+      throw err
+    }
+  })
+
   // Repeater history: list (lightweight — no response body), full entry (with
   // response body), and clear. Session-authed like the rest of the dashboard.
   app.get<{ Querystring: { domainId?: string; limit?: string } }>('/api/replay/history', async (request, reply) => {

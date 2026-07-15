@@ -665,6 +665,21 @@ export const api = {
     },
   ) => post<{ jobId: number; count: number }>(`/domains/${id}/intruder`, bodyReq),
 
+  // Blind-injection confirmation ({{INJ}} marker + differential payloads, gated)
+  injectConfirm: (
+    id: number,
+    bodyReq: {
+      template: { method: string; url: string; headers?: Record<string, string>; body?: string; followRedirects?: boolean }
+      baseValue?: string
+      truePayload?: string
+      falsePayload?: string
+      sleepPayload?: string
+      sleepSeconds?: number
+      samples?: number
+      confirm?: boolean
+    },
+  ) => post<{ jobId: number }>(`/domains/${id}/inject-confirm`, bodyReq),
+
   // IDOR / broken-authz diff: replay one {{ID}} object request under 3 identities
   authzDiff: (
     id: number,
