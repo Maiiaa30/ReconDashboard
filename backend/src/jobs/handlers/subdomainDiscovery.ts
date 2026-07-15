@@ -5,7 +5,7 @@ import { alertSubdomains, type SubdomainAlert } from '../../notify/discord'
 import { certSpotterSubdomains } from '../../sources/certspotter'
 import { crtShSubdomains } from '../../sources/crtsh'
 import { probeHost } from '../../sources/httpProbe'
-import { detectTakeover } from '../../sources/takeover'
+import { confirmTakeover, detectTakeover } from '../../sources/takeover'
 import { subfinderSubdomains } from '../../sources/subfinder'
 import { diffAndStore, listUnprobed, updateProbe } from '../../subdomains/store'
 import { upsertAsset } from '../../assets/store'
@@ -108,8 +108,14 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
   let takeoverCount = 0
   for (const host of diff.newHosts) {
     const p = probeByHost.get(host)
-    const takeover = p ? detectTakeover(p.cnames, p.status) : null
-    if (takeover) takeoverCount++
+    let takeover = p ? detectTakeover(p.cnames, p.status) : null
+    if (takeover) {
+      takeoverCount++
+      // Confirm by matching the service's unclaimed-page string — a hit escalates
+      // the finding to a confirmed critical (see scoring/rules.ts).
+      const confirmed = await confirmTakeover(host, takeover.service).catch(() => false)
+      takeover = { ...takeover, confirmed }
+    }
     await addScoredFinding({
       domainId,
       type: 'new_subdomain',

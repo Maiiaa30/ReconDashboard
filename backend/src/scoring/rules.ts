@@ -68,10 +68,17 @@ function scoreSubdomain(data: any): ScoreResult {
   if (tt) tags.add(tt)
 
   if (data?.takeover?.service) {
-    tags.add('takeover-candidate')
     tags.add(`takeover:${data.takeover.service}`)
-    score += 45
-    reasons.push(`Possible subdomain takeover via ${data.takeover.service} (dangling CNAME) (+45)`)
+    if (data.takeover.confirmed) {
+      tags.add('takeover-confirmed')
+      tags.add('sev:critical')
+      score += 95
+      reasons.push(`CONFIRMED subdomain takeover via ${data.takeover.service} — the service's unclaimed-page response is being served (+95)`)
+    } else {
+      tags.add('takeover-candidate')
+      score += 45
+      reasons.push(`Possible subdomain takeover via ${data.takeover.service} (dangling CNAME) (+45)`)
+    }
   }
 
   return { score: clamp(score), tags: [...tags], reasons }

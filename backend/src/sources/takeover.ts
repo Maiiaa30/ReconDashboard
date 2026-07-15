@@ -1,8 +1,9 @@
-// Passive subdomain-takeover heuristic. A host whose CNAME points at a
-// third-party service (GitHub Pages, Heroku, S3, etc.) but which returns 404 /
-// no-response is a *candidate* for takeover (the underlying resource may be
-// unclaimed). This is a HINT, not confirmation — nuclei takeover templates (via
-// the OWASP tab) do the real verification.
+import { guardedFetch } from './guard'
+
+// Passive subdomain-takeover heuristic + a lightweight confirmation. A host whose
+// CNAME points at a third-party service but returns 404 / no-response is a
+// *candidate*. Confirmation fetches the host and matches the service's own
+// "unclaimed" page — a match is proof the resource is claimable (critical).
 
 interface TakeoverService {
   service: string
@@ -31,6 +32,45 @@ const SERVICES: TakeoverService[] = [
 export interface TakeoverHint {
   service: string
   cname: string
+  confirmed?: boolean
+}
+
+// Service-specific "this resource is unclaimed" response bodies. A candidate whose
+// live response contains its service's string is a CONFIRMED takeover (the target
+// is serving the provider's claim-me page). Only high-confidence strings are here;
+// a service with no reliable fingerprint stays a candidate (can't be confirmed).
+export const TAKEOVER_FINGERPRINTS: Record<string, RegExp> = {
+  'github-pages': /There isn't a GitHub Pages site here/i,
+  heroku: /No such app|herokucdn\.com\/error-pages\/no-such-app\.html/i,
+  'aws-s3': /NoSuchBucket|The specified bucket does not exist/i,
+  fastly: /Fastly error: unknown domain/i,
+  netlify: /Not Found - Request ID|Not found &middot; Netlify/i,
+  shopify: /Sorry, this shop is currently unavailable/i,
+  surge: /project not found/i,
+  bitbucket: /Repository not found/i,
+  pantheon: /The gods are wise|404 error unknown site/i,
+  wpengine: /The site you were looking for couldn't be found/i,
+  readthedocs: /unknown to Read the Docs/i,
+  ghost: /Domain error|The thing you were looking for is no longer here/i,
+  zendesk: /Help Center Closed|this help center no longer exists/i,
+}
+
+// Pure fingerprint match (testable without a network).
+export function matchTakeoverFingerprint(service: string, body: string): boolean {
+  const fp = TAKEOVER_FINGERPRINTS[service]
+  return fp ? fp.test(body) : false
+}
+
+// Fetch the candidate host and confirm the takeover by matching the service's
+// unclaimed-page string. SSRF-guarded (guardedFetch re-checks every hop). Returns
+// false on any failure or a service with no fingerprint.
+export async function confirmTakeover(host: string, service: string): Promise<boolean> {
+  if (!TAKEOVER_FINGERPRINTS[service]) return false
+  for (const scheme of ['https', 'http'] as const) {
+    const res = await guardedFetch(`${scheme}://${host}/`, { timeoutMs: 8_000, maxBytes: 64 * 1024 })
+    if (res && matchTakeoverFingerprint(service, res.body)) return true
+  }
+  return false
 }
 
 // Given a host's CNAME chain and its HTTP status, return a takeover candidate.
