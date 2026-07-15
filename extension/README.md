@@ -1,11 +1,11 @@
-# Recon Dashboard — Capture extension
+# Recon Dashboard - Capture extension
 
 A minimal Chrome (Manifest V3) extension that passively captures **requests** you
 make to your **tracked targets** and sends them to the dashboard's
 `/api/capture`, where they appear on the **Traffic** page. From there, one click
 sends any request into the **Replay** (Repeater) tool.
 
-It captures requests only — never response bodies — and only for hosts that
+It captures requests only - never response bodies - and only for hosts that
 belong to a tracked domain. All other browsing (email, banking, anything not a
 target) is never sent anywhere.
 
@@ -19,7 +19,7 @@ target) is never sent anywhere.
    ```
    docker compose up -d backend
    ```
-   (Capture is **disabled** until a token is set — the ingest route returns 503.)
+   (Capture is **disabled** until a token is set - the ingest route returns 503.)
 
 ## Load the extension
 
@@ -32,20 +32,20 @@ target) is never sent anywhere.
 ### Firefox (121+)
 
 1. Open `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on…** and select this folder's `manifest.json`.
+2. Click **Load Temporary Add-on...** and select this folder's `manifest.json`.
 3. If prompted, grant the host permission so it can observe requests.
 
-(Temporary add-ons are removed when Firefox restarts — reload it the same way
+(Temporary add-ons are removed when Firefox restarts - reload it the same way
 next session. The same folder works for both browsers.)
 
 ### Then, in either browser
 
 4. Click the extension's icon to open the popup and fill in:
-   - **Dashboard URL** — how you reach the dashboard, e.g. `http://localhost:5173`
+   - **Dashboard URL** - how you reach the dashboard, e.g. `http://localhost:5173`
      locally, or whatever host/IP you use to open it.
-   - **Capture token** — the same value as `CAPTURE_TOKEN`.
+   - **Capture token** - the same value as `CAPTURE_TOKEN`.
    - Tick **Capture enabled**, then **Save & test**. It should say
-     *"Connected — capturing N target host(s)."*
+     *"Connected - capturing N target host(s)."*
 
 ## Use
 
