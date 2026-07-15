@@ -50,7 +50,7 @@ export function cancelRunningJob(id: number): boolean {
   return true
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
+export function withTimeout<T>(p: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       onTimeout()
