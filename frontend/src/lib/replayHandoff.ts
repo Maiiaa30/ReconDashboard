@@ -7,6 +7,8 @@ export interface PendingReplay {
   url: string
   headers: [string, string][]
   body?: string | null
+  // Which workbench tab to open the request in. Defaults to the Repeater.
+  mode?: 'repeater' | 'intruder'
 }
 
 let pending: PendingReplay | null = null

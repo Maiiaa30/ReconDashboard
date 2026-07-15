@@ -7,6 +7,7 @@ import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/Confirm'
 import { RISK_SCORE_CLASS, riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
 import { safeHttpUrl } from '../lib/url'
+import { setPendingReplay } from '../lib/replayHandoff'
 
 const STATUSES: FindingStatus[] = ['open', 'confirmed', 'false_positive', 'resolved', 'ignored']
 const STATUS_LABEL: Record<FindingStatus, string> = {
@@ -82,7 +83,7 @@ function tagTone(tag: string): 'zinc' | 'blue' | 'amber' | 'red' | 'green' {
   return 'zinc'
 }
 
-export function Findings() {
+export function Findings({ navigate }: { navigate?: (page: string, domainId?: number) => void }) {
   const { domains, selected } = useApp()
   const toast = useToast()
   const [loaded, setLoaded] = useState(false)
@@ -549,6 +550,7 @@ export function Findings() {
               onToggleSelect={toggleSelect}
               onTag={setTagFilter}
               onUpdate={update}
+              navigate={navigate}
             />
           ))}
         </div>
@@ -565,6 +567,7 @@ function FindingRow({
   onToggleSelect,
   onTag,
   onUpdate,
+  navigate,
 }: {
   f: Finding
   idx: number
@@ -573,6 +576,7 @@ function FindingRow({
   onToggleSelect: (id: number, idx: number, range: boolean) => void
   onTag: (t: string) => void
   onUpdate: (id: number, patch: { status?: FindingStatus; note?: string | null }) => void
+  navigate?: (page: string, domainId?: number) => void
 }) {
   const [showAllTags, setShowAllTags] = useState(false)
   const [open, setOpen] = useState(false)
@@ -664,7 +668,7 @@ function FindingRow({
         </div>
       </div>
 
-      {open && <FindingDetail f={f} onUpdate={onUpdate} />}
+      {open && <FindingDetail f={f} onUpdate={onUpdate} navigate={navigate} />}
     </div>
   )
 }
@@ -836,7 +840,49 @@ function CveVerifyButton({ f }: { f: Finding }) {
   )
 }
 
-function FindingDetail({ f, onUpdate }: { f: Finding; onUpdate: (id: number, patch: { status?: FindingStatus; note?: string | null }) => void }) {
+// The most useful URL to pivot on for a given finding (null if it has none).
+function findingUrl(f: Finding): string | null {
+  const d = (f.data ?? {}) as Record<string, any>
+  if (f.type === 'param' || f.type === 'owasp' || f.type === 'ffuf') return typeof d.url === 'string' ? d.url : null
+  if (f.type === 'nuclei') return d.matched || d.url || null
+  if (f.type === 'api') return d.endpoint || d.specUrl || (d.host ? `https://${d.host}/` : null)
+  return typeof d.url === 'string' ? d.url : null
+}
+
+// Put a {{P1}} Intruder marker on `param`'s value in the URL (adding it if absent).
+function markParamUrl(rawUrl: string, param: string): string {
+  try {
+    const u = new URL(rawUrl)
+    u.searchParams.set(param, 'RECONMARK')
+    return u.toString().replace('RECONMARK', '{{P1}}')
+  } catch {
+    return rawUrl
+  }
+}
+
+// Pivot from a URL-bearing finding straight into the Repeater or Intruder.
+function FindingPivots({ f, navigate }: { f: Finding; navigate?: (page: string, domainId?: number) => void }) {
+  const url = findingUrl(f)
+  if (!url || !navigate) return null
+  const d = (f.data ?? {}) as Record<string, any>
+  const send = (mode: 'repeater' | 'intruder', u: string) => {
+    setPendingReplay({ method: 'GET', url: u, headers: [], mode })
+    navigate('replay')
+  }
+  const intruderUrl = f.type === 'param' && typeof d.param === 'string' ? markParamUrl(url, d.param) : url
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => send('repeater', url)}>
+        Open in Repeater
+      </Button>
+      <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => send('intruder', intruderUrl)}>
+        Send to Intruder{f.type === 'param' && d.param ? ` (mark ${d.param})` : ''}
+      </Button>
+    </div>
+  )
+}
+
+function FindingDetail({ f, onUpdate, navigate }: { f: Finding; onUpdate: (id: number, patch: { status?: FindingStatus; note?: string | null }) => void; navigate?: (page: string, domainId?: number) => void }) {
   const d = f.data ?? {}
   return (
     <div className="space-y-3 border-t border-hair/60 bg-ink-900/50 p-3 text-sm">
@@ -912,6 +958,7 @@ function FindingDetail({ f, onUpdate }: { f: Finding; onUpdate: (id: number, pat
           </>
         )}
       </div>
+      <FindingPivots f={f} navigate={navigate} />
       <NoteEditor f={f} onUpdate={onUpdate} />
 
       <details>

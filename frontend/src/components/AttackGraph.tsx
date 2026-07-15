@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { AttackPath } from '../api'
+import { setPendingReplay } from '../lib/replayHandoff'
 
 // force-graph pulls in a canvas renderer; only load it when a graph is shown.
 const ForceGraph2D = lazy(() => import('react-force-graph-2d'))
@@ -74,7 +75,7 @@ function nodeRadius(node: GraphNode): number {
   return Math.min(8, 3.5 + (node.path?.cveCount ?? 0) * 0.35)
 }
 
-export function AttackGraph({ paths, host }: { paths: AttackPath[]; host: string }) {
+export function AttackGraph({ paths, host, navigate }: { paths: AttackPath[]; host: string; navigate?: (page: string, domainId?: number) => void }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const fgRef = useRef<any>(null)
   const didFitRef = useRef(false)
@@ -324,6 +325,18 @@ export function AttackGraph({ paths, host }: { paths: AttackPath[]; host: string
               {selected.worstCvss != null && ` · worst CVSS ${selected.worstCvss}`}
               {selected.kev && ' · KEV'}
             </div>
+          )}
+          {navigate && (selected.hosts[0] || selected.ip) && (
+            <button
+              onClick={() => {
+                const target = selected.hosts[0] ?? selected.ip
+                setPendingReplay({ method: 'GET', url: `https://${target}/`, headers: [], mode: 'repeater' })
+                navigate('replay')
+              }}
+              className="mt-2 rounded-md border border-hair px-2 py-1 text-[11px] text-zinc-300 hover:border-accent-500 hover:text-accent-fg"
+            >
+              Open in Replay ↗
+            </button>
           )}
         </div>
       )}

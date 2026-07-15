@@ -420,7 +420,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         <ErrorBoundary key={active}>
           {active === 'home' && <Home navigate={navigate} />}
           {active === 'domains' && <Domains />}
-          {active === 'intel' && <Intel />}
+          {active === 'intel' && <Intel navigate={navigate} />}
           {active === 'methodology' && <Methodology />}
           {active === 'subdomains' && <Subdomains />}
           {active === 'screenshots' && <Screenshots />}
@@ -440,7 +440,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {active === 'tools' && <Tools />}
           {active === 'owasp' && <Owasp />}
           {active === 'llm' && <LlmSecurity />}
-          {active === 'findings' && <Findings />}
+          {active === 'findings' && <Findings navigate={navigate} />}
           {active === 'notes' && <Notes />}
           {active === 'canvas' && <Canvas />}
           {active === 'jobs' && <Jobs />}

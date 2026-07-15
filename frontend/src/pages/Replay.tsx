@@ -92,11 +92,11 @@ export function Replay() {
     lastHost.current = selected.host
   }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Consume a request handed over from the Traffic page ("Send to Replay").
+  // Consume a request handed over from Traffic / Findings / the attack graph.
   useEffect(() => {
     const p = takePendingReplay()
     if (!p) return
-    setMode('repeater')
+    setMode(p.mode === 'intruder' ? 'intruder' : 'repeater')
     applyRequest({ method: p.method, url: p.url, headers: p.headers, body: p.body })
   }, [applyRequest])
 

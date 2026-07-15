@@ -7,7 +7,7 @@ import { AttackGraph } from '../components/AttackGraph'
 
 // Rules-based triage ("big filter"): pulls every finding, ranks by the scorer,
 // and surfaces what to look at first. No AI — pure heuristics for now.
-export function Intel() {
+export function Intel({ navigate }: { navigate?: (page: string, domainId?: number) => void }) {
   const { domains, selected } = useApp()
   const [findings, setFindings] = useState<Finding[]>([])
   const [paths, setPaths] = useState<AttackPath[]>([])
@@ -128,7 +128,7 @@ export function Intel() {
       </div>
 
       {selected && paths.length > 0 && (
-        <AttackPathsSection paths={paths} host={selected.host} view={pathView} onViewChange={setPathView} />
+        <AttackPathsSection paths={paths} host={selected.host} view={pathView} onViewChange={setPathView} navigate={navigate} />
       )}
 
       {findings.length === 0 ? (
@@ -347,11 +347,13 @@ function AttackPathsSection({
   host,
   view,
   onViewChange,
+  navigate,
 }: {
   paths: AttackPath[]
   host: string
   view: 'graph' | 'table'
   onViewChange: (v: 'graph' | 'table') => void
+  navigate?: (page: string, domainId?: number) => void
 }) {
   return (
     <div className="mb-6">
@@ -373,7 +375,7 @@ function AttackPathsSection({
           ))}
         </div>
       </div>
-      {view === 'graph' ? <AttackGraph paths={paths} host={host} /> : <AttackPathsTable paths={paths} />}
+      {view === 'graph' ? <AttackGraph paths={paths} host={host} navigate={navigate} /> : <AttackPathsTable paths={paths} />}
     </div>
   )
 }
