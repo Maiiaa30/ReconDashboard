@@ -2,6 +2,7 @@ import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
 import { alertNewCves, markCvesAlerted, recordAndDetectNewCves, type AssetCve } from '../../findings/cveWatch'
 import { linkAssetFinding, upsertAsset } from '../../assets/store'
+import { invalidateCorrelation } from '../../domains/correlate'
 import { asnLookup } from '../../sources/asn'
 import { cdnForIp } from '../../sources/cdn'
 import { enrichCves } from '../../sources/cvedb'
@@ -133,6 +134,10 @@ export async function exposureHandler({ params, log }: JobContext) {
   } catch (err) {
     log.warn({ err }, 'tls cert grab failed')
   }
+
+  // Fresh assets + exposure findings just landed — drop the correlation cache so
+  // the attack graph reflects them on the next read instead of waiting out the TTL.
+  invalidateCorrelation(domainId)
 
   return {
     domain: domain.host,
