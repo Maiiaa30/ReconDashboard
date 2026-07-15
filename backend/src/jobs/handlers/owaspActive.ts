@@ -6,6 +6,7 @@ import { getCorpusUrls } from '../../corpus/store'
 import { jsRecon } from '../../sources/jsRecon'
 import { runActiveChecks, type OwaspChecksOptions } from '../../owasp/activeChecks'
 import { analyzeJwtToken, findJwts } from '../../owasp/jwt'
+import { scanDeserialization } from '../../owasp/deser'
 import { safeJsonParse } from '../../util/json'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
 import type { JobContext } from '../worker'
@@ -178,6 +179,51 @@ export async function owaspActiveHandler({ params, log, progress, signal }: JobC
     if (jwtFindings) log.info({ target, tokens: tokens.size, jwtFindings }, 'jwt analysis complete')
   } catch (err) {
     log.warn({ err }, 'jwt analysis failed')
+  }
+
+  // Passive insecure-deserialization scan over the data we already hold (auth
+  // header + captured request headers/urls) — zero target traffic. A serialized
+  // object blob in a cookie/param is a strong gadget-chain/RCE candidate.
+  try {
+    const blobs: { text: string; source: string }[] = []
+    if (cfg.authHeader) blobs.push({ text: cfg.authHeader, source: 'owaspConfig.authHeader' })
+    for (const cap of listCaptures({ domainId, limit: 200 })) {
+      let path: string
+      try {
+        path = new URL(cap.url).pathname
+      } catch {
+        path = cap.url.slice(0, 60)
+      }
+      const src = `capture:${cap.method} ${path}`
+      for (const [name, value] of cap.headers) blobs.push({ text: value, source: `${src} [${name}]` })
+      blobs.push({ text: cap.url, source: src })
+    }
+    const seen = new Set<string>()
+    let deserFindings = 0
+    for (const { text, source } of blobs) {
+      for (const hit of scanDeserialization(text)) {
+        const key = `${hit.name}:${source}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        await addScoredFinding({
+          domainId,
+          type: 'owasp',
+          data: {
+            target,
+            category: 'A08',
+            name: `Serialized object detected (${hit.name})`,
+            severity: 'medium',
+            url: source,
+            evidence: `${hit.name} deserialization marker in ${source} (${hit.sample}) — test for insecure deserialization / gadget chains`,
+          },
+          tags: ['owasp', 'deserialization', 'owasp:A08', 'needs-review', 'sev:medium'],
+        })
+        deserFindings++
+      }
+    }
+    if (deserFindings) log.info({ target, deserFindings }, 'deserialization scan complete')
+  } catch (err) {
+    log.warn({ err }, 'deserialization scan failed')
   }
 
   progress(`running active checks on ${target}`)
