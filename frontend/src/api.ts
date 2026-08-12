@@ -137,6 +137,10 @@ export interface Asset {
   ports: number[]
   technologies: string[]
   up: boolean | null
+  redirect: string | null
+  contentLength: number | null
+  responseFingerprint: string | null
+  screenshotFingerprint: string | null
 }
 
 export interface ScreenshotEntry {
@@ -430,6 +434,8 @@ export interface MetaStatus {
     katana?: boolean
     naabu?: boolean
     dalfox?: boolean
+    dnsx?: boolean
+    httpx?: boolean
     sslscan?: boolean
     sqlmap?: boolean
     wpenum?: boolean

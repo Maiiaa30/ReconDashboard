@@ -34,7 +34,8 @@ RUN set -ux; \
     subfinder -version || true; nuclei -version || true; ffuf -V || true
 
 # Extra recon binaries (best-effort, latest release): katana (crawler), naabu
-# (fast port scanner), dalfox (XSS). A failed download just marks the tool
+# (fast port scanner), dalfox (XSS), dnsx (DNS validation), and httpx (batch
+# web enrichment). A failed download just marks the tool
 # unavailable — the app degrades gracefully.
 RUN set -ux; \
     arch="$(dpkg --print-architecture)"; \
@@ -47,14 +48,20 @@ RUN set -ux; \
     NAB="$(ver projectdiscovery/naabu)"; \
     ( [ -n "$NAB" ] && curl -fsSL -o naabu.zip "https://github.com/projectdiscovery/naabu/releases/download/v${NAB}/naabu_${NAB}_linux_${GOARCH}.zip" \
       && unzip -o naabu.zip naabu -d /usr/local/bin ) || echo "WARN: naabu install failed"; \
+    DNSX="$(ver projectdiscovery/dnsx)"; \
+    ( [ -n "$DNSX" ] && curl -fsSL -o dnsx.zip "https://github.com/projectdiscovery/dnsx/releases/download/v${DNSX}/dnsx_${DNSX}_linux_${GOARCH}.zip" \
+      && unzip -o dnsx.zip dnsx -d /usr/local/bin ) || echo "WARN: dnsx install failed"; \
+    HTTPX="$(ver projectdiscovery/httpx)"; \
+    ( [ -n "$HTTPX" ] && curl -fsSL -o httpx.zip "https://github.com/projectdiscovery/httpx/releases/download/v${HTTPX}/httpx_${HTTPX}_linux_${GOARCH}.zip" \
+      && unzip -o httpx.zip httpx -d /usr/local/bin ) || echo "WARN: httpx install failed"; \
     DAL="$(ver hahwul/dalfox)"; \
     case "$GOARCH" in amd64) DALARCH=x86_64 ;; arm64) DALARCH=aarch64 ;; *) DALARCH=x86_64 ;; esac; \
     ( [ -n "$DAL" ] && curl -fsSL -o dalfox.tar.gz "https://github.com/hahwul/dalfox/releases/download/v${DAL}/dalfox-v${DAL}-linux-${DALARCH}.tar.gz" \
       && tar -xzf dalfox.tar.gz -C /usr/local/bin --strip-components=0 dalfox 2>/dev/null \
       || tar -xzf dalfox.tar.gz -C /usr/local/bin --wildcards --transform='s#.*/##' '*/dalfox' 2>/dev/null ) || echo "WARN: dalfox install failed"; \
-    chmod +x /usr/local/bin/katana /usr/local/bin/naabu /usr/local/bin/dalfox 2>/dev/null || true; \
+    chmod +x /usr/local/bin/katana /usr/local/bin/naabu /usr/local/bin/dalfox /usr/local/bin/dnsx /usr/local/bin/httpx 2>/dev/null || true; \
     rm -f /tmp/*.zip /tmp/*.tar.gz; \
-    katana -version || true; naabu -version || true; dalfox --version || true
+    katana -version || true; naabu -version || true; dalfox --version || true; dnsx -version || true; httpx -version || true
 
 # Curated SecLists wordlists for ffuf content discovery (best-effort downloads;
 # a moved URL must not fail the build). Names are friendly for the UI picker.

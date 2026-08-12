@@ -7,21 +7,22 @@ import { enqueueJob, hasPendingJob } from './queue'
 // hop by hand. Deliberately conservative — only PASSIVE follow-ons fire
 // automatically, and each is deduped via hasPendingJob so a backed-up worker
 // can't pile up. Loud/active scans stay operator-initiated.
-export function chainAfter(job: Job, result: unknown, log: FastifyBaseLogger): void {
+export function chainAfter(job: Job, _result: unknown, log: FastifyBaseLogger): void {
   try {
     const domainId = job.domainId
     if (domainId == null) return
 
     if (job.type === 'subdomain_discovery') {
-      const r = result as { newCount?: number } | null
-      // New hosts → re-check exposure (their IPs) and capture screenshots.
+      // Refresh exposure and visual baselines after every discovery cycle. This
+      // lets scheduled monitoring detect changes on retained hosts, not only
+      // capture screenshots on the day a hostname first appears.
       if (!hasPendingJob('exposure_scan', domainId)) {
         enqueueJob('exposure_scan', { domainId })
         log.info({ domainId, chainFrom: job.id }, 'chain: enqueued exposure after discovery')
       }
-      if ((r?.newCount ?? 0) > 0 && !hasPendingJob('screenshot', domainId)) {
+      if (!hasPendingJob('screenshot', domainId)) {
         enqueueJob('screenshot', { domainId })
-        log.info({ domainId, chainFrom: job.id }, 'chain: enqueued screenshots for new live hosts')
+        log.info({ domainId, chainFrom: job.id }, 'chain: enqueued screenshot baseline refresh')
       }
     }
 

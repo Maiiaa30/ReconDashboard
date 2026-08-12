@@ -30,15 +30,15 @@ describe('chainAfter', () => {
     expect(enqueuedTypes()).toEqual(expect.arrayContaining(['osint_gather', 'api_discovery']))
   })
 
-  it('enqueues exposure (and screenshots when new hosts) after discovery', () => {
+  it('enqueues exposure and screenshot refresh after discovery', () => {
     chainAfter({ ...job({}), type: 'subdomain_discovery', domainId: 7 } as Job, { newCount: 3 }, log)
     expect(enqueuedTypes()).toEqual(expect.arrayContaining(['exposure_scan', 'screenshot']))
   })
 
-  it('does not enqueue screenshots when discovery found nothing new', () => {
+  it('refreshes screenshots when discovery found nothing new', () => {
     chainAfter({ ...job({}), type: 'subdomain_discovery', domainId: 7 } as Job, { newCount: 0 }, log)
     expect(enqueuedTypes()).toContain('exposure_scan')
-    expect(enqueuedTypes()).not.toContain('screenshot')
+    expect(enqueuedTypes()).toContain('screenshot')
   })
 
   it('dedupes via hasPendingJob (enqueues nothing when already pending)', () => {

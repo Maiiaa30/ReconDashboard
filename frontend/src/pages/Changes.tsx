@@ -42,7 +42,7 @@ export function Changes({ navigate }: { navigate: (page: string, domainId?: numb
   }, [findings, subdomains])
 
   if (!selected) return <Empty>Select an engagement to view its change history.</Empty>
-  return <div><PageHeader title="Change history" subtitle={`${selected.host} — new hosts, CVEs and material attack-surface changes`} />
+  return <div><PageHeader title="Change history" subtitle={`${selected.host} — new hosts, CVEs, HTTP, technology and visual changes`} />
     {!loaded ? <SkeletonList rows={7} /> : timeline.length === 0 ? <Empty>No material changes recorded yet. Enable monitoring or rerun a passive profile to establish and compare baselines.</Empty> : <div className="relative ml-3 border-l border-hair pl-6">{timeline.map((item) => {
       const Icon = item.kind === 'cve' ? ShieldAlert : item.kind === 'subdomain' ? Network : Bell
       const tone = item.kind === 'cve' ? 'text-red-400 border-red-900 bg-red-950' : item.kind === 'subdomain' ? 'text-blue-400 border-blue-900 bg-blue-950' : 'text-amber-400 border-amber-900 bg-amber-950'

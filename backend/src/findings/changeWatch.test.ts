@@ -33,6 +33,26 @@ describe('diffSnapshot', () => {
     expect(changes).toContainEqual({ kind: 'cert_changed', from: 'AA', to: 'BB' })
   })
 
+  it('detects HTTP, technology and visual baseline changes', () => {
+    const changes = diffSnapshot(
+      snap({ status: 200, server: 'nginx', redirect: '/old', contentHash: 'aaa', contentLength: 1000, screenshotHash: 'one' }),
+      snap({ status: 302, server: 'caddy', redirect: '/login', contentHash: 'bbb', contentLength: 1200, screenshotHash: 'two' }),
+    )
+    expect(changes).toContainEqual({ kind: 'status_changed', from: 200, to: 302 })
+    expect(changes).toContainEqual({ kind: 'server_changed', from: 'nginx', to: 'caddy' })
+    expect(changes).toContainEqual({ kind: 'redirect_changed', from: '/old', to: '/login' })
+    expect(changes).toContainEqual({ kind: 'content_changed', fromLength: 1000, toLength: 1200 })
+    expect(changes).toContainEqual({ kind: 'screenshot_changed' })
+  })
+
+  it('ignores small content-length drift to reduce dynamic-page noise', () => {
+    const changes = diffSnapshot(
+      snap({ contentHash: 'aaa', contentLength: 1000 }),
+      snap({ contentHash: 'bbb', contentLength: 1020 }),
+    )
+    expect(changes.find((change) => change.kind === 'content_changed')).toBeUndefined()
+  })
+
   it('does not flag a REMOVED port as a change (only additions/up/down)', () => {
     const changes = diffSnapshot(snap({ ports: [80, 443, 22] }), snap({ ports: [80, 443] }))
     expect(changes.filter((c) => c.kind === 'new_port')).toEqual([])

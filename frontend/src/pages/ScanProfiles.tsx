@@ -24,7 +24,7 @@ const STEPS: Record<StepKey, { label: string; active: boolean }> = {
 
 const BUILT_INS: Profile[] = [
   { id: 'passive', name: 'Passive foundation', description: 'Build the asset map without loud testing. Best first run for every engagement.', active: false, steps: ['discover', 'exposure', 'osint', 'screenshots', 'api'], icon: Sparkles, tone: 'border-blue-900/50 bg-blue-950/10' },
-  { id: 'monitor', name: 'Monitoring refresh', description: 'Refresh discovery and external exposure data to detect changes.', active: false, steps: ['discover', 'exposure', 'osint', 'api'], icon: Clock3, tone: 'border-emerald-900/50 bg-emerald-950/10' },
+  { id: 'monitor', name: 'Continuous surface refresh', description: 'Validate DNS, enrich live web assets, check takeover signals and detect response changes.', active: false, steps: ['discover', 'exposure', 'screenshots', 'osint', 'api'], icon: Clock3, tone: 'border-emerald-900/50 bg-emerald-950/10' },
   { id: 'web', name: 'Web assessment', description: 'Map the web surface, parameters and common application weaknesses.', active: true, steps: ['screenshots', 'api', 'params', 'ffuf', 'owasp'], icon: ShieldCheck, tone: 'border-amber-900/50 bg-amber-950/10' },
   { id: 'full', name: 'Full authorized assessment', description: 'Run broad discovery plus active network and web coverage.', active: true, steps: ['discover', 'exposure', 'osint', 'screenshots', 'api', 'nmap', 'nuclei', 'ffuf', 'owasp', 'params'], icon: Zap, tone: 'border-red-900/50 bg-red-950/10' },
 ]

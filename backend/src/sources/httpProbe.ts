@@ -2,6 +2,7 @@ import { resolveDns } from './dns'
 import { assertPublicHost } from './guard'
 import { isInternalIp } from '../util/validate'
 import { BROWSER_UA } from '../util/http'
+import { createHash } from 'node:crypto'
 
 // Lightweight HTTP probe (httpx-style): one GET to learn status, page title, and
 // server header for a host. Tries https then http. Capped body read + tight
@@ -19,6 +20,10 @@ export interface ProbeResult {
   cnames: string[]
   loginHint: boolean
   apiHint: boolean
+  technologies: string[]
+  redirect: string | null
+  contentHash: string | null
+  contentLength: number | null
 }
 
 const TIMEOUT_MS = 8_000
@@ -30,6 +35,8 @@ interface FetchInfo {
   title: string | null
   loginHint: boolean
   apiHint: boolean
+  contentHash: string | null
+  contentLength: number | null
 }
 
 // Follow redirects MANUALLY, re-resolving and SSRF-checking every hop — a
@@ -74,7 +81,7 @@ async function fetchOnce(startUrl: string, signal?: AbortSignal): Promise<FetchI
       if (res.status >= 300 && res.status < 400) {
         const loc = res.headers.get('location')
         if (res.body) await res.body.cancel().catch(() => {})
-        if (!loc) return { status: res.status, server: res.headers.get('server'), title: null, loginHint: false, apiHint: false }
+        if (!loc) return { status: res.status, server: res.headers.get('server'), title: null, loginHint: false, apiHint: false, contentHash: null, contentLength: null }
         current = new URL(loc, current).toString()
         continue
       }
@@ -84,6 +91,9 @@ async function fetchOnce(startUrl: string, signal?: AbortSignal): Promise<FetchI
       let title: string | null = null
       let loginHint = false
       const apiHint = ct.includes('json') || ct.includes('graphql')
+      const declaredLength = Number(res.headers.get('content-length'))
+      let contentLength = Number.isFinite(declaredLength) ? declaredLength : null
+      let contentHash: string | null = null
 
       if (ct.includes('html') && res.body) {
         const reader = res.body.getReader()
@@ -102,6 +112,10 @@ async function fetchOnce(startUrl: string, signal?: AbortSignal): Promise<FetchI
           }
         }
         const html = Buffer.concat(chunks).toString('utf8')
+        contentLength ??= Buffer.byteLength(html)
+        // Normalize formatting before hashing so harmless whitespace-only
+        // deployments do not create response-change noise.
+        contentHash = createHash('sha256').update(html.replace(/\s+/g, ' ').trim()).digest('hex')
         const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
         if (m) title = m[1].replace(/\s+/g, ' ').trim().slice(0, 200)
         // Login heuristic: a password input, or login wording in the title.
@@ -111,7 +125,7 @@ async function fetchOnce(startUrl: string, signal?: AbortSignal): Promise<FetchI
       } else if (res.body) {
         await res.body.cancel().catch(() => {})
       }
-      return { status: res.status, server, title, loginHint, apiHint }
+      return { status: res.status, server, title, loginHint, apiHint, contentHash, contentLength }
     } catch {
       return null
     } finally {
@@ -133,7 +147,7 @@ export async function probeHost(host: string, signal?: AbortSignal): Promise<Pro
   if (allIps.some(isInternalIp)) {
     return {
       host, scheme: null, status: null, title: null, server: null, ip, url: null, cnames,
-      loginHint: false, apiHint: apiByName,
+      loginHint: false, apiHint: apiByName, technologies: [], redirect: null, contentHash: null, contentLength: null,
     }
   }
   for (const scheme of ['https', 'http'] as const) {
@@ -145,11 +159,12 @@ export async function probeHost(host: string, signal?: AbortSignal): Promise<Pro
         host, scheme, status: res.status, title: res.title, server: res.server, ip, url, cnames,
         loginHint: res.loginHint,
         apiHint: res.apiHint || apiByName,
+        technologies: [], redirect: null, contentHash: res.contentHash, contentLength: res.contentLength,
       }
     }
   }
   return {
     host, scheme: null, status: null, title: null, server: null, ip, url: null, cnames,
-    loginHint: false, apiHint: apiByName,
+    loginHint: false, apiHint: apiByName, technologies: [], redirect: null, contentHash: null, contentLength: null,
   }
 }

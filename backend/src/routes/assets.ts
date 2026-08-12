@@ -36,7 +36,9 @@ export const assetRoutes: FastifyPluginAsync = async (app) => {
       assets: rows.map((asset) => {
         const related = linksByAsset.get(asset.id) ?? []
         const host = asset.kind === 'host' ? hostByName.get(asset.value) : undefined
-        const snapshot = asset.ip ? snapshotByIp.get(asset.ip) : asset.kind === 'ip' ? snapshotByIp.get(asset.value) : undefined
+        const snapshot = asset.kind === 'host'
+          ? snapshotByIp.get(`host:${asset.value}`) ?? (asset.ip ? snapshotByIp.get(asset.ip) : undefined)
+          : asset.ip ? snapshotByIp.get(asset.ip) : asset.kind === 'ip' ? snapshotByIp.get(asset.value) : undefined
         return {
           ...asset,
           findingCount: related.length,
@@ -50,6 +52,10 @@ export const assetRoutes: FastifyPluginAsync = async (app) => {
           ports: snapshot ? safeJsonParse<number[]>(snapshot.ports, []) : [],
           technologies: snapshot ? safeJsonParse<string[]>(snapshot.tech, []) : [],
           up: snapshot?.up ?? null,
+          redirect: snapshot?.redirect ?? null,
+          contentLength: snapshot?.contentLength ?? null,
+          responseFingerprint: snapshot?.contentHash ?? null,
+          screenshotFingerprint: snapshot?.screenshotHash ?? null,
         }
       }),
     }

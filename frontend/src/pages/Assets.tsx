@@ -53,7 +53,7 @@ export function Assets({ navigate }: { navigate: (page: string, domainId?: numbe
 
   return (
     <div>
-      <PageHeader title="Asset inventory" subtitle={`${selected.host} — hosts, addresses, services, technology and related findings`} />
+      <PageHeader title="Asset inventory" subtitle={`${selected.host} — continuously validated hosts, services, technology and response fingerprints`} />
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Metric icon={Network} label="Hosts" value={totals.hosts} tone="text-blue-400" />
@@ -93,6 +93,7 @@ export function Assets({ navigate }: { navigate: (page: string, domainId?: numbe
               </div>
               <div className="min-w-0 text-xs text-zinc-400">
                 {asset.httpStatus != null && <span className="mr-2 text-emerald-400">HTTP {asset.httpStatus}</span>}
+                {asset.redirect && <span className="mr-2 text-blue-400" title={asset.redirect}>redirect</span>}
                 {asset.asn && <span>{asset.asn}{asset.asnName ? ` · ${asset.asnName}` : ''}</span>}
                 {!asset.asn && asset.ports.length > 0 && <span>{asset.ports.slice(0, 8).join(', ')}{asset.ports.length > 8 ? '…' : ''}</span>}
                 {!asset.asn && asset.ports.length === 0 && <span>{asset.server ?? '—'}</span>}
