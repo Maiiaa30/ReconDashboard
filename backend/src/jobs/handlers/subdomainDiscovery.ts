@@ -18,7 +18,7 @@ const MAX_PROBE = 200 // cap probing on very large new batches
 // Phase 2: passive subdomain discovery. crt.sh (always) + subfinder (if present).
 // Purely passive — no active probing, no shell strings. Diffs against stored
 // hosts, flags new ones, alerts Discord (grouped).
-export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
+export async function subdomainDiscoveryHandler({ params, log, signal, progress }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
@@ -29,10 +29,11 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
   // Run the passive sources concurrently so a slow crt.sh doesn't add its
   // latency on top of certspotter/subfinder — the job finishes in max(sources)
   // rather than the sum, and one source failing never blocks the others.
+  progress(`querying passive subdomain sources for ${domain.host}`)
   const [crtRes, csRes, sfRes] = await Promise.allSettled([
-    crtShSubdomains(domain.host),
-    certSpotterSubdomains(domain.host),
-    subfinderSubdomains(domain.host),
+    crtShSubdomains(domain.host, signal),
+    certSpotterSubdomains(domain.host, signal),
+    subfinderSubdomains(domain.host, signal),
   ])
 
   // crt.sh (certificate transparency)
@@ -80,7 +81,7 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
   const probes = await mapLimit(
     toProbe,
     PROBE_CONCURRENCY,
-    (host) => probeHost(host),
+    (host) => probeHost(host, signal),
     {
       host: '', scheme: null, status: null, title: null, server: null, ip: null, url: null,
       cnames: [], loginHint: false, apiHint: false,
@@ -107,13 +108,14 @@ export async function subdomainDiscoveryHandler({ params, log }: JobContext) {
   // and a passive takeover-candidate hint).
   let takeoverCount = 0
   for (const host of diff.newHosts) {
+    if (signal.aborted) throw signal.reason ?? new Error('subdomain discovery cancelled')
     const p = probeByHost.get(host)
     let takeover = p ? detectTakeover(p.cnames, p.status) : null
     if (takeover) {
       takeoverCount++
       // Confirm by matching the service's unclaimed-page string — a hit escalates
       // the finding to a confirmed critical (see scoring/rules.ts).
-      const confirmed = await confirmTakeover(host, takeover.service).catch(() => false)
+      const confirmed = await confirmTakeover(host, takeover.service, signal).catch(() => false)
       takeover = { ...takeover, confirmed }
     }
     await addScoredFinding({

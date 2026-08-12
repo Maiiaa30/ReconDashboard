@@ -143,7 +143,7 @@ function cdnFromSignals(headers: Record<string, string>, server: string): string
   return null
 }
 
-async function fetchOnce(url: string): Promise<{
+async function fetchOnce(url: string, signal?: AbortSignal): Promise<{
   status: number
   headers: Record<string, string>
   cookieNames: string[]
@@ -158,6 +158,7 @@ async function fetchOnce(url: string): Promise<{
     timeoutMs: TIMEOUT_MS,
     maxBytes: MAX_HTML,
     headers: { 'User-Agent': 'recon-dashboard/0.1 (+passive fingerprint)' },
+    signal,
   })
   if (!res) return null
 
@@ -173,7 +174,7 @@ async function fetchOnce(url: string): Promise<{
   return { status: res.status, headers, cookieNames, html }
 }
 
-export async function fingerprintHost(host: string, cpes: string[] = []): Promise<Fingerprint> {
+export async function fingerprintHost(host: string, cpes: string[] = [], signal?: AbortSignal): Promise<Fingerprint> {
   const empty: Fingerprint = {
     url: null, scheme: null, status: null, os: null, server: null, poweredBy: null,
     cdn: null, technologies: [], headers: {}, faviconHash: null,
@@ -186,12 +187,13 @@ export async function fingerprintHost(host: string, cpes: string[] = []): Promis
   if (allIps.some(isInternalIp)) return empty
 
   for (const scheme of ['https', 'http'] as const) {
-    const res = await fetchOnce(`${scheme}://${host}`)
+    if (signal?.aborted) break
+    const res = await fetchOnce(`${scheme}://${host}`, signal)
     if (!res) continue
     const server = res.headers['server'] ?? ''
     const poweredBy = res.headers['x-powered-by'] ?? res.headers['x-aspnet-version'] ?? ''
     const generator = res.headers['x-generator'] ?? (res.html.match(/<meta[^>]+name=["']generator["'][^>]+content=["']([^"']+)["']/i) || [])[1] ?? ''
-    const favicon = await faviconHashFor(`${scheme}://${host}`, res.html).catch(() => null)
+    const favicon = await faviconHashFor(`${scheme}://${host}`, res.html, signal).catch(() => null)
     return {
       url: `${scheme}://${host}`,
       scheme,

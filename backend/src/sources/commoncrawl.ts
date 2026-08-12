@@ -23,9 +23,9 @@ interface CollInfo {
 const INDEXES_TO_QUERY = 3
 const PER_INDEX_LIMIT = 2000
 
-export async function commonCrawlUrls(domain: string): Promise<CommonCrawlResult> {
+export async function commonCrawlUrls(domain: string, signal?: AbortSignal): Promise<CommonCrawlResult> {
   // collinfo.json lists indexes newest-first.
-  const indexes = await getJson<CollInfo[]>('https://index.commoncrawl.org/collinfo.json', { timeoutMs: 15_000 })
+  const indexes = await getJson<CollInfo[]>('https://index.commoncrawl.org/collinfo.json', { timeoutMs: 15_000, signal })
   const recent = (indexes ?? []).slice(0, INDEXES_TO_QUERY)
   if (!recent.length) return { indexes: [], count: 0, truncated: false, sample: [], withParams: [], urls: [] }
 
@@ -33,11 +33,12 @@ export async function commonCrawlUrls(domain: string): Promise<CommonCrawlResult
   const queried: string[] = []
   let truncated = false
   for (const coll of recent) {
+    if (signal?.aborted) break
     const api = coll['cdx-api']
     if (!api) continue
     try {
       const url = `${api}?url=${encodeURIComponent(domain)}&matchType=domain&fl=url&output=json&limit=${PER_INDEX_LIMIT}`
-      const text = await getText(url, { timeoutMs: 20_000 })
+      const text = await getText(url, { timeoutMs: 20_000, signal })
       let lines = 0
       for (const line of text.split('\n')) {
         const t = line.trim()

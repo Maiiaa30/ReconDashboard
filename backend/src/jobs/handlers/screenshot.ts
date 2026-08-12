@@ -12,7 +12,7 @@ const MAX_SHOTS = 60
 const CONCURRENCY = 3
 
 // Screenshot the live web hosts of a domain (those that responded to the probe).
-export async function screenshotHandler({ params, log }: JobContext) {
+export async function screenshotHandler({ params, log, signal, progress }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
@@ -35,9 +35,11 @@ export async function screenshotHandler({ params, log }: JobContext) {
     live,
     CONCURRENCY,
     async (s) => {
+      if (signal.aborted) return false
       const url = `${s.scheme}://${s.host}`
       const out = screenshotPathFor(domainId, s.host)
-      const ok = await captureScreenshot(url, out)
+      progress(`capturing ${s.host}`)
+      const ok = await captureScreenshot(url, out, signal)
       if (ok) {
         updateScreenshot(domainId, s.host, out)
         captured++

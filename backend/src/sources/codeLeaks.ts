@@ -30,7 +30,7 @@ const SECRET_KW =
 const MAX_TERMS = 4
 const MAX_HITS = 60
 
-export async function searchCodeLeaks(domain: string, seeds: string[] = []): Promise<CodeLeakResult> {
+export async function searchCodeLeaks(domain: string, seeds: string[] = [], signal?: AbortSignal): Promise<CodeLeakResult> {
   const token = config.githubToken
   if (!token) {
     return { available: false, reason: 'GITHUB_TOKEN not set — GitHub requires a token for code search.', searched: [], hits: [] }
@@ -50,12 +50,13 @@ export async function searchCodeLeaks(domain: string, seeds: string[] = []): Pro
   const hits: CodeLeakHit[] = []
 
   for (const term of terms) {
+    if (signal?.aborted) break
     if (hits.length >= MAX_HITS) break
     searched.push(term)
     const q = encodeURIComponent(`"${term}"`)
     let doc: { items?: unknown[] }
     try {
-      doc = await getJson(`https://api.github.com/search/code?q=${q}&per_page=30`, { headers, timeoutMs: 20_000 })
+      doc = await getJson(`https://api.github.com/search/code?q=${q}&per_page=30`, { headers, timeoutMs: 20_000, signal })
     } catch {
       // 403 (rate limit / scope), 422 (bad query), etc. — skip this term quietly.
       continue

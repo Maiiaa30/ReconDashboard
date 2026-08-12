@@ -2,7 +2,7 @@ import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
 import { alertNewCves, markCvesAlerted, recordAndDetectNewCves, type AssetCve } from '../../findings/cveWatch'
 import { alertChanges, recordAndDetectChanges } from '../../findings/changeWatch'
-import { linkAssetFinding, upsertAsset } from '../../assets/store'
+import { linkAssetFinding, reconcileServicesForIp, upsertAsset } from '../../assets/store'
 import { invalidateCorrelation } from '../../domains/correlate'
 import { asnLookup } from '../../sources/asn'
 import { cdnForIp } from '../../sources/cdn'
@@ -70,7 +70,7 @@ export async function exposureHandler({ params, log, signal }: JobContext) {
     4,
     async ([ip, hostSet]) => {
       try {
-        const rec = await internetDbLookup(ip)
+        const rec = await internetDbLookup(ip, signal)
         if (!rec) return null
 
         const cves = rec.vulns.length ? await enrichCves(rec.vulns) : []
@@ -98,6 +98,7 @@ export async function exposureHandler({ params, log, signal }: JobContext) {
         linkAssetFinding(ipAssetId, fid)
         for (const h of hostSet) linkAssetFinding(upsertAsset({ domainId, kind: 'host', value: h, ip }), fid)
         for (const port of rec.ports) linkAssetFinding(upsertAsset({ domainId, kind: 'service', value: `${ip}:${port}`, ip, port }), fid)
+        reconcileServicesForIp(domainId, ip, rec.ports)
 
         // "New CVE on a known asset" watch: rec.vulns is the authoritative CVE-id
         // set for this IP; enrich each with cvss/kev from the cvedb records. Record
@@ -157,10 +158,15 @@ export async function exposureHandler({ params, log, signal }: JobContext) {
       async (host) => {
         const sig = await collectHostSignature(host, signal)
         if (sig.certFp || sig.faviconHash != null) updateSignature(domainId, host, sig)
-        const hostChanges = recordAndDetectChanges(domainId, `host:${host}`, {
-          ports: [], tech: [], up: sig.reachable, title: sig.title, certFp: sig.certFp,
-        })
-        if (hostChanges.length) await alertChanges(domainId, `host:${host}`, [host], hostChanges)
+        // A failed/blocked HTTP observation is "unknown", not proof the host is
+        // down. Only advance this baseline after a positive reachability signal;
+        // otherwise transient timeouts create noisy down/up oscillations.
+        if (sig.reachable) {
+          const hostChanges = recordAndDetectChanges(domainId, `host:${host}`, {
+            ports: [], tech: [], up: true, title: sig.title, certFp: sig.certFp,
+          })
+          if (hostChanges.length) await alertChanges(domainId, `host:${host}`, [host], hostChanges)
+        }
       },
       undefined,
     )

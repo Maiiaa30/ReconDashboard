@@ -21,7 +21,7 @@ const STATUS: Record<StepStatus, { label: string; cls: string; icon: typeof Circ
   skipped: { label: 'skipped', cls: 'text-zinc-600', icon: MinusCircle },
 }
 
-const ACTIVE_KINDS = new Set<StepAction['kind']>(['tool', 'nmap', 'nuclei', 'ffuf', 'owasp'])
+const ACTIVE_KINDS = new Set<StepAction['kind']>(['tool', 'nmap', 'nuclei', 'ffuf', 'owasp', 'origin'])
 
 // Map a step's action to the existing (gated) endpoint. Passive kinds ignore
 // confirm; active kinds send confirm=true when the domain is passive_only.
@@ -36,7 +36,7 @@ async function runStepAction(domainId: number, a: StepAction, host: string, conf
     case 'screenshots':
       return (await api.captureScreenshots(domainId)).jobId
     case 'origin':
-      return (await api.findOrigin(domainId)).jobId
+      return (await api.findOrigin(domainId, confirm)).jobId
     case 'owasp':
       return (await api.runOwasp(domainId, undefined, undefined, confirm)).jobId
     case 'nmap':

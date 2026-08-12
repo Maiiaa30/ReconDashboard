@@ -3,7 +3,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { config } from '../config'
 import { getDomain, listDomains } from '../domains/store'
 import { hostBelongsToDomain } from '../util/validate'
-import { insertCapture, listCaptures, getCapture, clearCaptures, deleteCapture } from '../capture/store'
+import { insertCapture, listCaptures, getCapture, clearCaptures, deleteCapture, pruneCapturesOlderThan } from '../capture/store'
 import { actorName, writeAudit } from '../audit/store'
 
 // Browser-extension capture ingest + read.
@@ -19,6 +19,7 @@ const INGEST_RATE = { max: 600, timeWindow: '1 minute' } // a busy browsing sess
 // enabled, so the last time we saw a valid token is a good "extension is running"
 // signal. In-memory is fine — a restart just re-learns it within a poll cycle.
 let lastExtensionSeen = 0
+let lastCapturePrune = 0
 
 // Constant-time token compare (avoids leaking the token via response timing).
 function tokenMatches(provided: string, expected: string): boolean {
@@ -92,6 +93,10 @@ export const captureRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(202).send({ stored: false, reason: 'host not in any tracked domain' })
     }
 
+    if (config.captureRetentionDays > 0 && Date.now() - lastCapturePrune > 60 * 60 * 1000) {
+      pruneCapturesOlderThan(config.captureRetentionDays)
+      lastCapturePrune = Date.now()
+    }
     const id = insertCapture({
       domainId,
       method: b.method ?? 'GET',

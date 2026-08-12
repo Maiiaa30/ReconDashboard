@@ -577,8 +577,8 @@ export const api = {
 
   // OWASP testing
   owaspCatalog: () => get<{ catalog: OwaspCategory[]; profileKeys: OwaspProfileKey[] }>('/owasp/catalog'),
-  runOwasp: (id: number, categoryIds?: string[], scheme?: string, confirm?: boolean) =>
-    post<{ jobId: number; categories: string[]; tags: string[] }>(`/domains/${id}/owasp`, { categoryIds, scheme, confirm }),
+  runOwasp: (id: number, categoryIds?: string[], scheme?: string, confirm?: boolean, target?: string) =>
+    post<{ jobId: number; categories: string[]; tags: string[] }>(`/domains/${id}/owasp`, { categoryIds, scheme, confirm, target }),
 
   // attack-path correlation
   correlate: (id: number) => get<{ paths: AttackPath[]; signatureClusters: SignatureCluster[] }>(`/domains/${id}/correlate`),
@@ -607,7 +607,7 @@ export const api = {
   osint: (id: number) => post<{ jobId: number }>(`/domains/${id}/osint`),
 
   // origin discovery (WAF/CDN bypass)
-  findOrigin: (id: number) => post<{ jobId: number }>(`/domains/${id}/origin`),
+  findOrigin: (id: number, confirm = false) => post<{ jobId: number }>(`/domains/${id}/origin`, { confirm }),
 
   // passive API-surface discovery (OpenAPI/Swagger + GraphQL). Optional host
   // restricts the scan to one apex/subdomain; omitted = apex + all live subs.

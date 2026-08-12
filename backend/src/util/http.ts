@@ -25,6 +25,7 @@ interface GetOptions {
   accept?: string
   // Extra request headers (e.g. an Authorization token for an authenticated API).
   headers?: Record<string, string>
+  signal?: AbortSignal
 }
 
 async function readCapped(res: Response): Promise<string> {
@@ -47,7 +48,20 @@ async function readCapped(res: Response): Promise<string> {
   return Buffer.concat(chunks).toString('utf8')
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal?.aborted) return reject(signal.reason ?? new Error('request cancelled'))
+  const timer = setTimeout(done, ms)
+  const onAbort = () => {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', onAbort)
+    reject(signal?.reason ?? new Error('request cancelled'))
+  }
+  function done() {
+    signal?.removeEventListener('abort', onAbort)
+    resolve()
+  }
+  signal?.addEventListener('abort', onAbort, { once: true })
+})
 
 // --- Per-provider concurrency governor ---------------------------------------
 // Cap concurrent in-flight requests to any single host so parallel scans (e.g.
@@ -130,7 +144,7 @@ export async function getText(url: string, opts: GetOptions = {}): Promise<strin
       const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS)
       try {
         const res = await fetch(url, {
-          signal: controller.signal,
+          signal: opts.signal ? AbortSignal.any([controller.signal, opts.signal]) : controller.signal,
           headers: {
             'User-Agent': USER_AGENT,
             ...(opts.accept ? { Accept: opts.accept } : {}),
@@ -142,7 +156,7 @@ export async function getText(url: string, opts: GetOptions = {}): Promise<strin
           const wait = retryAfterMs(res.headers.get('retry-after'), attempt)
           await res.body?.cancel().catch(() => {})
           clearTimeout(timer)
-          await sleep(wait)
+          await sleep(wait, opts.signal)
           continue
         }
         const text = await readCapped(res)

@@ -9,12 +9,13 @@ import { isValidDomain, isValidIp } from '../util/validate'
 const QUERY_TIMEOUT_MS = 12_000
 const MAX_RESPONSE_BYTES = 256 * 1024
 
-function whoisQuery(server: string, query: string): Promise<string> {
+function whoisQuery(server: string, query: string, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     const socket = new Socket()
     let data = ''
     let bytes = 0
     let settled = false
+    const onAbort = () => done(signal?.reason instanceof Error ? signal.reason : new Error('whois cancelled'))
 
     // Idle timeout AND a hard overall deadline (a server that dribbles bytes
     // slowly could otherwise keep the connection alive well past the idle cap).
@@ -26,6 +27,7 @@ function whoisQuery(server: string, query: string): Promise<string> {
       if (settled) return
       settled = true
       clearTimeout(hardDeadline)
+      signal?.removeEventListener('abort', onAbort)
       socket.destroy()
       if (err) reject(err)
       else resolve(data)
@@ -42,6 +44,8 @@ function whoisQuery(server: string, query: string): Promise<string> {
       data += chunk.toString('utf8')
     })
     socket.on('close', () => done())
+    if (signal?.aborted) return onAbort()
+    signal?.addEventListener('abort', onAbort, { once: true })
     socket.connect(43, server, () => {
       socket.write(`${query}\r\n`)
     })
@@ -68,8 +72,8 @@ export interface WhoisResult {
 // Core lookup chain: ask IANA which server is authoritative, follow up to two
 // referral hops, fall back to the most specific response we managed to get.
 // `query` is already validated by the caller.
-async function whoisResolve(query: string, kind: 'domain' | 'ip'): Promise<WhoisResult> {
-  const ianaResponse = await whoisQuery('whois.iana.org', query)
+async function whoisResolve(query: string, kind: 'domain' | 'ip', signal?: AbortSignal): Promise<WhoisResult> {
+  const ianaResponse = await whoisQuery('whois.iana.org', query, signal)
   const referral = parseReferral(ianaResponse)
 
   if (referral && referral !== 'whois.iana.org') {
@@ -78,13 +82,13 @@ async function whoisResolve(query: string, kind: 'domain' | 'ip'): Promise<Whois
       // response. Refuse a referral that resolves to an internal address before
       // opening the port-43 socket; on refusal we fall back to the IANA response.
       await assertPublicHost(referral)
-      const authoritative = await whoisQuery(referral, query)
+      const authoritative = await whoisQuery(referral, query, signal)
       // Some registries refer once more (thin registries). One hop is enough here.
       const secondReferral = parseReferral(authoritative)
       if (secondReferral && secondReferral !== referral) {
         try {
           await assertPublicHost(secondReferral)
-          const final = await whoisQuery(secondReferral, query)
+          const final = await whoisQuery(secondReferral, query, signal)
           return { query, kind, server: secondReferral, raw: final || authoritative }
         } catch {
           return { query, kind, server: referral, raw: authoritative }
@@ -99,15 +103,15 @@ async function whoisResolve(query: string, kind: 'domain' | 'ip'): Promise<Whois
   return { query, kind, server: 'whois.iana.org', raw: ianaResponse }
 }
 
-export async function whoisDomain(domain: string): Promise<WhoisResult> {
+export async function whoisDomain(domain: string, signal?: AbortSignal): Promise<WhoisResult> {
   if (!isValidDomain(domain)) throw new Error(`invalid domain: ${domain}`)
-  return whoisResolve(domain, 'domain')
+  return whoisResolve(domain, 'domain', signal)
 }
 
 /** WHOIS for a domain OR an IP address. IPs resolve to the responsible RIR. */
-export async function whoisLookup(query: string): Promise<WhoisResult> {
+export async function whoisLookup(query: string, signal?: AbortSignal): Promise<WhoisResult> {
   const q = query.trim().toLowerCase().replace(/\.$/, '')
-  if (isValidIp(q)) return whoisResolve(q, 'ip')
-  if (isValidDomain(q)) return whoisResolve(q, 'domain')
+  if (isValidIp(q)) return whoisResolve(q, 'ip', signal)
+  if (isValidDomain(q)) return whoisResolve(q, 'domain', signal)
   throw new Error(`invalid query (expected a domain or IP): ${query}`)
 }

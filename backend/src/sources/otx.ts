@@ -20,10 +20,10 @@ interface UrlListResp {
 
 const base = (domain: string) => `https://otx.alienvault.com/api/v1/indicators/domain/${encodeURIComponent(domain)}`
 
-export async function otxIntel(domain: string): Promise<OtxResult> {
+export async function otxIntel(domain: string, signal?: AbortSignal): Promise<OtxResult> {
   const [dns, urlList] = await Promise.all([
-    getJson<PassiveDnsResp>(`${base(domain)}/passive_dns`, { timeoutMs: 15_000 }).catch(() => ({}) as PassiveDnsResp),
-    getJson<UrlListResp>(`${base(domain)}/url_list?limit=500`, { timeoutMs: 15_000 }).catch(() => ({}) as UrlListResp),
+    getJson<PassiveDnsResp>(`${base(domain)}/passive_dns`, { timeoutMs: 15_000, signal }).catch(() => ({}) as PassiveDnsResp),
+    getJson<UrlListResp>(`${base(domain)}/url_list?limit=500`, { timeoutMs: 15_000, signal }).catch(() => ({}) as UrlListResp),
   ])
 
   const passiveDns: { hostname: string; address: string }[] = []

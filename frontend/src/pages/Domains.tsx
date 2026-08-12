@@ -408,14 +408,14 @@ function DomainCard({
             title={
               active
                 ? 'One-click recon: subdomain discovery (→ exposure + screenshots) + OSINT + origin + API surface + nmap (active)'
-                : 'One-click passive recon: subdomain discovery (→ exposure + screenshots) + OSINT + origin + API surface'
+                : 'One-click passive recon: subdomain discovery (→ exposure + screenshots) + OSINT + API surface'
             }
             onClick={() =>
               onAction('recon', () => {
                 // Full passive sweep; add nmap only when the domain is authorized
                 // for active/loud scans.
-                const jobs = [api.discover(d.id), api.osint(d.id), api.findOrigin(d.id), api.apiDiscovery(d.id)]
-                if (active) jobs.push(api.nmap(d.id, { confirm: false }))
+                const jobs = [api.discover(d.id), api.osint(d.id), api.apiDiscovery(d.id)]
+                if (active) jobs.push(api.findOrigin(d.id), api.nmap(d.id, { confirm: false }))
                 return Promise.all(jobs)
               })
             }

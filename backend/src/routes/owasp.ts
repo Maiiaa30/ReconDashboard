@@ -19,13 +19,14 @@ export const owaspRoutes: FastifyPluginAsync = async (app) => {
   // runs only with explicit confirm:true (the UI warns first), matching the
   // Scans/Fuzzing gate. Categories are filtered by the domain's app profile
   // (and optionally an explicit selection).
-  app.post<{ Params: { id: string }; Body: { categoryIds?: string[]; scheme?: string; confirm?: boolean; nuclei?: boolean } }>(
+  app.post<{ Params: { id: string }; Body: { categoryIds?: string[]; scheme?: string; confirm?: boolean; nuclei?: boolean; target?: string } }>(
     '/api/domains/:id/owasp',
     async (request, reply) => {
       const id = Number(request.params.id)
       try {
-        const { domain } = await assertScanAllowed({
+        const { domain, target } = await assertScanAllowed({
           domainId: id,
+          target: request.body?.target,
           confirm: request.body?.confirm === true,
           jobType: 'owasp_active',
         })
@@ -48,14 +49,14 @@ export const owaspRoutes: FastifyPluginAsync = async (app) => {
         // Primary: our own active HTTP checks (no nuclei dependency) — headers,
         // sensitive files, reflected XSS, open redirect, CORS, TRACE, listings.
         const jobs: number[] = []
-        jobs.push(enqueueJob('owasp_active', { domainId: id, target: domain.host, scheme }))
+        jobs.push(enqueueJob('owasp_active', { domainId: id, target, scheme }))
         // Complementary: a nuclei pass over the selected categories' tags (only if
         // the operator wants it / the binary is present — degrades gracefully).
         if (request.body?.nuclei !== false) {
           jobs.push(
             enqueueJob('nuclei_scan', {
               domainId: id,
-              target: domain.host,
+              target,
               scheme,
               tags,
               owaspCategory: cats.map((c) => c.id).join(','),
@@ -66,7 +67,7 @@ export const owaspRoutes: FastifyPluginAsync = async (app) => {
           actor: actorName(request.session.userId),
           action: 'enqueue:owasp',
           domainId: id,
-          target: domain.host,
+          target,
           mode: domain.mode,
           jobId: jobs[0],
           detail: { categories: cats.map((c) => c.id), nuclei: request.body?.nuclei !== false, jobs },

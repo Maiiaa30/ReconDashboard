@@ -11,6 +11,9 @@ import {
   reportSnapshots,
   capturedRequests,
   replayHistory,
+  urlCorpus,
+  assets,
+  assetSnapshots,
 } from '../db/schema'
 import { isValidDomain, normalizeDomain } from '../util/validate'
 import { screenshotDirFor } from '../util/screenshotPaths'
@@ -122,6 +125,9 @@ export async function purgeDomainData(id: number): Promise<void> {
     tx.delete(reportSnapshots).where(eq(reportSnapshots.domainId, id)).run()
     tx.delete(capturedRequests).where(eq(capturedRequests.domainId, id)).run()
     tx.delete(replayHistory).where(eq(replayHistory.domainId, id)).run()
+    tx.delete(urlCorpus).where(eq(urlCorpus.domainId, id)).run()
+    tx.delete(assets).where(eq(assets.domainId, id)).run()
+    tx.delete(assetSnapshots).where(eq(assetSnapshots.domainId, id)).run()
   })
   invalidateDomainOverviews()
   await rm(screenshotDirFor(id), { recursive: true, force: true }).catch(() => {})

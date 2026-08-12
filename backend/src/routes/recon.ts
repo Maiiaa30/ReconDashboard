@@ -2,6 +2,8 @@ import type { FastifyPluginAsync } from 'fastify'
 import { getDomain } from '../domains/store'
 import { enqueueJob } from '../jobs/queue'
 import { hostBelongsToDomain, normalizeHost } from '../util/validate'
+import { assertScanAllowed, ScanPolicyError } from '../domains/scanPolicy'
+import { actorName, writeAudit } from '../audit/store'
 
 // Passive recon triggers: exposure (InternetDB/cvedb) and OSINT aggregation.
 // Both are safe on any domain regardless of mode.
@@ -19,10 +21,31 @@ export const reconRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // Origin-server discovery behind a CDN/WAF (authorized target only).
-  app.post<{ Params: { id: string } }>('/api/domains/:id/origin', async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { confirm?: boolean } }>('/api/domains/:id/origin', async (request, reply) => {
     const id = Number(request.params.id)
-    if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
-    return reply.code(202).send({ jobId: enqueueJob('origin_scan', { domainId: id }) })
+    try {
+      const { domain, target } = await assertScanAllowed({
+        domainId: id,
+        confirm: request.body?.confirm === true,
+        jobType: 'origin_scan',
+      })
+      const jobId = enqueueJob('origin_scan', { domainId: id, target })
+      writeAudit({
+        actor: actorName(request.session.userId),
+        action: 'enqueue:origin_scan',
+        domainId: id,
+        target,
+        mode: domain.mode,
+        jobId,
+      })
+      return reply.code(202).send({ jobId })
+    } catch (err) {
+      if (err instanceof ScanPolicyError) {
+        if (err.retryAfterSec) reply.header('Retry-After', String(err.retryAfterSec))
+        return reply.code(err.status).send({ error: err.message, code: err.code })
+      }
+      throw err
+    }
   })
 
   // Passive code-leak search: look for the domain (+ optional seeds) in public

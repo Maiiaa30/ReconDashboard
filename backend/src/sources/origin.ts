@@ -24,13 +24,21 @@ function fetchDirect(
   ip: string,
   domain: string,
   scheme: 'https' | 'http',
+  signal?: AbortSignal,
 ): Promise<{ status: number; title: string | null; server: string | null } | null> {
   return new Promise((resolve) => {
     let settled = false
+    let hard: NodeJS.Timeout | undefined
     const done = (v: { status: number; title: string | null; server: string | null } | null) => {
       if (settled) return
       settled = true
+      if (hard) clearTimeout(hard)
+      signal?.removeEventListener('abort', onAbort)
       resolve(v)
+    }
+    const onAbort = () => {
+      req.destroy()
+      done(null)
     }
     const opts = {
       host: ip,
@@ -61,7 +69,7 @@ function fetchDirect(
       res.on('error', () => done(null))
     })
     // Hard backstop + socket-timeout: always resolve so a candidate can't hang.
-    const hard = setTimeout(() => {
+    hard = setTimeout(() => {
       req.destroy()
       done(null)
     }, TIMEOUT_MS + 2000)
@@ -72,13 +80,16 @@ function fetchDirect(
     })
     req.on('error', () => done(null))
     req.on('close', () => done(null))
+    if (signal?.aborted) onAbort()
+    else signal?.addEventListener('abort', onAbort, { once: true })
     req.end()
   })
 }
 
-export async function probeOrigin(ip: string, domain: string): Promise<OriginProbe> {
+export async function probeOrigin(ip: string, domain: string, signal?: AbortSignal): Promise<OriginProbe> {
   for (const scheme of ['https', 'http'] as const) {
-    const res = await fetchDirect(ip, domain, scheme)
+    if (signal?.aborted) break
+    const res = await fetchDirect(ip, domain, scheme, signal)
     if (res) {
       return { ip, reachable: true, scheme, status: res.status, title: res.title, server: res.server }
     }

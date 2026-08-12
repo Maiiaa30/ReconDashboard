@@ -6,6 +6,7 @@ import { Badge, Button, Card, Empty, PageHeader, ScoreBadge } from '../component
 import { useConfirm } from '../components/Confirm'
 import { timeAgo } from '../lib/format'
 import { safeHttpUrl } from '../lib/url'
+import { takePendingOwasp } from '../lib/navigationHandoff'
 
 // Map a nuclei severity string to a Badge tone, so high/critical reads red.
 function severityTone(severity: unknown): 'zinc' | 'green' | 'amber' | 'red' | 'blue' {
@@ -232,6 +233,7 @@ export function Owasp() {
   const [busy, setBusy] = useState<string | null>(null)
   const [runMessage, setRunMessage] = useState<string | null>(null)
   const [runError, setRunError] = useState<string | null>(null)
+  const [scanTarget, setScanTarget] = useState(selected?.host ?? '')
 
   const selectedId = selected?.id ?? null
 
@@ -240,6 +242,8 @@ export function Owasp() {
     setProfile(selected?.profile ?? {})
     setRunMessage(null)
     setRunError(null)
+    const pending = takePendingOwasp()
+    setScanTarget(pending?.target ?? selected?.host ?? '')
   }, [selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch the catalog + meta once.
@@ -311,12 +315,12 @@ export function Owasp() {
   async function runAllApplicable(): Promise<void> {
     if (!selected) return
     const needConfirm = selected.mode !== 'active_authorized'
-    if (needConfirm && !(await ask(passiveOwaspConfirm(selected.host)))) return
+    if (needConfirm && !(await ask(passiveOwaspConfirm(scanTarget)))) return
     setBusy('all')
     setRunMessage(null)
     setRunError(null)
     try {
-      const { jobId, categories } = await api.runOwasp(selected.id, undefined, undefined, needConfirm)
+      const { jobId, categories } = await api.runOwasp(selected.id, undefined, undefined, needConfirm, scanTarget)
       setRunMessage(
         `Queued job #${jobId} covering ${categories.length ? categories.join(', ') : '(none)'}`,
       )
@@ -330,12 +334,12 @@ export function Owasp() {
   async function runCategory(category: OwaspCategory): Promise<void> {
     if (!selected) return
     const needConfirm = selected.mode !== 'active_authorized'
-    if (needConfirm && !(await ask(passiveOwaspConfirm(selected.host)))) return
+    if (needConfirm && !(await ask(passiveOwaspConfirm(scanTarget)))) return
     setBusy(category.id)
     setRunMessage(null)
     setRunError(null)
     try {
-      const { jobId, categories } = await api.runOwasp(selected.id, [category.id], undefined, needConfirm)
+      const { jobId, categories } = await api.runOwasp(selected.id, [category.id], undefined, needConfirm, scanTarget)
       setRunMessage(
         `Queued job #${jobId} covering ${categories.length ? categories.join(', ') : category.id}`,
       )
@@ -381,6 +385,18 @@ export function Owasp() {
           </div>
         </Card>
       )}
+
+      <Card className="mb-6">
+        <label className="text-sm font-semibold text-zinc-200" htmlFor="owasp-target">Scan target</label>
+        <p className="mt-1 text-sm text-zinc-500">Use the apex domain or an in-scope subdomain discovered for this target.</p>
+        <input
+          id="owasp-target"
+          value={scanTarget}
+          onChange={(event) => setScanTarget(event.target.value)}
+          disabled={busy != null}
+          className="mt-3 block w-full rounded-lg border border-hair bg-ink-950 px-3 py-2 font-mono text-sm outline-none focus:border-accent-500"
+        />
+      </Card>
 
       {/* App profile / filter */}
       <Card className="mb-6">

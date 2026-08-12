@@ -22,9 +22,9 @@ interface SearchRow {
   screenshot?: string
 }
 
-export async function urlscanSearch(domain: string): Promise<UrlscanResult> {
+export async function urlscanSearch(domain: string, signal?: AbortSignal): Promise<UrlscanResult> {
   const url = `https://urlscan.io/api/v1/search/?q=domain:${encodeURIComponent(domain)}&size=100`
-  const data = await getJson<{ results?: SearchRow[]; total?: number }>(url, { timeoutMs: 15_000 })
+  const data = await getJson<{ results?: SearchRow[]; total?: number }>(url, { timeoutMs: 15_000, signal })
   const results = Array.isArray(data.results) ? data.results : []
   const pages: UrlscanPage[] = []
   for (const r of results) {

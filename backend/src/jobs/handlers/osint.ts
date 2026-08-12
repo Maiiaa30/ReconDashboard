@@ -23,54 +23,64 @@ import type { JobContext } from '../worker'
 
 // Phase 4: OSINT / info center. One screen's worth of passive intel about a
 // target, aggregated from several sources. All passive.
-export async function osintHandler({ params, log, signal }: JobContext) {
+export async function osintHandler({ params, log, signal, progress }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
   const host = domain.host
 
   const result: Record<string, unknown> = { domain: host }
+  const persistPartial = async () => addScoredFinding({ domainId, type: 'osint', data: result, tags: ['osint'] })
 
   // DNS
+  progress(`resolving DNS for ${host}`)
   try {
     result.dns = await resolveDns(host)
   } catch (err) {
     result.dns = { error: err instanceof Error ? err.message : String(err) }
     log.warn({ host, err }, 'osint dns failed')
   }
+  await persistPartial()
 
-  // WHOIS
-  try {
-    result.whois = await whoisDomain(host)
-  } catch (err) {
-    result.whois = { error: err instanceof Error ? err.message : String(err) }
-    log.warn({ host, err }, 'osint whois failed')
-  }
-
-  // Certificate transparency (subdomain breadth): crt.sh first, falling back to
-  // certspotter (the same CT data from a more reliable API) when crt.sh is slow
-  // or down — so this card shows results instead of a timeout error.
-  try {
-    let ctHosts: string[]
-    let source = 'crt.sh'
-    try {
-      ctHosts = await crtShSubdomains(host)
-    } catch (err) {
-      log.warn({ host, err }, 'crt.sh failed, falling back to certspotter')
-      ctHosts = await certSpotterSubdomains(host)
-      source = 'certspotter (crt.sh unavailable)'
-    }
-    result.crtsh = { count: ctHosts.length, sample: ctHosts.slice(0, 50), source }
-  } catch (err) {
-    result.crtsh = { error: err instanceof Error ? err.message : String(err) }
-  }
+  // Independent slow providers run concurrently so one timeout does not make
+  // the entire page look stuck before the next source even starts.
+  progress(`querying WHOIS and certificate transparency for ${host}`)
+  await Promise.all([
+    (async () => {
+      try {
+        result.whois = await whoisDomain(host, signal)
+      } catch (err) {
+        result.whois = { error: err instanceof Error ? err.message : String(err) }
+        log.warn({ host, err }, 'osint whois failed')
+      }
+    })(),
+    (async () => {
+      try {
+        let ctHosts: string[]
+        let source = 'crt.sh'
+        try {
+          ctHosts = await crtShSubdomains(host, signal)
+        } catch (err) {
+          if (signal.aborted) throw err
+          log.warn({ host, err }, 'crt.sh failed, falling back to certspotter')
+          ctHosts = await certSpotterSubdomains(host, signal)
+          source = 'certspotter (crt.sh unavailable)'
+        }
+        result.crtsh = { count: ctHosts.length, sample: ctHosts.slice(0, 50), source }
+      } catch (err) {
+        result.crtsh = { error: err instanceof Error ? err.message : String(err) }
+      }
+    })(),
+  ])
+  await persistPartial()
 
   // DNS zone transfer (AXFR) against the zone's nameservers.
+  progress(`checking DNS and public infrastructure sources for ${host}`)
   try {
     const dns = result.dns as { ns?: string[] } | undefined
     const ns = dns?.ns ?? []
     if (ns.length) {
-      const zt = await zoneTransfer(host, ns)
+      const zt = await zoneTransfer(host, ns, signal)
       result.zoneTransfer = zt
       if (zt.vulnerable) {
         addFinding({
@@ -91,7 +101,7 @@ export async function osintHandler({ params, log, signal }: JobContext) {
     const dns = result.dns as { a?: string[] } | undefined
     const ip = dns?.a?.[0]
     if (ip && isValidIp(ip)) {
-      result.internetdb = await internetDbLookup(ip)
+      result.internetdb = await internetDbLookup(ip, signal)
     }
   } catch (err) {
     result.internetdb = { error: err instanceof Error ? err.message : String(err) }
@@ -100,10 +110,10 @@ export async function osintHandler({ params, log, signal }: JobContext) {
   // Passive URL / intel sources — Wayback, Common Crawl, urlscan.io and OTX —
   // gathered concurrently (independent, each best-effort with its own timeout).
   const [wayback, commoncrawl, urlscan, otx] = await Promise.allSettled([
-    waybackUrls(host),
-    commonCrawlUrls(host),
-    urlscanSearch(host),
-    otxIntel(host),
+    waybackUrls(host, signal),
+    commonCrawlUrls(host, signal),
+    urlscanSearch(host, signal),
+    otxIntel(host, signal),
   ])
   const settle = (r: PromiseSettledResult<unknown>) =>
     r.status === 'fulfilled' ? r.value : { error: r.reason instanceof Error ? r.reason.message : String(r.reason) }
@@ -150,13 +160,15 @@ export async function osintHandler({ params, log, signal }: JobContext) {
   result.commoncrawl = 'error' in cc ? cc : { indexes: cc.indexes, count: cc.count, truncated: cc.truncated, sample: cc.sample, withParams: cc.withParams }
   result.urlscan = 'error' in us ? us : { count: us.count, pages: us.pages.slice(0, 50) }
   result.otx = 'error' in ox ? ox : { passiveDns: ox.passiveDns, urlCount: ox.urlCount, urls: ox.urls.slice(0, 50) }
+  await persistPartial()
 
   // Technology fingerprint: OS, server, and stack from HTTP headers/cookies/HTML,
   // enriched with any CPEs InternetDB surfaced for the apex IP.
   try {
+    progress(`fingerprinting ${host}`)
     const idb = result.internetdb as { cpes?: string[] } | { error: string } | undefined
     const cpes = idb && !('error' in idb) ? idb.cpes ?? [] : []
-    result.tech = await fingerprintHost(host, cpes)
+    result.tech = await fingerprintHost(host, cpes, signal)
   } catch (err) {
     result.tech = { error: err instanceof Error ? err.message : String(err) }
     log.warn({ host, err }, 'osint fingerprint failed')
@@ -165,6 +177,7 @@ export async function osintHandler({ params, log, signal }: JobContext) {
   // Cloud storage buckets derived from the domain name (keyless; requests go to
   // AWS/GCP/Azure, not the target). Open buckets are high-value findings.
   try {
+    progress(`checking scope-derived cloud storage names for ${host}`)
     const buckets = await enumerateBuckets(host, [], signal)
     const open = buckets.filter((b) => b.state === 'open')
     const locked = buckets.filter((b) => b.state === 'locked')
@@ -191,6 +204,7 @@ export async function osintHandler({ params, log, signal }: JobContext) {
   // SPF / DMARC / CAA intel from the raw TXT/CAA already resolved above. Weak
   // policy = spoofable (osint findings); SPF ip4:/ip6: ranges become infra pivots.
   try {
+    progress(`analyzing email and DNS policy for ${host}`)
     const dns = result.dns as { txt?: string[]; caa?: string[] } | undefined
     if (dns && !('error' in (dns as object))) {
       const intel = await gatherDnsIntel(host, dns.txt ?? [], dns.caa ?? [], async (h) => (await resolveDns(h)).txt)
@@ -202,7 +216,7 @@ export async function osintHandler({ params, log, signal }: JobContext) {
         if (!isValidIp(representative)) return { range, representative: null, asn: null, exposure: null }
         const [asn, exposure] = await Promise.all([
           asnLookup([representative]).then((rows) => rows.get(representative) ?? null).catch(() => null),
-          internetDbLookup(representative).catch(() => null),
+          internetDbLookup(representative, signal).catch(() => null),
         ])
         return { range, representative, asn, exposure }
       }, { range: '', representative: null, asn: null, exposure: null })
@@ -221,7 +235,8 @@ export async function osintHandler({ params, log, signal }: JobContext) {
     log.warn({ host, err }, 'osint dns-intel failed')
   }
 
-  await addScoredFinding({ domainId, type: 'osint', data: result, tags: ['osint'] })
+  progress(`saving OSINT results for ${host}`)
+  await persistPartial()
 
   return result
 }

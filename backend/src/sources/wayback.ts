@@ -12,13 +12,13 @@ export interface WaybackResult {
   urls: string[] // the FULL deduped list (persisted to url_corpus; not stored in the finding blob)
 }
 
-export async function waybackUrls(domain: string): Promise<WaybackResult> {
+export async function waybackUrls(domain: string, signal?: AbortSignal): Promise<WaybackResult> {
   // matchType=domain covers the apex and its subdomains; collapse=urlkey dedups.
   const url =
     `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(domain)}` +
     `&matchType=domain&fl=original&collapse=urlkey&output=json&limit=3000`
 
-  const rows = await getJson<string[][]>(url, { timeoutMs: 20_000 })
+  const rows = await getJson<string[][]>(url, { timeoutMs: 20_000, signal })
   const urls = new Set<string>()
   // Row 0 is the header (["original"]); skip it.
   for (let i = 1; i < rows.length; i++) {

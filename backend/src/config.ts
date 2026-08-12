@@ -57,6 +57,15 @@ export const config = {
     return n
   })(),
 
+  captureRetentionDays: ((): number => {
+    const n = Number(process.env.CAPTURE_RETENTION_DAYS ?? 30)
+    if (!Number.isFinite(n) || n < 0) {
+      console.warn('CAPTURE_RETENTION_DAYS is not a valid non-negative number; using 30.')
+      return 30
+    }
+    return n
+  })(),
+
   // Discord webhook for alerts. Empty => alerting disabled (silent).
   discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL?.trim() || '',
 

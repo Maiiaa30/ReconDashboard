@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Finding, Job } from '../api'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
 import { safeHttpUrl } from '../lib/url'
+import { useToast } from '../components/Toast'
 
 interface MxRecord {
   exchange: string
@@ -418,22 +419,50 @@ export function Osint() {
   const [finding, setFinding] = useState<Finding | null>(null)
   const [jobId, setJobId] = useState<number | null>(null)
   const [running, setRunning] = useState(false)
+  const [jobProgress, setJobProgress] = useState<string | null>(null)
+  const [jobError, setJobError] = useState<string | null>(null)
+  const toast = useToast()
+
+  useEffect(() => {
+    setFinding(null)
+    setJobId(null)
+    setRunning(false)
+    setJobProgress(null)
+    setJobError(null)
+  }, [selected?.id])
 
   usePoll(
     () => {
       if (!selected) return
       api
-        .findings({ domainId: selected.id, type: 'osint', limit: 1 })
-        .then((r) => setFinding(r.findings[0] ?? null))
+        .findings({ domainId: selected.id, type: 'osint', limit: 100 })
+        .then((r) => {
+          const aggregate = r.findings.find((item) => {
+            const value = item.data as Record<string, unknown> | null
+            return value?.domain === selected.host && !value.kind
+          })
+          setFinding(aggregate ?? null)
+        })
         .catch(() => {})
       if (jobId != null) {
         api
           .job(jobId)
           .then((r) => {
             const job: Job = r.job
-            if (job.status === 'done' || job.status === 'error') {
+            setJobProgress(job.progress)
+            if (['done', 'error', 'cancelled', 'dead'].includes(job.status)) {
               setRunning(false)
               setJobId(null)
+              if (job.status === 'error' || job.status === 'dead') {
+                const message = job.error ?? 'OSINT collection failed.'
+                setJobError(message)
+                toast.error(message)
+              } else if (job.status === 'cancelled') {
+                setJobError('OSINT collection was cancelled.')
+              } else {
+                setJobProgress('OSINT collection complete')
+                toast.success('OSINT collection complete.')
+              }
             }
           })
           .catch(() => {
@@ -450,11 +479,17 @@ export function Osint() {
 
   const gather = async () => {
     setRunning(true)
+    setJobError(null)
+    setJobProgress('Queueing OSINT collection…')
     try {
       const { jobId } = await api.osint(selected.id)
       setJobId(jobId)
-    } catch {
+      toast.success(`OSINT collection queued (job #${jobId}).`)
+    } catch (err) {
       setRunning(false)
+      const message = err instanceof ApiError ? err.message : 'Failed to queue OSINT collection.'
+      setJobError(message)
+      toast.error(message)
     }
   }
 
@@ -471,6 +506,12 @@ export function Osint() {
           </Button>
         }
       />
+
+      {(jobProgress || jobError) && (
+        <div className={`mb-3 rounded-lg border px-3 py-2 text-xs ${jobError ? 'border-red-900/50 bg-red-950/20 text-red-300' : 'border-hair bg-ink-900/50 text-zinc-400'}`}>
+          {jobError ?? jobProgress}
+        </div>
+      )}
 
       {!data ? (
         <Empty>No OSINT gathered yet.</Empty>

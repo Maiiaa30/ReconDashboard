@@ -256,11 +256,19 @@ function BackupPanel() {
 
   async function download() {
     setError(null)
+    if (!reauthPassword) {
+      setError('Re-enter your password to export a backup.')
+      return
+    }
     setBusy(true)
     try {
       const res = await fetch('/api/backup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Reauth-Password': reauthPassword,
+          ...(reauthToken ? { 'X-Reauth-Token': reauthToken } : {}),
+        },
         body: JSON.stringify(serverConfigured ? {} : { passphrase }),
       })
       if (!res.ok) {
@@ -278,6 +286,8 @@ function BackupPanel() {
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
+      setReauthPassword('')
+      setReauthToken('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'backup failed')
     } finally {
@@ -305,11 +315,30 @@ function BackupPanel() {
           className="mt-3 block w-72 rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm outline-none focus:border-accent-500"
         />
       )}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <input
+          type="password"
+          value={reauthPassword}
+          onChange={(e) => setReauthPassword(e.target.value)}
+          placeholder="Operator password"
+          autoComplete="current-password"
+          className="w-56 rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm outline-none focus:border-accent-500"
+        />
+        <input
+          type="text"
+          inputMode="numeric"
+          value={reauthToken}
+          onChange={(e) => setReauthToken(e.target.value)}
+          placeholder="2FA code (if enabled)"
+          autoComplete="one-time-code"
+          className="w-40 rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm outline-none focus:border-accent-500"
+        />
+      </div>
       {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
       <Button
         className="mt-3"
         onClick={download}
-        disabled={busy || (!serverConfigured && passphrase.length < 12)}
+        disabled={busy || !reauthPassword || (!serverConfigured && passphrase.length < 12)}
       >
         {busy ? 'Preparing…' : 'Download encrypted backup'}
       </Button>
@@ -333,26 +362,6 @@ function BackupPanel() {
         {checkMsg && (
           <p className={`mt-2 text-sm ${checkMsg.ok ? 'text-green-400' : 'text-red-400'}`}>{checkMsg.text}</p>
         )}
-        {/* Re-auth for the destructive restore (verify does not need it). */}
-        <div className="mt-3 flex flex-wrap gap-2">
-          <input
-            type="password"
-            value={reauthPassword}
-            onChange={(e) => setReauthPassword(e.target.value)}
-            placeholder="Password (to restore)"
-            autoComplete="current-password"
-            className="w-56 rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm outline-none focus:border-accent-500"
-          />
-          <input
-            type="text"
-            inputMode="numeric"
-            value={reauthToken}
-            onChange={(e) => setReauthToken(e.target.value)}
-            placeholder="2FA code (if enabled)"
-            autoComplete="one-time-code"
-            className="w-40 rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm outline-none focus:border-accent-500"
-          />
-        </div>
         <div className="mt-3 flex gap-2">
           <Button onClick={verify} disabled={busy || !file || !canUsePass}>
             {busy ? '…' : 'Verify backup'}

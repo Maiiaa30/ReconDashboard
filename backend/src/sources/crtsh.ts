@@ -30,14 +30,15 @@ function extractHosts(entries: CrtShEntry[], domain: string): string[] {
 // non-JSON body as a retryable failure rather than an empty result. certspotter
 // is the redundant CT source that covers crt.sh outages (see the discovery
 // handler and the OSINT fallback).
-export async function crtShSubdomains(domain: string): Promise<string[]> {
+export async function crtShSubdomains(domain: string, signal?: AbortSignal): Promise<string[]> {
   const url = `https://crt.sh/?q=%25.${encodeURIComponent(domain)}&output=json`
 
   let lastErr: unknown = null
   for (let attempt = 0; attempt < ATTEMPT_TIMEOUTS_MS.length; attempt++) {
+    if (signal?.aborted) throw signal.reason ?? new Error('crt.sh cancelled')
     if (attempt > 0) await sleep(1200 * attempt + Math.floor(Math.random() * 800))
     try {
-      const text = await getText(url, { timeoutMs: ATTEMPT_TIMEOUTS_MS[attempt], accept: 'application/json' })
+      const text = await getText(url, { timeoutMs: ATTEMPT_TIMEOUTS_MS[attempt], accept: 'application/json', signal })
       const trimmed = text.trimStart()
       // A healthy response is a JSON array. When overloaded, crt.sh returns a
       // 200 with an HTML holding page — retry instead of silently yielding [].

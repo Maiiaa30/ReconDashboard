@@ -17,13 +17,14 @@ export interface InternetDbRecord {
 // exposure changes slowly. 10 min keeps us off the free API without going stale.
 const idbCache = new TtlCache<string, InternetDbRecord | null>(10 * 60_000)
 
-export async function internetDbLookup(ip: string): Promise<InternetDbRecord | null> {
+export async function internetDbLookup(ip: string, signal?: AbortSignal): Promise<InternetDbRecord | null> {
   if (!isValidIp(ip)) throw new Error(`invalid ip: ${ip}`)
   const cached = idbCache.get(ip)
   if (cached !== undefined) return cached
 
   const data = await getJsonOrNull<Partial<InternetDbRecord>>(
     `https://internetdb.shodan.io/${encodeURIComponent(ip)}`,
+    { signal },
   )
   const rec: InternetDbRecord | null = data
     ? {

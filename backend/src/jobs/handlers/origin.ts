@@ -2,8 +2,8 @@ import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
 import { cdnForIp, wafFromHeaders } from '../../sources/cdn'
 import { resolveDns } from '../../sources/dns'
-import { probeHost } from '../../sources/httpProbe'
 import { originCandidates, probeOrigin } from '../../sources/origin'
+import { guardedFetchRaw } from '../../sources/guard'
 import { listSubdomains } from '../../subdomains/store'
 import { mapLimit } from '../../util/async'
 import { isValidIp } from '../../util/validate'
@@ -15,7 +15,7 @@ const MAX_CANDIDATES = 15
 // target: find the real IP behind the CDN/WAF so authorized active scans hit the
 // origin, not the edge. Detection is passive; verification connects directly to
 // candidate IPs (the target's own infrastructure).
-export async function originHandler({ params, log }: JobContext) {
+export async function originHandler({ params, log, signal, progress }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
@@ -26,15 +26,19 @@ export async function originHandler({ params, log }: JobContext) {
   const apexIp = apexDns?.a[0] ?? null
   let provider: string | null = apexIp && isValidIp(apexIp) ? cdnForIp(apexIp) : null
 
-  let baseline: { status: number | null; title: string | null } = { status: null, title: null }
+  let baseline: { status: number | null; title: string | null; server: string | null } = { status: null, title: null, server: null }
   try {
-    const controller = new AbortController()
-    const t = setTimeout(() => controller.abort(), 8000)
-    const res = await fetch(`https://${host}`, { redirect: 'manual', signal: controller.signal })
-    clearTimeout(t)
-    provider = provider ?? wafFromHeaders(res.headers)
-    const b = await probeHost(host)
-    baseline = { status: b.status, title: b.title }
+    progress(`capturing the ${host} edge signature`)
+    const res = await guardedFetchRaw(`https://${host}`, { follow: true, timeoutMs: 8_000, maxBytes: 64 * 1024, signal })
+    if (res) {
+      provider = provider ?? wafFromHeaders(res.headers)
+      const title = (res.body.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1]
+      baseline = {
+        status: res.status,
+        title: title ? title.replace(/\s+/g, ' ').trim().slice(0, 200) : null,
+        server: res.headers.get('server'),
+      }
+    }
   } catch {
     /* ignore */
   }
@@ -56,14 +60,20 @@ export async function originHandler({ params, log }: JobContext) {
     candidates,
     5,
     async (ip) => {
-      const r = await probeOrigin(ip, host)
+      if (signal.aborted) throw new Error('origin scan cancelled')
+      progress(`checking origin candidate ${ip}`)
+      const r = await probeOrigin(ip, host, signal)
       // "Confirmed" if it served a page and looks like the same site.
       const titleMatch =
         !!r.title && !!baseline.title && r.title.toLowerCase() === baseline.title.toLowerCase()
-      const confirmed = r.reachable && (titleMatch || (r.status != null && r.status < 400 && r.status > 0))
-      return { ...r, cdn: cdnForIp(ip), titleMatch, confirmed }
+      const signatureMatch = titleMatch || (
+        !baseline.title && !!r.server && !!baseline.server &&
+        r.server.toLowerCase() === baseline.server.toLowerCase() && r.status === baseline.status
+      )
+      const confirmed = r.reachable && signatureMatch
+      return { ...r, cdn: cdnForIp(ip), titleMatch, signatureMatch, confirmed }
     },
-    { ip: '', reachable: false, scheme: null, status: null, title: null, server: null, cdn: null, titleMatch: false, confirmed: false },
+    { ip: '', reachable: false, scheme: null, status: null, title: null, server: null, cdn: null, titleMatch: false, signatureMatch: false, confirmed: false },
   )
 
   const confirmed = probed.filter((p) => p.confirmed)

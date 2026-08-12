@@ -4,18 +4,9 @@ import { db } from '../db/index'
 import { users } from '../db/schema'
 import { getOperator, getOperatorById } from './seed'
 import { hashPassword, verifyPassword } from './passwords'
-import { checkTotpStep, totpAuthUrl } from './totp'
-
-// Verify a TOTP token AND consume its time-step: reject a code whose step was
-// already accepted, so a captured code can't be replayed within its ~30s window
-// (audit §3 #4). `op` must be the current DB row (carries lastTotpStep).
-function consumeTotp(op: { id: number; totpSecret: string; lastTotpStep: number | null }, token: string): boolean {
-  const step = checkTotpStep(token, op.totpSecret)
-  if (step == null) return false
-  if (op.lastTotpStep != null && step <= op.lastTotpStep) return false // replay
-  db.update(users).set({ lastTotpStep: step, updatedAt: new Date() }).where(eq(users.id, op.id)).run()
-  return true
-}
+import { totpAuthUrl } from './totp'
+import { clearAllSessions } from './sessionStore'
+import { consumeTotp } from './consumeTotp'
 
 interface LoginBody {
   username?: string
@@ -197,6 +188,10 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       if (!ok) return reply.code(400).send({ error: 'current password is incorrect' })
       const passwordHash = await hashPassword(request.body.newPassword)
       db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, op.id)).run()
+      clearAllSessions()
+      await request.session.regenerate()
+      request.session.userId = op.id
+      request.session.username = op.username
       return reply.send({ ok: true })
     },
   )

@@ -37,7 +37,7 @@ interface FetchInfo {
 // fetch's redirect:'follow' would chase it without re-validating.
 const MAX_REDIRECTS = 5
 
-async function fetchOnce(startUrl: string): Promise<FetchInfo | null> {
+async function fetchOnce(startUrl: string, signal?: AbortSignal): Promise<FetchInfo | null> {
   let current = startUrl
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     let u: URL
@@ -59,7 +59,7 @@ async function fetchOnce(startUrl: string): Promise<FetchInfo | null> {
       const res = await fetch(current, {
         method: 'GET',
         redirect: 'manual',
-        signal: controller.signal,
+        signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
         // Look like a real browser — a bot-ish UA gets challenged (Cloudflare
         // "Just a moment…" 403/503) by WAF-fronted hosts, which made every
         // subdomain look dead. This is still a single, standard GET.
@@ -121,7 +121,7 @@ async function fetchOnce(startUrl: string): Promise<FetchInfo | null> {
   return null // too many redirects
 }
 
-export async function probeHost(host: string): Promise<ProbeResult> {
+export async function probeHost(host: string, signal?: AbortSignal): Promise<ProbeResult> {
   const dns = await resolveDns(host).catch(() => null)
   const ip = dns?.a[0] ?? null
   const cnames = dns?.cname ?? []
@@ -137,8 +137,9 @@ export async function probeHost(host: string): Promise<ProbeResult> {
     }
   }
   for (const scheme of ['https', 'http'] as const) {
+    if (signal?.aborted) break
     const url = `${scheme}://${host}`
-    const res = await fetchOnce(url)
+    const res = await fetchOnce(url, signal)
     if (res) {
       return {
         host, scheme, status: res.status, title: res.title, server: res.server, ip, url, cnames,

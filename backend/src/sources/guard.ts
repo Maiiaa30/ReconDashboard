@@ -78,8 +78,9 @@ async function readCapped(res: Response, maxBytes: number): Promise<string> {
     const { done, value } = await reader.read()
     if (done) break
     if (value) {
-      chunks.push(value)
-      total += value.byteLength
+      const take = Math.min(value.byteLength, Math.max(0, maxBytes - total))
+      if (take > 0) chunks.push(value.subarray(0, take))
+      total += take
       if (total >= maxBytes) {
         await reader.cancel()
         break
@@ -271,13 +272,13 @@ export async function guardedFetch(
       if (res.status >= 300 && res.status < 400) {
         const loc = res.headers.get('location')
         if (!loc) {
-          const body = (await res.text()).slice(0, maxBytes)
+          const body = await readCapped(res, maxBytes)
           return { status: res.status, body, finalUrl: current }
         }
         current = new URL(loc, current).toString()
         continue
       }
-      const body = (await res.text()).slice(0, maxBytes)
+      const body = await readCapped(res, maxBytes)
       return { status: res.status, body, finalUrl: current }
     } catch {
       return null

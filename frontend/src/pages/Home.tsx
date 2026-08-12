@@ -8,7 +8,7 @@ import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { RISK_SCORE_CLASS, riskFromScore, summarizeFinding, timeAgo } from '../lib/format'
-import { setPendingScan } from '../lib/navigationHandoff'
+import { setPendingOwasp, setPendingScan } from '../lib/navigationHandoff'
 
 // Score-badge colors live in lib/format (shared with Findings) to avoid drift.
 const RISK_SCORE = RISK_SCORE_CLASS
@@ -155,6 +155,7 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
                 {c.data.action && (
                   <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => {
                     if (c.data.action?.kind === 'nmap') setPendingScan({ target: c.data.action.target })
+                    if (c.data.action?.kind === 'owasp') setPendingOwasp({ target: c.data.action.target })
                     navigate(c.data.action?.kind === 'nmap' ? 'scans' : 'owasp', c.domainId ?? undefined)
                   }}>{c.data.action.label}</Button>
                 )}

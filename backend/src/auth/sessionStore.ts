@@ -9,7 +9,7 @@ import { sqlite } from '../db/index'
 // Statements are prepared lazily on first use. This module is imported before
 // migrations run, so the `sessions` table may not exist yet at import time.
 type Stmt = ReturnType<typeof sqlite.prepare>
-let stmts: { upsert: Stmt; get: Stmt; del: Stmt; prune: Stmt } | null = null
+let stmts: { upsert: Stmt; get: Stmt; del: Stmt; prune: Stmt; clear: Stmt } | null = null
 
 function s() {
   if (!stmts) {
@@ -21,9 +21,14 @@ function s() {
       get: sqlite.prepare(`SELECT session, expires_at as expiresAt FROM sessions WHERE sid = ?`),
       del: sqlite.prepare(`DELETE FROM sessions WHERE sid = ?`),
       prune: sqlite.prepare(`DELETE FROM sessions WHERE expires_at < ?`),
+      clear: sqlite.prepare(`DELETE FROM sessions`),
     }
   }
   return stmts
+}
+
+export function clearAllSessions(): number {
+  return (s().clear as { run: () => { changes: number } }).run().changes
 }
 
 function expiresAtFromSession(session: { cookie?: { expires?: Date | string | null } }): number {

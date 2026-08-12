@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, notInArray } from 'drizzle-orm'
 import { db } from '../db/index'
 import { assetFindings, assets, findingLinks, type AssetRow } from '../db/schema'
 
@@ -64,6 +64,16 @@ export function linkAssetFinding(assetId: number, findingId: number | null | und
 
 export function listAssets(domainId: number): AssetRow[] {
   return db.select().from(assets).where(eq(assets.domainId, domainId)).all()
+}
+
+// Keep the current service inventory honest while history remains available in
+// findings/snapshots. Only reconcile an IP after its provider lookup succeeded.
+export function reconcileServicesForIp(domainId: number, ip: string, ports: number[]): void {
+  const values = [...new Set(ports)].map((port) => `${ip}:${port}`)
+  const base = and(eq(assets.domainId, domainId), eq(assets.kind, 'service'), eq(assets.ip, ip))
+  db.delete(assets)
+    .where(values.length ? and(base, notInArray(assets.value, values)) : base)
+    .run()
 }
 
 export function countAssets(domainId: number): number {

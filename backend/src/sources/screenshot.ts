@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { run, toolExists } from '../util/exec'
 import { BROWSER_UA } from '../util/http'
+import { guardedFetchRaw } from './guard'
+import { resolveDns } from './dns'
+import { isInternalIp } from '../util/validate'
 
 const CHROMIUM = process.env.CHROMIUM_PATH ?? 'chromium'
 
@@ -20,14 +23,22 @@ export async function screenshotAvailable(): Promise<boolean> {
 
 // Capture a full-window PNG of `url` to `outPath` using headless Chromium.
 // Returns true if a non-empty image was written. Never throws.
-export async function captureScreenshot(url: string, outPath: string): Promise<boolean> {
+export async function captureScreenshot(url: string, outPath: string, signal?: AbortSignal): Promise<boolean> {
   try {
+    // Resolve and guard the final redirect target immediately before Chromium,
+    // then pin that hostname to the vetted address for the browser connection.
+    const checked = await guardedFetchRaw(url, { follow: true, timeoutMs: 9_000, maxBytes: 1024, signal })
+    if (!checked) return false
+    const finalUrl = checked.finalUrl
+    const finalHost = new URL(finalUrl).hostname
+    const dns = await resolveDns(finalHost)
+    const ips = [...dns.a, ...dns.aaaa]
+    if (!ips.length || ips.some(isInternalIp)) return false
     await mkdir(dirname(outPath), { recursive: true })
     await run(
       CHROMIUM,
       [
         '--headless=new',
-        '--no-sandbox',
         '--disable-gpu',
         '--disable-dev-shm-usage',
         '--hide-scrollbars',
@@ -38,10 +49,14 @@ export async function captureScreenshot(url: string, outPath: string): Promise<b
         // "Just a moment…") serve a challenge page to a headless/bot UA, which
         // produces a useless screenshot.
         `--user-agent=${BROWSER_UA}`,
+        // Keep the page on the vetted address and block DNS for every other
+        // hostname so hostile subresources cannot turn Chromium into an SSRF
+        // client for services on the local network.
+        `--host-resolver-rules=MAP ${finalHost} ${ips[0]}, MAP * ~NOTFOUND`,
         `--screenshot=${outPath}`,
-        url,
+        finalUrl,
       ],
-      { timeoutMs: 45_000 },
+      { timeoutMs: 45_000, signal },
     )
   } catch {
     // chromium can exit non-zero but still write the file; fall through to check.
@@ -69,7 +84,6 @@ export async function renderHtmlToPdf(html: string): Promise<Buffer | null> {
         CHROMIUM,
         [
           '--headless=new',
-          '--no-sandbox',
           '--disable-gpu',
           '--disable-dev-shm-usage',
           '--no-pdf-header-footer',

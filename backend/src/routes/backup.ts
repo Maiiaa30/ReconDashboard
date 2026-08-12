@@ -4,13 +4,15 @@ import { createEncryptedBackup, stageRestore, verifyBackup } from '../backup/bac
 import { actorName, writeAudit } from '../audit/store'
 import { getOperatorById } from '../auth/seed'
 import { verifyPassword } from '../auth/passwords'
-import { verifyTotp } from '../auth/totp'
+import { consumeTotp } from '../auth/consumeTotp'
 
 // Phase 8: download an encrypted dump of the SQLite DB. The passphrase comes
 // from BACKUP_PASSPHRASE (env) or, if unset, the request body — it is never
 // stored. The response is the raw encrypted blob.
 export const backupRoutes: FastifyPluginAsync = async (app) => {
-  app.post<{ Body: { passphrase?: string } }>('/api/backup', async (request, reply) => {
+  app.post<{ Body: { passphrase?: string } }>('/api/backup', { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (request, reply) => {
+    const reauth = await requireReauth(request)
+    if (reauth) return reply.code(reauth.status).send({ error: reauth.error })
     const passphrase = config.backupPassphrase || (request.body?.passphrase ?? '')
     if (!passphrase || passphrase.length < 12) {
       return reply
@@ -30,6 +32,7 @@ export const backupRoutes: FastifyPluginAsync = async (app) => {
     reply
       .header('Content-Type', 'application/octet-stream')
       .header('Content-Disposition', `attachment; filename="recon-backup-${stamp}.rdb"`)
+    writeAudit({ actor: actorName(request.session.userId), action: 'backup:export', detail: { bytes: blob.length } })
     return reply.send(blob)
   })
 
@@ -80,12 +83,12 @@ export const backupRoutes: FastifyPluginAsync = async (app) => {
     if (!op) return { status: 401, error: 'unauthorized' }
     const password = String(request.headers['x-reauth-password'] ?? '')
     if (!password || !(await verifyPassword(op.passwordHash, password))) {
-      return { status: 403, error: 'restore requires re-entering your password (X-Reauth-Password)' }
+      return { status: 403, error: 'this backup action requires re-entering your password (X-Reauth-Password)' }
     }
     if (op.totpEnabled) {
       const token = String(request.headers['x-reauth-token'] ?? '')
-      if (!verifyTotp(token, op.totpSecret)) {
-        return { status: 403, error: 'restore requires a valid 2FA code (X-Reauth-Token)' }
+      if (!consumeTotp(op, token)) {
+        return { status: 403, error: 'this backup action requires a valid 2FA code (X-Reauth-Token)' }
       }
     }
     return null

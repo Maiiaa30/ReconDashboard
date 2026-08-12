@@ -15,6 +15,9 @@ let tmpDir = ''
 let db: any
 let domains: any
 let users: any
+let assets: any
+let assetSnapshots: any
+let urlCorpus: any
 
 beforeAll(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), 'recon-itest-'))
@@ -33,6 +36,9 @@ beforeAll(async () => {
   const schema = await import('./db/schema')
   domains = schema.domains
   users = schema.users
+  assets = schema.assets
+  assetSnapshots = schema.assetSnapshots
+  urlCorpus = schema.urlCorpus
 }, 30_000)
 
 afterAll(async () => {
@@ -85,9 +91,42 @@ describe('scan-policy gate', () => {
     expect(res.json().code).toBe('confirm_required')
   })
 
+  it('applies the same active-scan gate to origin discovery', async () => {
+    const id = newDomain({ host: 'origin-gate.example.com', mode: 'passive_only' })
+    const blocked = await app.inject({
+      method: 'POST',
+      url: `/api/domains/${id}/origin`,
+      headers: { cookie },
+      payload: {},
+    })
+    expect(blocked.statusCode).toBe(400)
+    expect(blocked.json().code).toBe('confirm_required')
+
+    const allowed = await app.inject({
+      method: 'POST',
+      url: `/api/domains/${id}/origin`,
+      headers: { cookie },
+      payload: { confirm: true },
+    })
+    expect(allowed.statusCode).toBe(202)
+    expect(typeof allowed.json().jobId).toBe('number')
+  })
+
   it('refuses a target that is not within the domain, even with confirm', async () => {
     const id = newDomain({ host: 'scope.example.com', mode: 'active_authorized' })
     const res = await nmap(id, { target: 'evil.com', confirm: true })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().code).toBe('out_of_domain')
+  })
+
+  it('applies the domain scope gate to a custom OWASP target', async () => {
+    const id = newDomain({ host: 'owasp-scope.example.com', mode: 'active_authorized' })
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/domains/${id}/owasp`,
+      headers: { cookie },
+      payload: { target: 'outside.example.net' },
+    })
     expect(res.statusCode).toBe(400)
     expect(res.json().code).toBe('out_of_domain')
   })
@@ -117,5 +156,20 @@ describe('Today acknowledgement', () => {
     const ack = await app.inject({ method: 'POST', url: '/api/home/today/ack', headers: { cookie } })
     expect(ack.statusCode).toBe(200)
     expect(db.select().from(users).all()[0].lastDashboardViewedAt).toBeInstanceOf(Date)
+  })
+})
+
+describe('domain data reset', () => {
+  it('clears the durable asset, snapshot, and URL-corpus tables', async () => {
+    const id = newDomain({ host: 'reset.example.com', mode: 'passive_only' })
+    db.insert(assets).values({ domainId: id, kind: 'service', value: '8.8.8.8:443', ip: '8.8.8.8', port: 443 }).run()
+    db.insert(assetSnapshots).values({ domainId: id, ip: '8.8.8.8', ports: '[443]', tech: '[]', up: true }).run()
+    db.insert(urlCorpus).values({ domainId: id, url: 'https://reset.example.com/a', host: 'reset.example.com', source: 'wayback' }).run()
+
+    const res = await app.inject({ method: 'DELETE', url: `/api/domains/${id}/data`, headers: { cookie } })
+    expect(res.statusCode).toBe(200)
+    expect(db.select().from(assets).all().filter((r: any) => r.domainId === id)).toHaveLength(0)
+    expect(db.select().from(assetSnapshots).all().filter((r: any) => r.domainId === id)).toHaveLength(0)
+    expect(db.select().from(urlCorpus).all().filter((r: any) => r.domainId === id)).toHaveLength(0)
   })
 })

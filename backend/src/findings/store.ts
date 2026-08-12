@@ -277,7 +277,7 @@ function mapRow(r: typeof findings.$inferSelect, data: unknown) {
 }
 
 export function updateFindingScore(id: number, score: number, tags: string[]): void {
-  db.update(findings).set({ score, tags: JSON.stringify(tags) }).where(eq(findings.id, id)).run()
+  db.update(findings).set({ score, severity: severityBucket(score), tags: JSON.stringify(tags) }).where(eq(findings.id, id)).run()
 }
 
 export function getFinding(id: number) {
@@ -354,7 +354,10 @@ export function recordCveVerification(
   data.verified = verified
   const set: Record<string, unknown> = { data: JSON.stringify(data) }
   if (opts.confirm) set.status = 'confirmed'
-  if (opts.score != null) set.score = opts.score
+  if (opts.score != null) {
+    set.score = opts.score
+    set.severity = severityBucket(opts.score)
+  }
   db.update(findings).set(set).where(eq(findings.id, id)).run()
   return true
 }

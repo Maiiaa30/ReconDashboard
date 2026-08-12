@@ -6,14 +6,14 @@ import type { JobContext } from '../worker'
 // Passive code-leak search: query public code (GitHub) for the target's domain
 // (+ optional operator/org seeds) and record matches as 'secret' findings for
 // review. Queries GitHub, never the target — safe on any domain.
-export async function codeLeakHandler({ params, log, progress }: JobContext) {
+export async function codeLeakHandler({ params, log, progress, signal }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
   if (!domain) throw new Error(`domain ${domainId} not found`)
 
   const seeds = Array.isArray(params.seeds) ? (params.seeds as unknown[]).filter((s): s is string => typeof s === 'string') : []
   progress(`searching public code for ${domain.host}`)
-  const res = await searchCodeLeaks(domain.host, seeds)
+  const res = await searchCodeLeaks(domain.host, seeds, signal)
   if (!res.available) return { available: false, reason: res.reason, hits: 0 }
 
   let created = 0

@@ -7,6 +7,7 @@ import { createSnapshot, deleteSnapshot, getSnapshot, listSnapshots } from '../f
 import { renderHtmlToPdf } from '../sources/screenshot'
 import { toCsv } from '../util/csv'
 import { config } from '../config'
+import { findingSeverity } from '../findings/severity'
 import { llmComplete, llmEnabled } from '../util/llm'
 
 type Format = 'csv' | 'json' | 'txt'
@@ -147,9 +148,8 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
     const findings = listFindings({ domainId: id, limit: 5000 }).filter(
       (f) => (f as any).status !== 'false_positive' && (f as any).status !== 'ignored',
     )
-    const score = (f: (typeof findings)[number]) => f.score ?? 0
-    const high = findings.filter((f) => score(f) >= 70)
-    const medium = findings.filter((f) => score(f) >= 40 && score(f) < 70)
+    const high = findings.filter((f) => ['critical', 'high'].includes(findingSeverity(f)))
+    const medium = findings.filter((f) => findingSeverity(f) === 'medium')
     const subs = listSubdomains(id)
     const live = subs.filter((s) => s.httpStatus != null)
     const exposures = findings.filter((f) => f.type === 'exposure')

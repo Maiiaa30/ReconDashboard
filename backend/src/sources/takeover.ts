@@ -64,10 +64,10 @@ export function matchTakeoverFingerprint(service: string, body: string): boolean
 // Fetch the candidate host and confirm the takeover by matching the service's
 // unclaimed-page string. SSRF-guarded (guardedFetch re-checks every hop). Returns
 // false on any failure or a service with no fingerprint.
-export async function confirmTakeover(host: string, service: string): Promise<boolean> {
+export async function confirmTakeover(host: string, service: string, signal?: AbortSignal): Promise<boolean> {
   if (!TAKEOVER_FINGERPRINTS[service]) return false
   for (const scheme of ['https', 'http'] as const) {
-    const res = await guardedFetch(`${scheme}://${host}/`, { timeoutMs: 8_000, maxBytes: 64 * 1024 })
+    const res = await guardedFetch(`${scheme}://${host}/`, { timeoutMs: 8_000, maxBytes: 64 * 1024, signal })
     if (res && matchTakeoverFingerprint(service, res.body)) return true
   }
   return false

@@ -11,7 +11,7 @@ export interface SubfinderResult {
 // local Windows dev) — in that case we report unavailable rather than crash.
 //
 // `-oJ` emits one JSON object per line: {"host":"...","input":"...","source":"..."}.
-export async function subfinderSubdomains(domain: string): Promise<SubfinderResult> {
+export async function subfinderSubdomains(domain: string, signal?: AbortSignal): Promise<SubfinderResult> {
   if (!(await toolExists('subfinder'))) {
     return { available: false, hosts: [] }
   }
@@ -20,7 +20,7 @@ export async function subfinderSubdomains(domain: string): Promise<SubfinderResu
     const { stdout } = await run(
       'subfinder',
       ['-d', domain, '-oJ', '-silent', '-all'],
-      { timeoutMs: 180_000 },
+      { timeoutMs: 180_000, signal },
     )
     const hosts = new Set<string>()
     for (const line of stdout.split('\n')) {

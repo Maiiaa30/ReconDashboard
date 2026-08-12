@@ -12,6 +12,12 @@ import { copyText } from '../lib/clipboard'
 
 export type BuiltReq = { method: string; url: string; headers: [string, string][]; body?: string | null }
 
+function isolatedPreviewDocument(body: string, runScripts: boolean): string {
+  const scriptPolicy = runScripts ? "script-src 'unsafe-inline'" : "script-src 'none'"
+  const csp = `default-src 'none'; ${scriptPolicy}; connect-src 'none'; img-src data: blob:; media-src data: blob:; font-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-src 'none'`
+  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${csp}">${body}`
+}
+
 function shortUrl(u: string): string {
   try {
     const x = new URL(u)
@@ -747,7 +753,7 @@ function RepeaterPanel({
                   </label>
                   <span className="text-[10px] text-zinc-600">
                     {runScripts
-                      ? 'scripts run in an isolated origin — still cannot touch this app'
+                      ? 'scripts run in an isolated origin with network access blocked'
                       : 'scripts disabled (JS-driven pages show only their pre-JS shell)'}
                   </span>
                 </>
@@ -768,7 +774,7 @@ function RepeaterPanel({
                   key={runScripts ? 'js' : 'nojs'}
                   title="response preview"
                   sandbox={runScripts ? 'allow-scripts' : ''}
-                  srcDoc={resp.body}
+                  srcDoc={isolatedPreviewDocument(resp.body, runScripts)}
                   className="h-full w-full border-0"
                 />
               </div>

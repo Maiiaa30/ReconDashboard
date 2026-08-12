@@ -1,8 +1,10 @@
 import { useCallback, useState } from 'react'
-import { api, type Finding } from '../api'
+import { api, ApiError, type Finding } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
 import { timeAgo } from '../lib/format'
+import { useConfirm } from '../components/Confirm'
+import { useToast } from '../components/Toast'
 
 interface OriginData {
   domain: string
@@ -20,15 +22,18 @@ export function Origin() {
   const [latest, setLatest] = useState<Finding | null>(null)
   const [running, setRunning] = useState(false)
   const [lastJob, setLastJob] = useState<number | null>(null)
+  const confirm = useConfirm()
+  const toast = useToast()
 
   const load = useCallback(() => {
     if (!selected) return
     api.findings({ domainId: selected.id, type: 'origin', limit: 1 }).then((r) => setLatest(r.findings[0] ?? null)).catch(() => {})
     if (lastJob != null) {
       api.job(lastJob).then((r) => {
-        if (r.job.status === 'done' || r.job.status === 'error') {
+        if (['done', 'error', 'cancelled', 'dead'].includes(r.job.status)) {
           setRunning(false)
           setLastJob(null)
+          if (r.job.status === 'error' || r.job.status === 'dead') toast.error(r.job.error ?? 'Origin scan failed.')
         }
       }).catch(() => {})
     }
@@ -39,12 +44,24 @@ export function Origin() {
 
   async function run() {
     if (!selected) return
+    let confirmed = false
+    if (selected.mode !== 'active_authorized') {
+      confirmed = await confirm({
+        title: 'Run active origin discovery?',
+        message: `This connects directly to candidate IPs for ${selected.host}. Continue only if you are authorized to test this target.`,
+        confirmLabel: 'Run origin discovery',
+        tone: 'danger',
+      })
+      if (!confirmed) return
+    }
     setRunning(true)
     try {
-      const { jobId } = await api.findOrigin(selected.id)
+      const { jobId } = await api.findOrigin(selected.id, confirmed)
       setLastJob(jobId)
-    } catch {
+      toast.success(`Origin discovery queued (job #${jobId}).`)
+    } catch (err) {
       setRunning(false)
+      toast.error(err instanceof ApiError ? err.message : 'Failed to queue origin discovery.')
     }
   }
 

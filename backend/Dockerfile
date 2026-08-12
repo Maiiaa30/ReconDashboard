@@ -9,8 +9,8 @@ ARG FFUF_VERSION=2.1.0
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-       python3 make g++ ca-certificates curl unzip nmap whois \
-       dnsutils iputils-ping sslscan sqlmap libpcap0.8 chromium fonts-liberation \
+       python3 make g++ ca-certificates curl unzip nmap whois gosu \
+       dnsutils iputils-ping sslscan sqlmap libpcap0.8 chromium chromium-sandbox fonts-liberation \
   && rm -rf /var/lib/apt/lists/*
 
 # Where headless Chromium lives, for the screenshot job.
@@ -54,7 +54,7 @@ RUN set -ux; \
       || tar -xzf dalfox.tar.gz -C /usr/local/bin --wildcards --transform='s#.*/##' '*/dalfox' 2>/dev/null ) || echo "WARN: dalfox install failed"; \
     chmod +x /usr/local/bin/katana /usr/local/bin/naabu /usr/local/bin/dalfox 2>/dev/null || true; \
     rm -f /tmp/*.zip /tmp/*.tar.gz; \
-    katana -version || true; naabu -version || true; dalfox version || true
+    katana -version || true; naabu -version || true; dalfox --version || true
 
 # Curated SecLists wordlists for ffuf content discovery (best-effort downloads;
 # a moved URL must not fail the build). Names are friendly for the UI picker.
@@ -63,7 +63,7 @@ RUN mkdir -p /usr/share/wordlists; \
     curl -fsSL -o /usr/share/wordlists/quick-hits.txt        "$SL/quickhits.txt"                 || true; \
     curl -fsSL -o /usr/share/wordlists/common.txt            "$SL/common.txt"                    || true; \
     curl -fsSL -o /usr/share/wordlists/raft-small-words.txt  "$SL/raft-small-words.txt"          || true; \
-    curl -fsSL -o /usr/share/wordlists/directories-medium.txt "$SL/directory-list-2.3-small.txt" || true; \
+    curl -fsSL -o /usr/share/wordlists/directories-medium.txt "$SL/DirBuster-2007_directory-list-2.3-small.txt" || true; \
     curl -fsSL -o /usr/share/wordlists/api-endpoints.txt     "$SL/api/api-seen-in-wild.txt"      || true; \
     if [ ! -s /usr/share/wordlists/common.txt ]; then \
       printf 'admin\nlogin\napi\nrobots.txt\n.git/HEAD\nbackup\ntest\n.env\nadmin.php\n' > /usr/share/wordlists/common.txt; \
@@ -90,7 +90,7 @@ RUN SLP="https://raw.githubusercontent.com/danielmiessler/SecLists/master"; \
 # patch (150.0.7871.114+). Pull the current bookworm-security chromium as its own
 # layer so a rebuild re-fetches the fix without busting the recon-tool layers above.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends --only-upgrade chromium \
+  && apt-get install -y --no-install-recommends --only-upgrade chromium chromium-sandbox \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -101,7 +101,11 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 COPY . .
+COPY docker-entrypoint.sh /usr/local/bin/recon-entrypoint
+
+RUN mkdir -p /data && chown -R node:node /app /data && chmod 0755 /usr/local/bin/recon-entrypoint
 
 EXPOSE 3001
 
+ENTRYPOINT ["recon-entrypoint"]
 CMD ["npm", "run", "dev"]

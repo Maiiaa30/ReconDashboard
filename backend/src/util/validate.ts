@@ -49,7 +49,7 @@ export function isInternalIp(input: string): boolean {
   const mapped = v.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/)
   if (mapped) return isInternalIp(mapped[1])
   if (IPV4_RE.test(v)) {
-    const [a, b] = v.split('.').map(Number)
+    const [a, b, c] = v.split('.').map(Number)
     if (a === 10) return true
     if (a === 127) return true
     if (a === 0) return true
@@ -57,12 +57,20 @@ export function isInternalIp(input: string): boolean {
     if (a === 192 && b === 168) return true
     if (a === 169 && b === 254) return true // link-local
     if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
+    if (a === 192 && b === 0 && (c === 0 || c === 2)) return true // IETF assignments / TEST-NET-1
+    if (a === 192 && b === 88 && c === 99) return true // deprecated 6to4 relay anycast
+    if (a === 198 && (b === 18 || b === 19)) return true // benchmark networks
+    if (a === 198 && b === 51 && c === 100) return true // TEST-NET-2
+    if (a === 203 && b === 0 && c === 113) return true // TEST-NET-3
     if (a >= 224) return true // multicast / reserved
     return false
   }
   if (IPV6_RE.test(v)) {
     if (v === '::1' || v === '::') return true
-    if (v.startsWith('fe80') || v.startsWith('fc') || v.startsWith('fd')) return true // link-local / ULA
+    if (v.startsWith('fe8') || v.startsWith('fe9') || v.startsWith('fea') || v.startsWith('feb')) return true // link-local
+    if (v.startsWith('fec') || v.startsWith('fed') || v.startsWith('fee') || v.startsWith('fef')) return true // site-local
+    if (v.startsWith('fc') || v.startsWith('fd') || v.startsWith('ff')) return true // ULA / multicast
+    if (v.startsWith('2001:db8')) return true // documentation range
     // IPv4 embedded in the low 32 bits: IPv4-mapped (::ffff:a.b.c.d) and the
     // compressed HEX form the URL parser actually produces (::ffff:7f00:1),
     // IPv4-compatible (::a.b.c.d), and the NAT64 well-known prefix 64:ff9b::/96.

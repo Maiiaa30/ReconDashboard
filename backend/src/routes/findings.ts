@@ -30,6 +30,9 @@ const VALID_TYPES: FindingType[] = [
   'leak',
   'api',
   'secret',
+  'authz',
+  'param',
+  'asset_change',
 ]
 const MAX_NOTE = 2000
 
