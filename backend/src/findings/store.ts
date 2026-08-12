@@ -95,8 +95,8 @@ export function asFindingData(data: unknown): FindingData {
 }
 
 // Triage lifecycle state.
-export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
-export const FINDING_STATUSES: FindingStatus[] = ['open', 'confirmed', 'false_positive', 'resolved', 'ignored']
+export type FindingStatus = 'open' | 'confirmed' | 'retest_pending' | 'retest_passed' | 'false_positive' | 'resolved' | 'ignored'
+export const FINDING_STATUSES: FindingStatus[] = ['open', 'confirmed', 'retest_pending', 'retest_passed', 'false_positive', 'resolved', 'ignored']
 
 export interface NewFinding {
   domainId: number | null
@@ -197,7 +197,7 @@ export function addFinding(f: NewFinding): number {
   // tick, breaking diffs/timelines/change alerts.)
   if (key != null) {
     const existing = db
-      .select({ id: findings.id })
+      .select({ id: findings.id, status: findings.status })
       .from(findings)
       .where(
         and(
@@ -220,6 +220,9 @@ export function addFinding(f: NewFinding): number {
           url: values.url,
           jobId: values.jobId ?? undefined, // keep the prior producing job if this re-scan has no job context
           lastSeenAt: now,
+          // A finding observed again after being marked fixed has regressed.
+          // Reopen it so it cannot silently remain in a passed/resolved state.
+          status: ['retest_passed', 'resolved'].includes(existing.status) ? 'open' : undefined,
         })
         .where(eq(findings.id, existing.id))
         .run()

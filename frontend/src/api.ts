@@ -114,6 +114,31 @@ export interface Subdomain {
   lastSeen: string
 }
 
+export interface Asset {
+  id: number
+  domainId: number
+  kind: 'host' | 'ip' | 'service'
+  value: string
+  ip: string | null
+  port: number | null
+  asn: string | null
+  asnName: string | null
+  cdn: string | null
+  firstSeen: string
+  lastSeen: string
+  findingCount: number
+  activeFindingCount: number
+  maxScore: number | null
+  findingIds: number[]
+  httpStatus: number | null
+  title: string | null
+  server: string | null
+  scheme: string | null
+  ports: number[]
+  technologies: string[]
+  up: boolean | null
+}
+
 export interface ScreenshotEntry {
   host: string
   status: number | null
@@ -242,7 +267,7 @@ export interface ReplayHistoryDetail extends ReplayHistoryItem {
   respBody: string | null
 }
 
-export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
+export type FindingStatus = 'open' | 'confirmed' | 'retest_pending' | 'retest_passed' | 'false_positive' | 'resolved' | 'ignored'
 
 export interface Finding {
   id: number
@@ -597,6 +622,7 @@ export const api = {
 
   // subdomains
   subdomains: (id: number) => get<{ subdomains: Subdomain[] }>(`/domains/${id}/subdomains`),
+  assets: (id: number) => get<{ assets: Asset[] }>(`/domains/${id}/assets`),
   discover: (id: number) => post<{ jobId: number }>(`/domains/${id}/discover`),
   // passive DNS permutation + brute-resolve (wildcard-guarded)
   dnsPermute: (id: number) => post<{ jobId: number }>(`/domains/${id}/dns-permute`),

@@ -18,6 +18,7 @@ let users: any
 let assets: any
 let assetSnapshots: any
 let urlCorpus: any
+let findingsTable: any
 
 beforeAll(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), 'recon-itest-'))
@@ -39,6 +40,7 @@ beforeAll(async () => {
   assets = schema.assets
   assetSnapshots = schema.assetSnapshots
   urlCorpus = schema.urlCorpus
+  findingsTable = schema.findings
 }, 30_000)
 
 afterAll(async () => {
@@ -156,6 +158,29 @@ describe('Today acknowledgement', () => {
     const ack = await app.inject({ method: 'POST', url: '/api/home/today/ack', headers: { cookie } })
     expect(ack.statusCode).toBe(200)
     expect(db.select().from(users).all()[0].lastDashboardViewedAt).toBeInstanceOf(Date)
+  })
+})
+
+describe('engagement asset inventory', () => {
+  it('returns enriched durable assets for the selected domain', async () => {
+    const id = newDomain({ host: 'inventory.example.com', mode: 'passive_only' })
+    db.insert(assets).values({ domainId: id, kind: 'ip', value: '203.0.113.10', ip: '203.0.113.10', asn: 'AS64500' }).run()
+    db.insert(assetSnapshots).values({ domainId: id, ip: '203.0.113.10', ports: '[80,443]', tech: '["nginx"]', up: true, title: 'Inventory host' }).run()
+
+    const res = await app.inject({ method: 'GET', url: `/api/domains/${id}/assets`, headers: { cookie } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().assets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: '203.0.113.10', ports: [80, 443], technologies: ['nginx'], title: 'Inventory host' }),
+    ]))
+  })
+
+  it('reopens a fixed finding when a later scan observes it again', async () => {
+    const id = newDomain({ host: 'regression.example.com', mode: 'passive_only' })
+    db.insert(findingsTable).values({ domainId: id, type: 'new_subdomain', data: '{"host":"api.regression.example.com"}', status: 'retest_passed', dedupeKey: 'host:api.regression.example.com' }).run()
+    const { addFinding } = await import('./findings/store')
+    addFinding({ domainId: id, type: 'new_subdomain', data: { host: 'api.regression.example.com' }, score: 20, tags: [] })
+    const row = db.select().from(findingsTable).all().find((item: any) => item.domainId === id)
+    expect(row.status).toBe('open')
   })
 })
 

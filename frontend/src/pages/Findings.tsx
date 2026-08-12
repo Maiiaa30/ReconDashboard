@@ -10,10 +10,12 @@ import { safeHttpUrl } from '../lib/url'
 import { setPendingReplay } from '../lib/replayHandoff'
 import { takePendingFindingFilter } from '../lib/navigationHandoff'
 
-const STATUSES: FindingStatus[] = ['open', 'confirmed', 'false_positive', 'resolved', 'ignored']
+const STATUSES: FindingStatus[] = ['open', 'confirmed', 'retest_pending', 'retest_passed', 'false_positive', 'resolved', 'ignored']
 const STATUS_LABEL: Record<FindingStatus, string> = {
-  open: 'Open',
+  open: 'Draft',
   confirmed: 'Confirmed',
+  retest_pending: 'Ready for retest',
+  retest_passed: 'Retest passed',
   false_positive: 'False positive',
   resolved: 'Resolved',
   ignored: 'Ignored',
@@ -22,12 +24,14 @@ const STATUS_LABEL: Record<FindingStatus, string> = {
 const STATUS_SELECT: Record<FindingStatus, string> = {
   open: 'text-blue-300 border-blue-900/60',
   confirmed: 'text-red-300 border-red-900/60',
+  retest_pending: 'text-amber-300 border-amber-900/60',
+  retest_passed: 'text-emerald-300 border-emerald-900/60',
   false_positive: 'text-zinc-400 border-hair',
   resolved: 'text-green-300 border-green-900/60',
   ignored: 'text-zinc-500 border-hair',
 }
 // Statuses that are "dealt with" — dimmed and hidden from the default Active view.
-const TRIAGED_AWAY: FindingStatus[] = ['false_positive', 'resolved', 'ignored']
+const TRIAGED_AWAY: FindingStatus[] = ['false_positive', 'resolved', 'retest_passed', 'ignored']
 
 const STATUS_FILTERS = ['active', 'all', ...STATUSES] as const
 type StatusFilter = (typeof STATUS_FILTERS)[number]

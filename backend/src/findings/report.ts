@@ -58,6 +58,8 @@ function summarize(type: string, data: FindingDataBase): string {
 const STATUS_LABEL: Record<string, string> = {
   open: 'open',
   confirmed: 'confirmed',
+  retest_pending: 'ready for retest',
+  retest_passed: 'retest passed',
   false_positive: 'false positive',
   resolved: 'resolved',
   ignored: 'ignored',
@@ -89,7 +91,7 @@ interface ReportModel {
   medium: Row[]
   low: Row[]
   confirmed: Row[]
-  counts: { open: number; confirmed: number; resolved: number }
+  counts: { open: number; confirmed: number; retestPending: number; retestPassed: number; resolved: number }
   exposure: { ips: number; ports: number; cves: number; rows: Row[] }
   tech: any | null
   methods: string[]
@@ -139,7 +141,13 @@ function gather(id: number): ReportModel | null {
     medium,
     low,
     confirmed,
-    counts: { open: byStatus('open'), confirmed: byStatus('confirmed'), resolved: byStatus('resolved') },
+    counts: {
+      open: byStatus('open'),
+      confirmed: byStatus('confirmed'),
+      retestPending: byStatus('retest_pending'),
+      retestPassed: byStatus('retest_passed'),
+      resolved: byStatus('resolved'),
+    },
     exposure: { ips: ips.size, ports, cves, rows: exposures },
     tech,
     methods,
@@ -223,7 +231,7 @@ export function buildDomainReport(id: number, generatedAtIso: string): string | 
   lines.push(
     `- **Findings:** ${m.reportable.length} reportable — ${m.high.length} high · ${m.medium.length} medium · ${m.low.length} low${m.noiseCount ? ` (${m.noiseCount} false-positive/ignored excluded)` : ''}`,
   )
-  lines.push(`- **Triage:** ${m.counts.open} open · ${m.counts.confirmed} confirmed · ${m.counts.resolved} resolved`)
+  lines.push(`- **Lifecycle:** ${m.counts.open} draft · ${m.counts.confirmed} confirmed · ${m.counts.retestPending} ready for retest · ${m.counts.retestPassed} retest passed · ${m.counts.resolved} resolved`)
   lines.push(`- **Exposure:** ${m.exposure.ips} exposed IP(s) · ${m.exposure.ports} open port(s) · ${m.exposure.cves} CVE(s)`, '')
   lines.push('_Severity by score: **high** ≥ 70 · **medium** 40–69 · **low/info** < 40._', '')
 
@@ -419,7 +427,7 @@ ${m.methods.length ? `<h2>Methodology</h2><ul>${m.methods.map((x) => `<li>${esc(
 <ul>
 <li><strong>Subdomains:</strong> ${m.subsTotal} (${m.live.length} live)</li>
 <li><strong>Findings:</strong> ${m.reportable.length} reportable — ${m.high.length} high · ${m.medium.length} medium · ${m.low.length} low${m.noiseCount ? ` (${m.noiseCount} excluded)` : ''}</li>
-<li><strong>Triage:</strong> ${m.counts.open} open · ${m.counts.confirmed} confirmed · ${m.counts.resolved} resolved</li>
+<li><strong>Lifecycle:</strong> ${m.counts.open} draft · ${m.counts.confirmed} confirmed · ${m.counts.retestPending} ready for retest · ${m.counts.retestPassed} retest passed · ${m.counts.resolved} resolved</li>
 <li><strong>Exposure:</strong> ${m.exposure.ips} exposed IP(s) · ${m.exposure.ports} open port(s) · ${m.exposure.cves} CVE(s)</li>
 </ul>
 <p class="legend">Severity by score: <strong>high</strong> ≥ 70 · <strong>medium</strong> 40–69 · <strong>low/info</strong> &lt; 40.</p>

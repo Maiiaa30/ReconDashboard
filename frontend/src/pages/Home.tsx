@@ -209,7 +209,7 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
             .map((d) => (
               <button
                 key={d.id}
-                onClick={() => navigate('findings', d.id)}
+                onClick={() => navigate('command', d.id)}
                 className="flex items-center justify-between rounded-lg border border-hair bg-ink-900/50 px-3 py-2 text-left transition hover:border-hair-strong"
               >
                 <span className="min-w-0">

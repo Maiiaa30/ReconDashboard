@@ -8,7 +8,7 @@ import { probeHost } from '../../sources/httpProbe'
 import { confirmTakeover, detectTakeover } from '../../sources/takeover'
 import { subfinderSubdomains } from '../../sources/subfinder'
 import { diffAndStore, listUnprobed, updateProbe } from '../../subdomains/store'
-import { upsertAsset } from '../../assets/store'
+import { linkAssetFinding, upsertAsset } from '../../assets/store'
 import { mapLimit } from '../../util/async'
 import type { JobContext } from '../worker'
 
@@ -118,7 +118,7 @@ export async function subdomainDiscoveryHandler({ params, log, signal, progress 
       const confirmed = await confirmTakeover(host, takeover.service, signal).catch(() => false)
       takeover = { ...takeover, confirmed }
     }
-    await addScoredFinding({
+    const findingId = await addScoredFinding({
       domainId,
       type: 'new_subdomain',
       data: {
@@ -133,6 +133,10 @@ export async function subdomainDiscoveryHandler({ params, log, signal, progress 
       },
       tags: ['new-subdomain'],
     })
+    linkAssetFinding(
+      upsertAsset({ domainId, kind: 'host', value: host, ip: p?.ip ?? null }),
+      findingId,
+    )
   }
 
   // Auto-fill the OWASP app profile from recon signals (only ever turns flags

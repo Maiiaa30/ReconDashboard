@@ -68,11 +68,11 @@ export function Domains() {
   return (
     <div>
       <PageHeader
-        title="Domains"
+        title="Scope & targets"
         subtitle={
           overview.length
-            ? `${overview.length} target${overview.length > 1 ? 's' : ''} · live recon overview`
-            : 'Your targets at a glance. Active/loud scans require active_authorized.'
+            ? `${overview.length} engagement target${overview.length > 1 ? 's' : ''} · authorization, scope and monitoring`
+            : 'Define engagement targets and authorization before collecting or testing.'
         }
         actions={
           <Button variant={showAdd ? 'ghost' : 'loud'} onClick={() => setShowAdd((v) => !v)}>

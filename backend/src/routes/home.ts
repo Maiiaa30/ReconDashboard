@@ -14,7 +14,7 @@ export const homeRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/home', async () => {
     const overview = domainOverviews()
     const topFindings = listFindings({ limit: 400 })
-      .filter((f) => f.status === 'open' && (f.score ?? 0) >= 40)
+      .filter((f) => ['open', 'confirmed', 'retest_pending'].includes(f.status) && (f.score ?? 0) >= 40)
       .slice(0, 15)
       .map((f) => ({ id: f.id, domainId: f.domainId, type: f.type, data: f.data, score: f.score, tags: f.tags }))
     // "What changed": new CVEs and material per-asset changes, most recent first.
@@ -42,7 +42,7 @@ export const homeRoutes: FastifyPluginAsync = async (app) => {
 
     // 1) New high-score open findings since the last visit.
     const findings = all
-      .filter((f) => f.status === 'open' && f.type !== 'cve_new' && (f.score ?? 0) >= 60 && isNew(f.createdAt))
+      .filter((f) => ['open', 'confirmed', 'retest_pending'].includes(f.status) && f.type !== 'cve_new' && (f.score ?? 0) >= 60 && isNew(f.createdAt))
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
       .slice(0, 8)
       .map((f) => ({ id: f.id, domainId: f.domainId, host: f.domainId != null ? hostById.get(f.domainId) ?? null : null, type: f.type, data: f.data, score: f.score, createdAt: f.createdAt }))

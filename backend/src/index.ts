@@ -38,6 +38,7 @@ import { payloadRoutes } from './routes/payloads'
 import { matchReplaceRoutes } from './routes/matchReplace'
 import { identityRoutes } from './routes/identities'
 import { aiRoutes } from './routes/ai'
+import { assetRoutes } from './routes/assets'
 
 // Build and fully configure the app (migrations, seed, plugins, guard, routes)
 // WITHOUT listening or starting background workers — so an integration test can
@@ -109,6 +110,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Feature routes (all behind the auth guard).
   await app.register(domainRoutes)
+  await app.register(assetRoutes)
   await app.register(reconRoutes)
   await app.register(toolRoutes)
   await app.register(scanRoutes)

@@ -178,7 +178,8 @@ export const findings = sqliteTable(
     data: text('data'), // JSON
     score: integer('score'),
     tags: text('tags'), // JSON array
-    // Triage lifecycle: open | confirmed | false_positive | resolved | ignored.
+    // Triage lifecycle: open | confirmed | retest_pending | retest_passed |
+    // false_positive | resolved | ignored.
     status: text('status').notNull().default('open'),
     note: text('note'), // operator triage note
     // Typed correlation columns (additive; derived on write). severity is the ONE
