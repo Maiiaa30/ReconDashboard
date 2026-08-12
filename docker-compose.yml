@@ -21,7 +21,9 @@ services:
       # Persist the SQLite file across container rebuilds.
       - app-data:/data
     ports:
-      - "127.0.0.1:3001:3001"
+      # Bind on every interface so the service is reachable through the host's
+      # Tailscale address. Access is still controlled by the host/tailnet rules.
+      - "3001:3001"
 
   frontend:
     build: ./frontend
@@ -31,7 +33,7 @@ services:
       - ./frontend/src:/app/src:ro
       - ./frontend/index.html:/app/index.html:ro
     ports:
-      - "127.0.0.1:5173:5173"
+      - "5173:5173"
     depends_on:
       - backend
 
