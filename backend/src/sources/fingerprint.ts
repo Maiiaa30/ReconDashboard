@@ -25,7 +25,7 @@ const MAX_FAVICON_BYTES = 256 * 1024
 
 // Fetch the site's favicon (the <link rel=icon> href if present, else /favicon.ico)
 // and compute its mmh3 hash. SSRF-guarded, byte-capped. Null on any failure.
-async function faviconHashFor(base: string, html: string): Promise<number | null> {
+export async function faviconHashFor(base: string, html: string, signal?: AbortSignal): Promise<number | null> {
   const linkHref = (html.match(/<link[^>]+rel=["'][^"']*icon[^"']*["'][^>]*>/i) || [])[0]
   const href = linkHref ? (linkHref.match(/href=["']([^"']+)["']/i) || [])[1] : null
   let url: string
@@ -34,7 +34,7 @@ async function faviconHashFor(base: string, html: string): Promise<number | null
   } catch {
     return null
   }
-  const res = await guardedFetchBytes(url, { timeoutMs: TIMEOUT_MS, maxBytes: MAX_FAVICON_BYTES })
+  const res = await guardedFetchBytes(url, { timeoutMs: TIMEOUT_MS, maxBytes: MAX_FAVICON_BYTES, signal })
   if (!res || res.status !== 200 || res.bytes.length === 0) return null
   return faviconHash(res.bytes)
 }

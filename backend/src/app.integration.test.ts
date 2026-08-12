@@ -14,6 +14,7 @@ let tmpDir = ''
 // Loosely typed to avoid threading drizzle types through the test.
 let db: any
 let domains: any
+let users: any
 
 beforeAll(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), 'recon-itest-'))
@@ -29,8 +30,10 @@ beforeAll(async () => {
   app = await mod.buildApp()
   await app.ready()
   db = (await import('./db/index')).db
-  domains = (await import('./db/schema')).domains
-})
+  const schema = await import('./db/schema')
+  domains = schema.domains
+  users = schema.users
+}, 30_000)
 
 afterAll(async () => {
   await app?.close()
@@ -101,5 +104,18 @@ describe('scan-policy gate', () => {
     const res = await nmap(id, { confirm: true })
     expect(res.statusCode).toBe(202)
     expect(typeof res.json().jobId).toBe('number')
+  })
+})
+
+describe('Today acknowledgement', () => {
+  it('keeps GET read-only and advances the marker only on acknowledgement', async () => {
+    const before = db.select().from(users).all()[0].lastDashboardViewedAt
+    const view = await app.inject({ method: 'GET', url: '/api/home/today', headers: { cookie } })
+    expect(view.statusCode).toBe(200)
+    expect(db.select().from(users).all()[0].lastDashboardViewedAt).toEqual(before)
+
+    const ack = await app.inject({ method: 'POST', url: '/api/home/today/ack', headers: { cookie } })
+    expect(ack.statusCode).toBe(200)
+    expect(db.select().from(users).all()[0].lastDashboardViewedAt).toBeInstanceOf(Date)
   })
 })

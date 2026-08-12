@@ -5,6 +5,7 @@
 // (requests go to the cloud provider endpoints, not the target).
 
 import { mapLimit } from '../util/async'
+import { guardedFetchBytes } from './guard'
 
 export type BucketState = 'open' | 'locked' | 'absent'
 
@@ -47,19 +48,11 @@ function classify(status: number): BucketState | null {
 // and S3/GCS answer GET the same as HEAD for existence. The body is cancelled
 // immediately, so this stays a status-only probe (no body download).
 async function probeStatus(url: string, signal?: AbortSignal): Promise<number | null> {
-  const c = new AbortController()
-  const t = setTimeout(() => c.abort(), TIMEOUT_MS)
-  // Combine the per-probe timeout with the caller's job signal so an aborted /
-  // timed-out job stops the bucket sweep promptly instead of running to the end.
-  const sig = signal ? AbortSignal.any([c.signal, signal]) : c.signal
   try {
-    const res = await fetch(url, { method: 'GET', redirect: 'manual', signal: sig, headers: { 'User-Agent': 'recon-dashboard/0.1' } })
-    await res.body?.cancel().catch(() => {})
-    return res.status
+    const res = await guardedFetchBytes(url, { timeoutMs: TIMEOUT_MS, maxBytes: 1024, signal, headers: { 'User-Agent': 'recon-dashboard/0.1' } })
+    return res?.status ?? null
   } catch {
     return null
-  } finally {
-    clearTimeout(t)
   }
 }
 

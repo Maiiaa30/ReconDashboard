@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { isSsrfParam, redirectsToAttacker } from './redirect'
+import { isSsrfParam, REDIRECT_PAYLOADS, redirectsToAttacker } from './redirect'
 
 const REQ = 'https://target.com/login?next=x'
 
 describe('redirectsToAttacker', () => {
+  it('ships userinfo, encoded-slash, fullwidth-slash and null-byte bypass payloads', () => {
+    expect(REDIRECT_PAYLOADS.some((p) => p.includes('@evil.example.org'))).toBe(true)
+    expect(REDIRECT_PAYLOADS.some((p) => p.includes('%2f@'))).toBe(true)
+    expect(REDIRECT_PAYLOADS.some((p) => p.includes('％') || p.includes('／'))).toBe(true)
+    expect(REDIRECT_PAYLOADS.some((p) => p.includes('%00'))).toBe(true)
+  })
   it('confirms an absolute redirect to the attacker host', () => {
     expect(redirectsToAttacker('https://evil.example.org/', REQ)).toBe(true)
   })

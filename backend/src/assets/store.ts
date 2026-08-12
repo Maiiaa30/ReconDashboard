@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '../db/index'
-import { assetFindings, assets, type AssetRow } from '../db/schema'
+import { assetFindings, assets, findingLinks, type AssetRow } from '../db/schema'
 
 // Durable asset inventory store. Upserts are keyed on (domain, kind, value) so a
 // re-scan refreshes lastSeen and enriches (ip/asn/cdn) without duplicating; the
@@ -53,7 +53,13 @@ export function upsertAsset(a: AssetInput): number {
 // Link an asset to a finding (idempotent). No-op for a null finding id.
 export function linkAssetFinding(assetId: number, findingId: number | null | undefined): void {
   if (findingId == null) return
+  const related = db.select({ findingId: assetFindings.findingId }).from(assetFindings).where(eq(assetFindings.assetId, assetId)).limit(100).all()
   db.insert(assetFindings).values({ assetId, findingId }).onConflictDoNothing().run()
+  for (const row of related) {
+    if (row.findingId === findingId) continue
+    const [fromId, toId] = row.findingId < findingId ? [row.findingId, findingId] : [findingId, row.findingId]
+    db.insert(findingLinks).values({ fromId, toId, kind: 'same_asset' }).onConflictDoNothing().run()
+  }
 }
 
 export function listAssets(domainId: number): AssetRow[] {
@@ -62,4 +68,8 @@ export function listAssets(domainId: number): AssetRow[] {
 
 export function countAssets(domainId: number): number {
   return db.select({ id: assets.id }).from(assets).where(eq(assets.domainId, domainId)).all().length
+}
+
+export function countSameAssetLinks(): number {
+  return db.select({ id: findingLinks.id }).from(findingLinks).where(eq(findingLinks.kind, 'same_asset')).all().length
 }

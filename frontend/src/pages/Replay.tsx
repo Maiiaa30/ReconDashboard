@@ -1885,6 +1885,7 @@ function PayloadLibrary({
     if (set) {
       onLoad(set.payloads)
       toast.success(`Loaded ${set.payloads.length} payloads from "${set.name}".`)
+      if ('notes' in set && set.notes?.length) toast.info(set.notes.join(' · '))
     }
   }
 

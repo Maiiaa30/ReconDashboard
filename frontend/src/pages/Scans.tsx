@@ -6,6 +6,7 @@ import { Badge, Button, Card, Empty, PageHeader, ScoreBadge } from '../component
 import { useConfirm } from '../components/Confirm'
 import { useToast } from '../components/Toast'
 import { timeAgo } from '../lib/format'
+import { takePendingScan } from '../lib/navigationHandoff'
 
 type Scheme = 'https' | 'http'
 
@@ -100,7 +101,9 @@ export function Scans() {
   usePoll(loadResults, 5000, selectedId != null)
 
   useEffect(() => {
-    setTarget(selected?.host ?? '')
+    const pending = takePendingScan()
+    setTarget(pending?.target ?? selected?.host ?? '')
+    if (pending?.ports) setPorts(pending.ports)
   }, [selected])
 
   if (!selected) return <Empty>Select a domain to run scans.</Empty>

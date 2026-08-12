@@ -17,11 +17,16 @@ const TICK_MS = 60_000
 
 export function startScheduler(log: FastifyBaseLogger): void {
   log.info('auto-monitor scheduler active (checks every 60s)')
+  timer = setInterval(() => runSchedulerTick(log), TICK_MS)
+  timer.unref()
+}
 
-  timer = setInterval(() => {
+// One deterministic scheduler pass, exported so orchestration is testable
+// without timers. Per-domain failures stay isolated inside this function.
+export function runSchedulerTick(log: FastifyBaseLogger, nowMs = Date.now()): void {
     let due: ReturnType<typeof domainsDueForMonitoring>
     try {
-      due = domainsDueForMonitoring(Date.now())
+      due = domainsDueForMonitoring(nowMs)
     } catch (err) {
       log.error({ err }, 'auto-monitor tick failed')
       return
@@ -54,7 +59,7 @@ export function startScheduler(log: FastifyBaseLogger): void {
         if (d.mode !== 'active_authorized') continue
         if (hasPendingJob('leak_check', d.id)) continue
         const last = lastJobAt('leak_check', d.id)
-        if (last && Date.now() - last.getTime() < LEAK_CHECK_INTERVAL_MS) continue
+        if (last && nowMs - last.getTime() < LEAK_CHECK_INTERVAL_MS) continue
         try {
           enqueueJob('leak_check', { domainId: d.id })
           log.info({ domain: d.host }, 'daily leak-check enqueued')
@@ -72,7 +77,7 @@ export function startScheduler(log: FastifyBaseLogger): void {
         if (d.mode !== 'active_authorized') continue
         if (hasPendingJob('code_leak', d.id)) continue
         const last = lastJobAt('code_leak', d.id)
-        if (last && Date.now() - last.getTime() < CODE_LEAK_INTERVAL_MS) continue
+        if (last && nowMs - last.getTime() < CODE_LEAK_INTERVAL_MS) continue
         try {
           enqueueJob('code_leak', { domainId: d.id })
           log.info({ domain: d.host }, 'daily code-leak search enqueued')
@@ -81,8 +86,6 @@ export function startScheduler(log: FastifyBaseLogger): void {
         }
       }
     }
-  }, TICK_MS)
-  timer.unref()
 }
 
 export function stopScheduler(): void {

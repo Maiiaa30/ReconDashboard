@@ -24,6 +24,15 @@ describe('diffSnapshot', () => {
     expect(diffSnapshot(snap(), snap())).toEqual([])
   })
 
+  it('detects page-title and certificate changes', () => {
+    const changes = diffSnapshot(
+      snap({ title: 'Old portal', certFp: 'AA' }),
+      snap({ title: 'New portal', certFp: 'BB' }),
+    )
+    expect(changes).toContainEqual({ kind: 'title_changed', from: 'Old portal', to: 'New portal' })
+    expect(changes).toContainEqual({ kind: 'cert_changed', from: 'AA', to: 'BB' })
+  })
+
   it('does not flag a REMOVED port as a change (only additions/up/down)', () => {
     const changes = diffSnapshot(snap({ ports: [80, 443, 22] }), snap({ ports: [80, 443] }))
     expect(changes.filter((c) => c.kind === 'new_port')).toEqual([])

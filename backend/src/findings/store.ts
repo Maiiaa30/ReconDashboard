@@ -24,6 +24,76 @@ export type FindingType =
   | 'param'
   | 'asset_change'
 
+export interface FindingDataBase {
+  [key: string]: unknown
+  host?: string
+  hostnames?: string[]
+  target?: string
+  ip?: string
+  url?: string
+  matched?: string
+  endpoint?: string
+  domain?: string
+  kind?: string
+  name?: string
+  category?: string
+  tool?: string
+  templateId?: string
+  specUrl?: string
+  cveId?: string
+  objectId?: string | number
+  param?: string
+  transport?: string
+  change?: string
+  detail?: string
+  repo?: string
+  path?: string
+  email?: string
+  username?: string
+  password?: string
+  hashedPassword?: string
+  source?: string
+  title?: string
+  status?: string | number
+  severity?: string
+  provider?: string
+  ports?: number[]
+  openPorts?: unknown[]
+  cves?: Array<{ cvss_v3?: number; cvss?: number; kev?: boolean }>
+  vulns?: unknown[]
+  confirmedOrigins?: Array<{ ip?: string }>
+  asn?: { asn?: string; asName?: string }
+  tech?: Record<string, unknown>
+  wayback?: { withParams?: string[] }
+  commoncrawl?: { withParams?: string[] }
+  _scoreReasons?: string[]
+}
+
+export interface FindingDataByType {
+  new_subdomain: FindingDataBase & { host?: string }
+  exposure: FindingDataBase & { ip?: string; ports?: unknown[]; vulns?: unknown[] }
+  osint: FindingDataBase & { domain?: string; kind?: string }
+  nmap: FindingDataBase & { target?: string }
+  nuclei: FindingDataBase & { templateId?: string; matched?: string; target?: string }
+  ffuf: FindingDataBase & { url?: string }
+  origin: FindingDataBase & { domain?: string }
+  owasp: FindingDataBase & { category?: string; name?: string; url?: string }
+  tool: FindingDataBase & { tool?: string; target?: string }
+  cve_new: FindingDataBase & { ip?: string; cveId?: string }
+  leak: FindingDataBase
+  api: FindingDataBase & { kind?: string; endpoint?: string; host?: string; specUrl?: string }
+  secret: FindingDataBase & { repo?: string; path?: string }
+  authz: FindingDataBase & { url?: string; objectId?: string | number }
+  param: FindingDataBase & { url?: string; param?: string; transport?: string }
+  asset_change: FindingDataBase & { ip?: string; change?: string; detail?: string }
+}
+
+export type FindingData<T extends FindingType = FindingType> = FindingDataByType[T]
+
+export function asFindingData(data: unknown): FindingData {
+  return data != null && typeof data === 'object' ? (data as FindingData) : {}
+}
+
 // Triage lifecycle state.
 export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'resolved' | 'ignored'
 export const FINDING_STATUSES: FindingStatus[] = ['open', 'confirmed', 'false_positive', 'resolved', 'ignored']
@@ -37,8 +107,9 @@ export interface NewFinding {
 }
 
 // Stable identity for a finding so re-scans update the same row, not a dupe.
-export function findingKey(type: string, data: any): string | null {
-  if (!data) return null
+export function findingKey(type: string, input: unknown): string | null {
+  if (!input) return null
+  const data = asFindingData(input)
   switch (type) {
     case 'new_subdomain':
       return data.host ? `host:${data.host}` : null
@@ -91,7 +162,7 @@ export function findingKey(type: string, data: any): string | null {
 
 // Promote the correlation join keys out of the JSON blob. Best-effort; all nullable.
 function deriveColumns(data: unknown): { host: string | null; ip: string | null; url: string | null } {
-  const d = (data ?? {}) as Record<string, any>
+  const d = asFindingData(data)
   const str = (v: unknown): string | null => (typeof v === 'string' && v ? v.slice(0, 512) : null)
   return {
     host: str(d.host) ?? (Array.isArray(d.hostnames) ? str(d.hostnames[0]) : null) ?? str(d.target),
@@ -202,7 +273,7 @@ export function listFindings(
 }
 
 function mapRow(r: typeof findings.$inferSelect, data: unknown) {
-  return { ...r, data, tags: safeJsonParse<string[]>(r.tags, []) }
+  return { ...r, type: r.type as FindingType, data: asFindingData(data), tags: safeJsonParse<string[]>(r.tags, []) }
 }
 
 export function updateFindingScore(id: number, score: number, tags: string[]): void {

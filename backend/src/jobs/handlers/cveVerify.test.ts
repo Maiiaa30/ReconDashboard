@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyCveVerify } from './cveVerify'
+import { classifyCveVerify, shouldRetryCveByTag } from './cveVerify'
 
 // The three-way outcome is the correctness-critical part of CVE verification: a
 // missing template and a template that ran-but-didn't-match BOTH produce zero
@@ -26,5 +26,14 @@ describe('classifyCveVerify', () => {
     // A zero-template run must be no_template, not not_reproduced — the latter
     // implies "we checked and it's fine", which is exactly the wrong signal.
     expect(classifyCveVerify(0, 'Templates loaded for current scan: 0')).not.toBe('not_reproduced')
+  })
+})
+
+describe('CVE tag fallback', () => {
+  it('retries only when the id selector loaded no template', () => {
+    expect(shouldRetryCveByTag(0, 'Templates loaded for current scan: 0')).toBe(true)
+    expect(shouldRetryCveByTag(0, 'Templates loaded for current scan: 1')).toBe(false)
+    expect(shouldRetryCveByTag(1, 'Templates loaded for current scan: 0')).toBe(false)
+    expect(shouldRetryCveByTag(0, 'Templates loaded for current scan: 0', true)).toBe(false)
   })
 })

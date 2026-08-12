@@ -3,8 +3,8 @@ import { getDomain } from '../domains/store'
 import { listSubdomains } from '../subdomains/store'
 import { safeJsonParse } from '../util/json'
 import { parseScopeConfig } from '../util/scope'
-import { listFindings } from './store'
-import { isHigh, severityBucket } from './severity'
+import { getFindingLinks, listFindings, type FindingDataBase } from './store'
+import { findingSeverity, isHigh } from './severity'
 
 // Engagement report for a single domain, built from stored recon data. A shared
 // model (gather) feeds both the Markdown and the self-contained HTML builders, so
@@ -26,7 +26,7 @@ function esc(s: unknown): string {
     .replace(/"/g, '&quot;')
 }
 
-function summarize(type: string, data: any): string {
+function summarize(type: string, data: FindingDataBase): string {
   if (!data) return type
   switch (type) {
     case 'new_subdomain':
@@ -44,7 +44,7 @@ function summarize(type: string, data: any): string {
     case 'tool':
       return `${data.tool ?? 'tool'}: ${data.title ?? ''}`
     case 'origin':
-      return `${data.domain ?? ''} — ${data.provider ? `behind ${data.provider}` : 'no CDN'}${(data.confirmedOrigins ?? []).length ? `, origin ${data.confirmedOrigins[0]?.ip}` : ''}`
+      return `${data.domain ?? ''} — ${data.provider ? `behind ${data.provider}` : 'no CDN'}${(data.confirmedOrigins ?? []).length ? `, origin ${data.confirmedOrigins?.[0]?.ip}` : ''}`
     case 'osint':
       return `OSINT for ${data.domain ?? ''}`
     case 'cve_new':
@@ -106,24 +106,24 @@ function gather(id: number): ReportModel | null {
   // Set (not array + .includes) so the reportable filter is O(n), not O(n²) on a
   // large finding set.
   const noise = new Set(
-    findings.filter((f) => (f as any).status === 'false_positive' || (f as any).status === 'ignored'),
+    findings.filter((f) => f.status === 'false_positive' || f.status === 'ignored'),
   )
   const reportable = findings.filter((f) => !noise.has(f))
   // Bucket via the shared severity helper so these match the snapshot summary
   // exactly (info-level findings, score < 20, fall outside the high/medium/low split).
-  const high = reportable.filter((f) => isHigh(severityBucket(f.score)))
-  const medium = reportable.filter((f) => severityBucket(f.score) === 'medium')
-  const low = reportable.filter((f) => severityBucket(f.score) === 'low')
-  const byStatus = (s: string) => findings.filter((f) => (f as any).status === s).length
-  const confirmed = reportable.filter((f) => (f as any).status === 'confirmed')
+  const high = reportable.filter((f) => isHigh(findingSeverity(f)))
+  const medium = reportable.filter((f) => findingSeverity(f) === 'medium')
+  const low = reportable.filter((f) => findingSeverity(f) === 'low')
+  const byStatus = (s: string) => findings.filter((f) => f.status === s).length
+  const confirmed = reportable.filter((f) => f.status === 'confirmed')
 
   const exposures = findings.filter((f) => f.type === 'exposure')
-  const ips = new Set(exposures.map((f: any) => f.data?.ip).filter(Boolean))
-  const ports = exposures.reduce((n, f: any) => n + (f.data?.ports?.length ?? 0), 0)
-  const cves = exposures.reduce((n, f: any) => n + (f.data?.vulns?.length ?? 0), 0)
+  const ips = new Set(exposures.map((f) => f.data.ip).filter(Boolean))
+  const ports = exposures.reduce((n, f) => n + (f.data.ports?.length ?? 0), 0)
+  const cves = exposures.reduce((n, f) => n + (f.data.vulns?.length ?? 0), 0)
 
-  const osint = findings.find((f) => f.type === 'osint') as any
-  const tech = osint?.data?.tech && !('error' in osint.data.tech) ? osint.data.tech : null
+  const osint = findings.find((f) => f.type === 'osint')
+  const tech = osint?.data.tech && !('error' in osint.data.tech) ? osint.data.tech : null
 
   const typesPresent = new Set(findings.map((f) => f.type))
   const methods = [...typesPresent].map((t) => TYPE_METHOD[t]).filter(Boolean) as string[]
@@ -149,7 +149,7 @@ function gather(id: number): ReportModel | null {
 // Deterministic one-paragraph executive summary from the model.
 function execSummary(m: ReportModel): string {
   const top = m.confirmed[0] ?? m.high[0] ?? m.medium[0]
-  const topStr = top ? ` The most notable is "${summarize(top.type, (top as any).data)}" (score ${top.score ?? '—'}).` : ''
+  const topStr = top ? ` The most notable is "${summarize(top.type, top.data)}" (score ${top.score ?? '—'}).` : ''
   const risk = m.high.length ? 'elevated' : m.medium.length ? 'moderate' : 'low'
   return (
     `Assessment of ${m.domain.host} surfaced ${m.reportable.length} reportable finding(s) — ` +
@@ -171,7 +171,7 @@ function windowStr(domain: Domain): string {
 }
 
 function scoreReasonsOf(f: Row): string[] {
-  const r = (f as any).data?._scoreReasons
+  const r = f.data._scoreReasons
   return Array.isArray(r) ? r.map(String) : []
 }
 
@@ -183,7 +183,7 @@ function severityTable(rows: Row[]): string {
   const body = rows
     .map(
       (f) =>
-        `| ${f.score ?? '—'} | ${cell(f.type)} | ${cell(summarize(f.type, (f as any).data))} | ${cell(STATUS_LABEL[(f as any).status] ?? (f as any).status)} | ${cell((f.tags ?? []).join(', '))} |`,
+        `| ${f.score ?? '—'} | ${cell(f.type)} | ${cell(summarize(f.type, f.data))} | ${cell(STATUS_LABEL[f.status] ?? f.status)} | ${cell((f.tags ?? []).join(', '))} |`,
     )
     .join('\n')
   return head + body + '\n'
@@ -246,14 +246,23 @@ export function buildDomainReport(id: number, generatedAtIso: string): string | 
   if (detailed.length) {
     lines.push(`## Finding detail (${detailed.length})`, '')
     for (const f of detailed) {
-      lines.push(`### ${cell(summarize(f.type, (f as any).data))} — score ${f.score ?? '—'} (${STATUS_LABEL[(f as any).status] ?? 'open'})`, '')
+      lines.push(`### ${cell(summarize(f.type, f.data))} — score ${f.score ?? '—'} (${STATUS_LABEL[f.status] ?? 'open'})`, '')
       const reasons = scoreReasonsOf(f)
       if (reasons.length) {
         lines.push('**Why this score:**')
         for (const r of reasons) lines.push(`- ${cell(r)}`)
         lines.push('')
       }
-      if ((f as any).note) lines.push(`**Analyst note:** ${cell((f as any).note)}`, '')
+      if (f.note) lines.push(`**Analyst note:** ${cell(f.note)}`, '')
+      const links = getFindingLinks(f.id)
+      if (links.length) {
+        lines.push('**Linked evidence:**')
+        for (const link of links) {
+          const relation = link.direction === 'outgoing' ? link.kind : `${link.kind} (incoming)`
+          lines.push(`- ${cell(relation)}: #${link.finding.id} ${cell(summarize(link.finding.type, link.finding.data))}`)
+        }
+        lines.push('')
+      }
       const ev = collectEvidence(f)
       if (ev.length) {
         lines.push('**Evidence:**', '', '```', evidenceText(ev), '```', '')
@@ -274,7 +283,7 @@ export function buildDomainReport(id: number, generatedAtIso: string): string | 
 
   if (m.exposure.rows.length) {
     lines.push('## Exposure', '', '| IP | Ports | CVEs |', '|---|---|---|')
-    for (const f of m.exposure.rows as any[]) {
+    for (const f of m.exposure.rows) {
       lines.push(`| ${cell(f.data?.ip)} | ${cell((f.data?.ports ?? []).join(', '))} | ${cell((f.data?.vulns ?? []).join(', '))} |`)
     }
     lines.push('')
@@ -318,7 +327,7 @@ function htmlTable(rows: Row[]): string {
   const body = rows
     .map(
       (f) =>
-        `<tr><td class="num">${f.score ?? '—'}</td><td>${esc(f.type)}</td><td>${esc(summarize(f.type, (f as any).data))}</td><td>${esc(STATUS_LABEL[(f as any).status] ?? (f as any).status)}</td><td class="tags">${esc((f.tags ?? []).join(', '))}</td></tr>`,
+        `<tr><td class="num">${f.score ?? '—'}</td><td>${esc(f.type)}</td><td>${esc(summarize(f.type, f.data))}</td><td>${esc(STATUS_LABEL[f.status] ?? f.status)}</td><td class="tags">${esc((f.tags ?? []).join(', '))}</td></tr>`,
     )
     .join('')
   return `<table><thead><tr><th>Score</th><th>Type</th><th>Summary</th><th>Status</th><th>Tags</th></tr></thead><tbody>${body}</tbody></table>`
@@ -330,17 +339,19 @@ export function buildDomainReportHtml(id: number, generatedAtIso: string): strin
   m.generatedAtIso = generatedAtIso
   const { domain } = m
   const scope = scopeSummary(domain)
-  const sev = (f: Row) => ((f.score ?? 0) >= 70 ? 'high' : (f.score ?? 0) >= 40 ? 'medium' : 'low')
+  const sev = (f: Row) => (isHigh(findingSeverity(f)) ? 'high' : findingSeverity(f) === 'medium' ? 'medium' : 'low')
 
   const detailed = [...m.confirmed, ...m.high.filter((f) => !m.confirmed.includes(f))]
   const detailHtml = detailed
     .map((f) => {
       const reasons = scoreReasonsOf(f)
       const reasonsHtml = reasons.length ? `<div class="why"><strong>Why this score</strong><ul>${reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></div>` : ''
-      const note = (f as any).note ? `<p><strong>Analyst note:</strong> ${esc((f as any).note)}</p>` : ''
+      const note = f.note ? `<p><strong>Analyst note:</strong> ${esc(f.note)}</p>` : ''
       const ev = collectEvidence(f)
       const evHtml = ev.length ? `<details open><summary>Evidence (${ev.length})</summary><pre>${esc(evidenceText(ev))}</pre></details>` : ''
-      return `<div class="detail sev-${sev(f)}"><h3>${esc(summarize(f.type, (f as any).data))} <span class="score">${f.score ?? '—'}</span></h3><div class="badge">${esc(STATUS_LABEL[(f as any).status] ?? 'open')}</div>${reasonsHtml}${note}${evHtml}</div>`
+      const links = getFindingLinks(f.id)
+      const linksHtml = links.length ? `<div class="why"><strong>Linked evidence</strong><ul>${links.map((l) => `<li>${esc(l.direction === 'outgoing' ? l.kind : `${l.kind} (incoming)`)}: #${l.finding.id} ${esc(summarize(l.finding.type, l.finding.data))}</li>`).join('')}</ul></div>` : ''
+      return `<div class="detail sev-${sev(f)}"><h3>${esc(summarize(f.type, f.data))} <span class="score">${f.score ?? '—'}</span></h3><div class="badge">${esc(STATUS_LABEL[f.status] ?? 'open')}</div>${reasonsHtml}${note}${linksHtml}${evHtml}</div>`
     })
     .join('')
 

@@ -1,6 +1,6 @@
 import { config } from '../config'
 import { llmCompleteJson } from '../util/llm'
-import { listFindings } from '../findings/store'
+import { asFindingData, listFindings } from '../findings/store'
 import { listSubdomains } from '../subdomains/store'
 import { hostBelongsToDomain } from '../util/validate'
 import { getDomain } from './store'
@@ -58,9 +58,9 @@ export interface IntelAdvice {
 function paramUrls(findings: Finding[]): string[] {
   const out = new Set<string>()
   for (const f of findings) {
-    const d = (f.data ?? {}) as any
-    for (const src of ['wayback', 'commoncrawl']) {
-      if (Array.isArray(d?.[src]?.withParams)) for (const u of d[src].withParams) out.add(String(u))
+    const d = asFindingData(f.data)
+    for (const archive of [d.wayback, d.commoncrawl]) {
+      if (Array.isArray(archive?.withParams)) for (const u of archive.withParams) out.add(String(u))
     }
     for (const key of ['url', 'matched']) {
       if (typeof d[key] === 'string' && d[key].includes('?')) out.add(d[key])
@@ -70,7 +70,7 @@ function paramUrls(findings: Finding[]): string[] {
 }
 
 function desc(f: Finding): string {
-  const d = (f.data ?? {}) as any
+  const d = asFindingData(f.data)
   return String(
     d.name ?? d.title ?? d.category ?? d.ip ?? d.host ?? d.url ?? d.matched ?? f.type,
   ).slice(0, 160)
@@ -110,7 +110,7 @@ export function buildIntelFacts(domainId: number): string {
 
   // Injection / reflected-input signals the app already found.
   const inj = findings.filter((f) => {
-    const d = (f.data ?? {}) as any
+    const d = asFindingData(f.data)
     const name = String(d.name ?? d.title ?? '').toLowerCase()
     const cat = String(d.category ?? '')
     const tags = (f.tags ?? []).join(' ').toLowerCase()
@@ -122,7 +122,7 @@ export function buildIntelFacts(domainId: number): string {
   if (inj.length) {
     lines.push('', 'Injection / reflected-input findings:')
     for (const f of inj.slice(0, 20)) {
-      const d = (f.data ?? {}) as any
+      const d = asFindingData(f.data)
       const where = d.url ? ` @ ${d.url}` : d.matched ? ` @ ${d.matched}` : ''
       lines.push(`- [${f.score ?? '—'}] ${f.type}: ${desc(f)}${where}`)
     }
@@ -199,11 +199,12 @@ function normItems(x: unknown): AdviceItem[] {
 // or out-of-scope buttons in the UI.
 function normAction(raw: unknown, domainHost: string): AdviceAction | undefined {
   if (!raw || typeof raw !== 'object') return undefined
-  const kind = str((raw as any).kind).trim().toLowerCase()
+  const action = raw as Record<string, unknown>
+  const kind = str(action.kind).trim().toLowerCase()
   if (!(ACTION_KINDS as readonly string[]).includes(kind)) return undefined
   // owasp always runs against the domain host regardless of the suggested target.
   if (kind === 'owasp') return { kind: kind as ActionKind, target: domainHost }
-  let target = str((raw as any).target).trim().toLowerCase()
+  let target = str(action.target).trim().toLowerCase()
   if (target.includes('://')) {
     try {
       target = new URL(target).hostname

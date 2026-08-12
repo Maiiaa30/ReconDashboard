@@ -97,6 +97,7 @@ export async function exposureHandler({ params, log, signal }: JobContext) {
         const ipAssetId = upsertAsset({ domainId, kind: 'ip', value: ip, ip, asn: asn?.asn ?? null, asnName: asn?.asName ?? null, cdn })
         linkAssetFinding(ipAssetId, fid)
         for (const h of hostSet) linkAssetFinding(upsertAsset({ domainId, kind: 'host', value: h, ip }), fid)
+        for (const port of rec.ports) linkAssetFinding(upsertAsset({ domainId, kind: 'service', value: `${ip}:${port}`, ip, port }), fid)
 
         // "New CVE on a known asset" watch: rec.vulns is the authoritative CVE-id
         // set for this IP; enrich each with cvss/kev from the cvedb records. Record
@@ -156,6 +157,10 @@ export async function exposureHandler({ params, log, signal }: JobContext) {
       async (host) => {
         const sig = await collectHostSignature(host, signal)
         if (sig.certFp || sig.faviconHash != null) updateSignature(domainId, host, sig)
+        const hostChanges = recordAndDetectChanges(domainId, `host:${host}`, {
+          ports: [], tech: [], up: sig.reachable, title: sig.title, certFp: sig.certFp,
+        })
+        if (hostChanges.length) await alertChanges(domainId, `host:${host}`, [host], hostChanges)
       },
       undefined,
     )

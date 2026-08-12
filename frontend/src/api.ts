@@ -250,6 +250,11 @@ export interface Finding {
   type: string
   data: any
   score: number | null
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info' | null
+  host: string | null
+  ip: string | null
+  url: string | null
+  jobId: number | null
   tags: string[]
   status: FindingStatus
   note: string | null
@@ -504,7 +509,8 @@ export interface HomeFinding {
 export interface RecentChange {
   id: number
   domainId: number | null
-  data: { ip?: string; host?: string; cveId?: string; cvss?: number | null; kev?: boolean }
+  type: 'cve_new' | 'asset_change'
+  data: { ip?: string; host?: string; cveId?: string; cvss?: number | null; kev?: boolean; title?: string; detail?: string; action?: { kind: 'nmap' | 'owasp'; label: string; target: string } }
   score: number | null
   createdAt: string
 }
@@ -539,9 +545,9 @@ export const api = {
 
   // engagement home (cross-target overview + top open findings + recent changes)
   home: () => get<{ overview: DomainOverview[]; topFindings: HomeFinding[]; recentChanges: RecentChange[] }>('/home'),
-  // "Today" — new/risky since last visit. Fetching also advances the last-viewed
-  // marker server-side, so call it once per Home mount (not on the poll).
+  // "Today" — new/risky since the last explicit acknowledgement.
   today: () => get<TodayData>('/home/today'),
+  acknowledgeToday: () => post<{ viewedAt: string }>('/home/today/ack'),
 
   // meta
   meta: () => get<MetaStatus>('/meta/status'),
@@ -748,7 +754,7 @@ export const api = {
   // payload library + encoders (session-authed, not scan-gated)
   payloads: () =>
     get<{
-      builtins: { id: string; name: string; category: string; payloads: string[] }[]
+      builtins: { id: string; name: string; category: string; payloads: string[]; notes?: string[] }[]
       grepPhrases: { id: string; name: string; phrases: string[] }[]
       custom: { id: number; name: string; category: string | null; payloads: string[] }[]
       transforms: string[]

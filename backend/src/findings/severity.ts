@@ -19,3 +19,11 @@ export function severityBucket(score: number | null | undefined): Severity {
 export function isHigh(sev: Severity): boolean {
   return sev === 'critical' || sev === 'high'
 }
+
+// Prefer the persisted severity column. The score fallback keeps pre-migration
+// rows readable until they are refreshed by a scan.
+export function findingSeverity(finding: { severity?: string | null; score?: number | null }): Severity {
+  const stored = finding.severity
+  if (stored === 'critical' || stored === 'high' || stored === 'medium' || stored === 'low' || stored === 'info') return stored
+  return severityBucket(finding.score)
+}

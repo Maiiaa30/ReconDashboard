@@ -1,5 +1,5 @@
 import { cdnForIp } from '../sources/cdn'
-import { listFindings } from '../findings/store'
+import { listFindings, type FindingDataBase } from '../findings/store'
 import { listAssets } from '../assets/store'
 import { listSignatures } from '../subdomains/store'
 
@@ -43,6 +43,7 @@ export function correlateDomain(domainId: number): AttackPath[] {
 function buildCorrelation(domainId: number): AttackPath[] {
   const assets = listAssets(domainId)
   const ipAssets = assets.filter((a) => a.kind === 'ip')
+  const serviceAssets = assets.filter((a) => a.kind === 'service' && a.ip && a.port != null)
   const cdnIps = new Set(ipAssets.filter((a) => a.cdn).map((a) => a.ip ?? a.value))
 
   // Hosts per IP from the durable host assets (skip CDN edges — don't over-link).
@@ -54,10 +55,10 @@ function buildCorrelation(domainId: number): AttackPath[] {
   }
 
   // Volatile per-IP detail (ports/CVEs/score) still lives on the exposure finding.
-  const expByIp = new Map<string, { data: any; score: number }>()
+  const expByIp = new Map<string, { data: FindingDataBase; score: number }>()
   for (const f of listFindings({ domainId, type: 'exposure', limit: 5000 })) {
-    const ip = (f.data as any)?.ip
-    if (ip) expByIp.set(ip, { data: f.data ?? {}, score: f.score ?? 0 })
+    const ip = f.data.ip
+    if (ip) expByIp.set(ip, { data: f.data, score: f.score ?? 0 })
   }
 
   const ipAssetByIp = new Map(ipAssets.map((a) => [a.ip ?? a.value, a]))
@@ -69,10 +70,10 @@ function buildCorrelation(domainId: number): AttackPath[] {
   for (const ip of allIps) {
     const asset = ipAssetByIp.get(ip)
     const exp = expByIp.get(ip)
-    const d = (exp?.data ?? {}) as any
+    const d = exp?.data ?? {}
     const cdn = asset?.cdn ?? cdnForIp(ip)
     const hosts = new Set<string>([...(Array.isArray(d.hostnames) ? d.hostnames : []), ...(hostsByIp.get(ip) ?? [])])
-    const cves: any[] = Array.isArray(d.cves) ? d.cves : []
+    const cves = d.cves ?? []
     const worstCvss = cves.length ? Math.max(0, ...cves.map((c) => Number(c?.cvss_v3 ?? c?.cvss ?? 0))) : null
     paths.push({
       ip,
@@ -80,7 +81,7 @@ function buildCorrelation(domainId: number): AttackPath[] {
       asn: asset?.asn ?? d.asn?.asn ?? null,
       asnName: asset?.asnName ?? d.asn?.asName ?? null,
       hosts: [...hosts],
-      ports: Array.isArray(d.ports) ? d.ports : [],
+      ports: [...new Set([...serviceAssets.filter((a) => a.ip === ip).map((a) => a.port!), ...(Array.isArray(d.ports) ? d.ports : [])])].sort((a, b) => a - b),
       cveCount: Array.isArray(d.vulns) ? d.vulns.length : 0,
       worstCvss: worstCvss && worstCvss > 0 ? worstCvss : null,
       kev: cves.some((c) => c?.kev),

@@ -8,6 +8,7 @@ import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { RISK_SCORE_CLASS, riskFromScore, summarizeFinding, timeAgo } from '../lib/format'
+import { setPendingScan } from '../lib/navigationHandoff'
 
 // Score-badge colors live in lib/format (shared with Findings) to avoid drift.
 const RISK_SCORE = RISK_SCORE_CLASS
@@ -22,14 +23,16 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
   const [changes, setChanges] = useState<RecentChange[]>([])
   const [today, setToday] = useState<TodayData | null>(null)
 
-  // Fetch "Today" exactly once per mount — the endpoint advances the server-side
-  // last-viewed marker, so it must NOT be on the poll (the ref survives a
-  // StrictMode double-invoke in dev).
+  // Fetch and acknowledge "Today" exactly once per mount. The ref survives a
+  // StrictMode double-invoke in dev.
   const todayFetched = useRef(false)
   useEffect(() => {
     if (todayFetched.current) return
     todayFetched.current = true
-    api.today().then(setToday).catch(() => {})
+    api.today().then((data) => {
+      setToday(data)
+      void api.acknowledgeToday().catch(() => {})
+    }).catch(() => {})
   }, [])
 
   const load = useCallback(() => {
@@ -126,32 +129,37 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
         />
       </div>
 
-      {/* What changed — new CVEs that appeared on already-tracked assets */}
+      {/* What changed — new CVEs and material asset changes */}
       {changes.length > 0 && (
         <Card className="mb-5 border-red-900/50 bg-red-950/10">
           <div className="mb-2 flex items-center gap-2">
             <Bell size={16} className="text-red-400" />
-            <h2 className="text-sm font-semibold text-red-200">What changed — new CVEs on known assets</h2>
+            <h2 className="text-sm font-semibold text-red-200">What changed on known assets</h2>
             <span className="ml-auto text-xs text-zinc-500">{changes.length}</span>
           </div>
           <div className="space-y-1.5">
             {changes.map((c) => (
-              <button
+              <div
                 key={c.id}
-                onClick={() => navigate('findings', c.domainId ?? undefined)}
                 className="flex w-full items-center gap-3 rounded-lg border border-red-900/30 bg-ink-900/50 px-3 py-2 text-left transition hover:border-red-800/60"
               >
                 <span className="flex h-7 shrink-0 items-center rounded-lg bg-red-950 px-2 text-xs font-semibold text-red-300 ring-1 ring-red-800">
                   {c.score ?? '—'}
                 </span>
-                <span className="font-mono text-sm text-zinc-100">{c.data.cveId ?? 'CVE'}</span>
+                <button className="min-w-0 flex-1 text-left" onClick={() => navigate('findings', c.domainId ?? undefined)}>
+                  <span className="block truncate font-mono text-sm text-zinc-100">{c.data.cveId ?? c.data.title ?? 'Asset change'}</span>
+                  <span className="block truncate text-xs text-zinc-400">{c.data.detail ?? `on ${c.data.host ?? c.data.ip ?? '?'}`}</span>
+                </button>
                 {c.data.kev && <Badge tone="red">KEV</Badge>}
                 {c.data.cvss != null && <span className="text-xs text-zinc-400">CVSS {c.data.cvss}</span>}
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-400">
-                  on {c.data.host ?? c.data.ip ?? '?'}
-                </span>
+                {c.data.action && (
+                  <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => {
+                    if (c.data.action?.kind === 'nmap') setPendingScan({ target: c.data.action.target })
+                    navigate(c.data.action?.kind === 'nmap' ? 'scans' : 'owasp', c.domainId ?? undefined)
+                  }}>{c.data.action.label}</Button>
+                )}
                 <span className="shrink-0 text-xs text-zinc-500">{timeAgo(new Date(c.createdAt).getTime())}</span>
-              </button>
+              </div>
             ))}
           </div>
         </Card>

@@ -30,6 +30,14 @@ const AUTHZ_PARAM_RE = /^(is_?admin|admin|role|priv|privilege|user_?id|uid|accou
 const OAUTH_RE = /(oauth|openid|\/authorize|\/auth\/|\/sso\/|response_type=|redirect_uri=)/i
 const AUTH_ENDPOINT_RE = /(login|signin|token|session|account|api\/user|graphql|admin)/i
 
+function actionTarget(value: string, fallback: string): string {
+  try {
+    return new URL(value).hostname || fallback
+  } catch {
+    return fallback
+  }
+}
+
 // Pure core: turn the finding set into grounded suggestions. `findings` is
 // whatever listFindings returns for a domain.
 export function buildChainSuggestions(findings: Finding[], domainHost: string): ChainSuggestion[] {
@@ -56,18 +64,26 @@ export function buildChainSuggestions(findings: Finding[], domainHost: string): 
       rationale: `The JWT signing secret is cracked, so you can mint valid tokens with arbitrary claims. Forge one with an elevated role/claim and replay a protected request${ep ? ` (e.g. ${urlOf(ep)})` : ''} — drive it through the Authz (IDOR) diff as identity B.`,
       severity: 'critical',
       findingIds: [jwtCracked[0].id, ...(ep ? [ep.id] : [])],
+      action: { kind: 'owasp', target: actionTarget(ep ? urlOf(ep) : '', domainHost) },
     })
   }
 
   // 2) A honored authorization-shaped param → seed authz_diff / Intruder with it.
-  const authzParams = params.filter((f) => AUTHZ_PARAM_RE.test(String(data(f).param ?? '')))
+  const authzTemplates = findings.filter((f) => f.type === 'authz')
+  const authzParams = params.filter((f) => AUTHZ_PARAM_RE.test(String(data(f).param ?? '')) && authzTemplates.some((a) => {
+    const aUrl = urlOf(a)
+    const pUrl = urlOf(f)
+    return !aUrl || !pUrl || actionTarget(aUrl, domainHost) === actionTarget(pUrl, domainHost)
+  }))
   for (const p of authzParams.slice(0, 3)) {
+    const template = authzTemplates.find((a) => actionTarget(urlOf(a), domainHost) === actionTarget(urlOf(p), domainHost)) ?? authzTemplates[0]
     out.push({
       id: `chain:authz-param:${p.id}`,
       title: `Test the honored "${data(p).param}" parameter for broken access control`,
       rationale: `${urlOf(p) || domainHost} honors "${data(p).param}", an authorization-shaped parameter the app does not document. Send it to Intruder (it is pre-marked) or seed an Authz diff to check whether toggling it escalates privilege or exposes another user's object.`,
       severity: 'high',
-      findingIds: [p.id],
+      findingIds: [p.id, template.id],
+      action: { kind: 'owasp', target: actionTarget(urlOf(p), domainHost) },
     })
   }
 
@@ -81,6 +97,7 @@ export function buildChainSuggestions(findings: Finding[], domainHost: string): 
       rationale: `An open redirect (${urlOf(openRedirects[0])}) plus an OAuth/SSO endpoint (${urlOf(oauthEps[0])}) is the classic redirect_uri account-takeover: if the redirect is reachable from the authorize flow, a crafted redirect_uri can leak the code/token. Verify the redirect_uri allowlist.`,
       severity: 'high',
       findingIds: [openRedirects[0].id, oauthEps[0].id],
+      action: { kind: 'owasp', target: actionTarget(urlOf(openRedirects[0]), domainHost) },
     })
   }
 
@@ -93,6 +110,7 @@ export function buildChainSuggestions(findings: Finding[], domainHost: string): 
       rationale: `${urlOf(s)} reflects a fetched URL and its name suggests a server-side request. Load the SSRF payload set (IMDS 169.254.169.254, localhost, gopher) into Intruder for this parameter — cloud metadata credentials are the high-value target. No probe was sent automatically.`,
       severity: 'high',
       findingIds: [s.id],
+      action: { kind: 'owasp', target: actionTarget(urlOf(s), domainHost) },
     })
   }
 
@@ -105,6 +123,7 @@ export function buildChainSuggestions(findings: Finding[], domainHost: string): 
       rationale: `The full .git repository is downloadable (${urlOf(gitDump[0]) || domainHost}). Reconstruct the source with git-dumper offline, then run the secret/code-leak search over the history — committed credentials and internal URLs are common.`,
       severity: 'critical',
       findingIds: [gitDump[0].id],
+      action: { kind: 'katana', target: actionTarget(urlOf(gitDump[0]), domainHost) },
     })
   }
 

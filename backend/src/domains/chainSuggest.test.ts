@@ -19,14 +19,18 @@ describe('buildChainSuggestions', () => {
   })
 
   it('suggests IDOR testing for a honored authorization-shaped param', () => {
-    const out = buildChainSuggestions([f('param', { param: 'is_admin', url: 'https://t.com/api/me' })], 't.com')
+    const out = buildChainSuggestions([f('param', { param: 'is_admin', url: 'https://t.com/api/me' }), f('authz', { url: 'https://t.com/api/users/{{ID}}' })], 't.com')
     expect(ids(out)).toContain('chain:authz-param')
     expect(out[0].severity).toBe('high')
   })
 
   it('does NOT suggest for an ordinary honored param', () => {
-    const out = buildChainSuggestions([f('param', { param: 'page', url: 'https://t.com/list' })], 't.com')
+    const out = buildChainSuggestions([f('param', { param: 'page', url: 'https://t.com/list' }), f('authz', { url: 'https://t.com/api/{{ID}}' })], 't.com')
     expect(ids(out)).not.toContain('chain:authz-param')
+  })
+
+  it('requires an authz template before suggesting the honored auth parameter chain', () => {
+    expect(buildChainSuggestions([f('param', { param: 'role', url: 'https://t.com/me' })], 't.com')).toEqual([])
   })
 
   it('chains an open redirect into OAuth token theft only when both exist', () => {
@@ -63,9 +67,20 @@ describe('buildChainSuggestions', () => {
 
   it('orders critical suggestions before high', () => {
     const out = buildChainSuggestions(
-      [f('param', { param: 'role', url: 'https://t.com/x' }), f('owasp', { name: 'Dumpable .git repository' }, ['cracked'])],
+      [f('param', { param: 'role', url: 'https://t.com/x' }), f('authz', { url: 'https://t.com/x/{{ID}}' }), f('owasp', { name: 'Dumpable .git repository' }, ['cracked'])],
       't.com',
     )
     expect(out[0].severity).toBe('critical')
+  })
+
+  it('attaches a gated scanner action to every suggestion', () => {
+    const out = buildChainSuggestions([
+      f('owasp', { name: 'JWT HMAC secret cracked' }, ['cracked']),
+      f('api', { endpoint: 'https://t.com/login' }),
+      f('param', { param: 'role', url: 'https://t.com/me' }),
+      f('authz', { url: 'https://t.com/users/{{ID}}' }),
+    ], 't.com')
+    expect(out.length).toBeGreaterThan(0)
+    expect(out.every((chain) => chain.action)).toBe(true)
   })
 })

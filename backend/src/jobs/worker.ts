@@ -79,7 +79,7 @@ let timer: NodeJS.Timeout | null = null
 const laneRunning: Record<JobLane, boolean> = { passive: false, loud: false }
 
 // Execute one already-claimed (running) job to completion.
-async function runClaimedJob(job: Job, log: FastifyBaseLogger): Promise<void> {
+export async function runClaimedJob(job: Job, log: FastifyBaseLogger): Promise<void> {
   const handler = handlers.get(job.type as JobType)
   if (!handler) {
     failJob(job.id, `no handler for job type "${job.type}"`)
@@ -157,7 +157,7 @@ async function runClaimedJob(job: Job, log: FastifyBaseLogger): Promise<void> {
 
 // Drain one lane's queued jobs sequentially. Guarded so a slow job doesn't stack
 // overlapping drains of the same lane.
-async function tickLane(lane: JobLane, log: FastifyBaseLogger): Promise<void> {
+export async function tickLane(lane: JobLane, log: FastifyBaseLogger): Promise<void> {
   if (laneRunning[lane]) return
   laneRunning[lane] = true
   try {

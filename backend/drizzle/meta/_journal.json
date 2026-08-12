@@ -218,6 +218,13 @@
       "when": 1784159184450,
       "tag": "0030_yielding_enchantress",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1786564663399,
+      "tag": "0031_spooky_cyclops",
+      "breakpoints": true
     }
   ]
 }

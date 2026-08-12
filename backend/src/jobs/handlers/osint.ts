@@ -3,6 +3,7 @@ import { recordCorpusUrls, type CorpusUrl } from '../../corpus/store'
 import { addScoredFinding } from '../../findings/score'
 import { addFinding } from '../../findings/store'
 import { enumerateBuckets } from '../../sources/buckets'
+import { asnLookup } from '../../sources/asn'
 import { certSpotterSubdomains } from '../../sources/certspotter'
 import { crtShSubdomains } from '../../sources/crtsh'
 import { resolveDns } from '../../sources/dns'
@@ -17,6 +18,7 @@ import { whoisDomain } from '../../sources/whois'
 import { zoneTransfer } from '../../sources/zoneTransfer'
 import { diffAndStore } from '../../subdomains/store'
 import { hostBelongsToDomain, isValidIp } from '../../util/validate'
+import { mapLimit } from '../../util/async'
 import type { JobContext } from '../worker'
 
 // Phase 4: OSINT / info center. One screen's worth of passive intel about a
@@ -192,7 +194,19 @@ export async function osintHandler({ params, log, signal }: JobContext) {
     const dns = result.dns as { txt?: string[]; caa?: string[] } | undefined
     if (dns && !('error' in (dns as object))) {
       const intel = await gatherDnsIntel(host, dns.txt ?? [], dns.caa ?? [], async (h) => (await resolveDns(h)).txt)
-      result.dnsIntel = { spf: intel.spf, dmarc: intel.dmarc, caaIssuers: intel.caaIssuers, candidateRanges: intel.candidateRanges }
+      // Turn SPF ranges into passive infrastructure pivots. Query a bounded
+      // representative address from each range through the same ASN/InternetDB
+      // sources used by exposure; never enumerate an entire CIDR.
+      const pivots = await mapLimit(intel.candidateRanges.slice(0, 25), 5, async (range) => {
+        const representative = range.includes('/') ? range.split('/')[0] : range
+        if (!isValidIp(representative)) return { range, representative: null, asn: null, exposure: null }
+        const [asn, exposure] = await Promise.all([
+          asnLookup([representative]).then((rows) => rows.get(representative) ?? null).catch(() => null),
+          internetDbLookup(representative).catch(() => null),
+        ])
+        return { range, representative, asn, exposure }
+      }, { range: '', representative: null, asn: null, exposure: null })
+      result.dnsIntel = { spf: intel.spf, dmarc: intel.dmarc, caaIssuers: intel.caaIssuers, candidateRanges: intel.candidateRanges, pivots }
       for (const f of intel.findings) {
         addFinding({
           domainId,

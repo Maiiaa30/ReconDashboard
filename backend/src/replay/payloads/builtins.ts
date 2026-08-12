@@ -8,6 +8,7 @@ export interface PayloadSet {
   name: string
   category: string
   payloads: string[]
+  notes?: string[]
 }
 
 export const BUILTIN_PAYLOAD_SETS: readonly PayloadSet[] = [
@@ -75,6 +76,7 @@ export const BUILTIN_PAYLOAD_SETS: readonly PayloadSet[] = [
       `http://metadata.google.internal/computeMetadata/v1/`, // needs header Metadata-Flavor: Google
       `http://169.254.169.254/metadata/instance?api-version=2021-02-01`, // Azure IMDS — needs header Metadata: true
     ],
+    notes: ['Google metadata requires header Metadata-Flavor: Google', 'Azure IMDS requires header Metadata: true'],
   },
   {
     id: 'xxe',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isHigh, severityBucket } from './severity'
+import { findingSeverity, isHigh, severityBucket } from './severity'
 
 // Both the engagement report and its snapshot summary bucket findings through
 // severityBucket, so they can no longer disagree (the old bug: report low = score
@@ -28,6 +28,11 @@ describe('severityBucket', () => {
     const b = severityBucket(10)
     expect(b).toBe('info')
     expect(['high', 'medium', 'low']).not.toContain(b)
+  })
+
+  it('uses the persisted severity column before the numeric score', () => {
+    expect(findingSeverity({ severity: 'critical', score: 10 })).toBe('critical')
+    expect(findingSeverity({ severity: null, score: 55 })).toBe('medium')
   })
 })
 

@@ -22,11 +22,19 @@ vi.mock('../db/index', async () => {
       finding_id integer NOT NULL
     );
     CREATE UNIQUE INDEX asset_findings_uq ON asset_findings (asset_id, finding_id);
+    CREATE TABLE finding_links (
+      id integer PRIMARY KEY AUTOINCREMENT,
+      from_id integer NOT NULL,
+      to_id integer NOT NULL,
+      kind text NOT NULL,
+      created_at integer NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+    CREATE UNIQUE INDEX finding_links_uq ON finding_links (from_id, to_id, kind);
   `)
   return { db: drizzle(sqlite), sqlite }
 })
 
-import { countAssets, linkAssetFinding, listAssets, upsertAsset } from './store'
+import { countAssets, countSameAssetLinks, linkAssetFinding, listAssets, upsertAsset } from './store'
 
 describe('assets store', () => {
   it('upserts by (domain, kind, value) — the same asset does not duplicate', () => {
@@ -59,5 +67,12 @@ describe('assets store', () => {
     linkAssetFinding(id, null) // no-op
     // no throw = pass; the unique index would reject a real duplicate insert
     expect(countAssets(5)).toBe(1)
+  })
+
+  it('creates same_asset edges between findings linked to one asset', () => {
+    const id = upsertAsset({ domainId: 6, kind: 'service', value: '8.8.4.4:443', ip: '8.8.4.4', port: 443 })
+    linkAssetFinding(id, 201)
+    linkAssetFinding(id, 202)
+    expect(countSameAssetLinks()).toBeGreaterThan(0)
   })
 })

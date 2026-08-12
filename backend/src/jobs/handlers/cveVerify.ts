@@ -42,6 +42,10 @@ export function classifyCveVerify(matchCount: number, stderr: string): VerifyRes
   return looksLikeNoTemplate(stderr) ? 'no_template' : 'not_reproduced'
 }
 
+export function shouldRetryCveByTag(matchCount: number, stderr: string, aborted = false): boolean {
+  return !aborted && classifyCveVerify(matchCount, stderr) === 'no_template'
+}
+
 export async function cveVerifyHandler({ params, log, signal, progress }: JobContext) {
   const domainId = Number(params.domainId)
   const domain = getDomain(domainId)
@@ -104,7 +108,7 @@ export async function cveVerifyHandler({ params, log, signal, progress }: JobCon
 
   // Fallback: for the minority where template-id ≠ CVE-id, -id loads nothing.
   // Retry once filtering by the CVE tag before concluding "no template exists".
-  if (!signal.aborted && classifyCveVerify(matches.length, stderr) === 'no_template') {
+  if (shouldRetryCveByTag(matches.length, stderr, signal.aborted)) {
     progress(`no template for -id ${cveId}; retrying via -tags`)
     const retry = await runOnce(['-tags', cveId.toLowerCase()])
     // Adopt the retry only if it actually loaded a template (matched, or ran but

@@ -439,6 +439,8 @@ export const assetSnapshots = sqliteTable(
     ports: text('ports').notNull().default('[]'), // JSON number[]
     tech: text('tech').notNull().default('[]'), // JSON string[]
     up: integer('up', { mode: 'boolean' }).notNull().default(false),
+    title: text('title'),
+    certFp: text('cert_fp'),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
   },
   (t) => [unique('asset_snapshots_domain_ip_uq').on(t.domainId, t.ip), index('asset_snapshots_domain_idx').on(t.domainId)],

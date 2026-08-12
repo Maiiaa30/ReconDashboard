@@ -22,6 +22,8 @@ export interface AssetSnapshot {
   ports: number[]
   tech: string[]
   up: boolean
+  title?: string | null
+  certFp?: string | null
 }
 
 export type AssetChange =
@@ -29,6 +31,8 @@ export type AssetChange =
   | { kind: 'new_tech'; tech: string }
   | { kind: 'up' }
   | { kind: 'down' }
+  | { kind: 'title_changed'; from: string; to: string }
+  | { kind: 'cert_changed'; from: string; to: string }
 
 // PURE: material differences from the previous snapshot to the current one.
 export function diffSnapshot(prev: AssetSnapshot, cur: AssetSnapshot): AssetChange[] {
@@ -39,6 +43,8 @@ export function diffSnapshot(prev: AssetSnapshot, cur: AssetSnapshot): AssetChan
   for (const t of cur.tech) if (!prevTech.has(t.toLowerCase())) out.push({ kind: 'new_tech', tech: t })
   if (cur.up && !prev.up) out.push({ kind: 'up' })
   if (!cur.up && prev.up) out.push({ kind: 'down' })
+  if (prev.title && cur.title && prev.title !== cur.title) out.push({ kind: 'title_changed', from: prev.title, to: cur.title })
+  if (prev.certFp && cur.certFp && prev.certFp !== cur.certFp) out.push({ kind: 'cert_changed', from: prev.certFp, to: cur.certFp })
   return out
 }
 
@@ -52,7 +58,7 @@ export function recordAndDetectChanges(domainId: number, ip: string, cur: AssetS
     .where(and(eq(assetSnapshots.domainId, domainId), eq(assetSnapshots.ip, ip)))
     .limit(1)
     .all()[0]
-  const values = { ports: JSON.stringify(cur.ports), tech: JSON.stringify(cur.tech), up: cur.up, updatedAt: new Date() }
+  const values = { ports: JSON.stringify(cur.ports), tech: JSON.stringify(cur.tech), up: cur.up, title: cur.title ?? null, certFp: cur.certFp ?? null, updatedAt: new Date() }
 
   if (!prevRow) {
     db.insert(assetSnapshots).values({ domainId, ip, ...values }).onConflictDoNothing().run()
@@ -62,6 +68,8 @@ export function recordAndDetectChanges(domainId: number, ip: string, cur: AssetS
     ports: safeJsonParse<number[]>(prevRow.ports, []),
     tech: safeJsonParse<string[]>(prevRow.tech, []),
     up: !!prevRow.up,
+    title: prevRow.title,
+    certFp: prevRow.certFp,
   }
   const changes = diffSnapshot(prev, cur)
   db.update(assetSnapshots).set(values).where(and(eq(assetSnapshots.domainId, domainId), eq(assetSnapshots.ip, ip))).run()
@@ -89,6 +97,10 @@ function describe(change: AssetChange, ip: string, host: string): { title: strin
       return { title: `${host} (${ip}) is newly reachable`, detail: `${ip} now exposes open ports — it was previously dark`, score: 40, action: { kind: 'owasp', label: `OWASP checks on ${host}`, target: host } }
     case 'down':
       return { title: `${host} (${ip}) went dark`, detail: `${ip} no longer exposes open ports`, score: 25 }
+    case 'title_changed':
+      return { title: `Page title changed on ${host}`, detail: `Title changed from "${change.from}" to "${change.to}"`, score: 30, action: { kind: 'owasp', label: `Review ${host}`, target: host } }
+    case 'cert_changed':
+      return { title: `TLS certificate changed on ${host}`, detail: `Certificate fingerprint changed from ${change.from} to ${change.to}`, score: 40, action: { kind: 'owasp', label: `Review ${host}`, target: host } }
   }
 }
 

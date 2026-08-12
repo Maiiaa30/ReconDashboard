@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { AttackPath } from '../api'
 import { setPendingReplay } from '../lib/replayHandoff'
+import { setPendingFindingFilter, setPendingScan } from '../lib/navigationHandoff'
 
 // force-graph pulls in a canvas renderer; only load it when a graph is shown.
 const ForceGraph2D = lazy(() => import('react-force-graph-2d'))
@@ -327,16 +328,36 @@ export function AttackGraph({ paths, host, navigate }: { paths: AttackPath[]; ho
             </div>
           )}
           {navigate && (selected.hosts[0] || selected.ip) && (
-            <button
-              onClick={() => {
-                const target = selected.hosts[0] ?? selected.ip
-                setPendingReplay({ method: 'GET', url: `https://${target}/`, headers: [], mode: 'repeater' })
-                navigate('replay')
-              }}
-              className="mt-2 rounded-md border border-hair px-2 py-1 text-[11px] text-zinc-300 hover:border-accent-500 hover:text-accent-fg"
-            >
-              Open in Replay ↗
-            </button>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <button
+                onClick={() => {
+                  const target = selected.hosts[0] ?? selected.ip
+                  setPendingReplay({ method: 'GET', url: `https://${target}/`, headers: [], mode: 'repeater' })
+                  navigate('replay')
+                }}
+                className="rounded-md border border-hair px-2 py-1 text-[11px] text-zinc-300 hover:border-accent-500 hover:text-accent-fg"
+              >
+                Open in Replay ↗
+              </button>
+              <button
+                onClick={() => {
+                  setPendingScan({ target: selected.ip, ports: selected.ports.join(',') })
+                  navigate('scans')
+                }}
+                className="rounded-md border border-hair px-2 py-1 text-[11px] text-zinc-300 hover:border-accent-500 hover:text-accent-fg"
+              >
+                Scan this IP ↗
+              </button>
+              <button
+                onClick={() => {
+                  setPendingFindingFilter({ asset: selected.ip })
+                  navigate('findings')
+                }}
+                className="rounded-md border border-hair px-2 py-1 text-[11px] text-zinc-300 hover:border-accent-500 hover:text-accent-fg"
+              >
+                Filter findings ↗
+              </button>
+            </div>
           )}
         </div>
       )}

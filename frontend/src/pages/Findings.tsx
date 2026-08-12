@@ -8,6 +8,7 @@ import { useConfirm } from '../components/Confirm'
 import { RISK_SCORE_CLASS, riskFromScore, summarizeFinding, timeAgo, type RiskLevel } from '../lib/format'
 import { safeHttpUrl } from '../lib/url'
 import { setPendingReplay } from '../lib/replayHandoff'
+import { takePendingFindingFilter } from '../lib/navigationHandoff'
 
 const STATUSES: FindingStatus[] = ['open', 'confirmed', 'false_positive', 'resolved', 'ignored']
 const STATUS_LABEL: Record<FindingStatus, string> = {
@@ -91,6 +92,7 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
   const [type, setType] = useState('')
   const [sincePreset, setSincePreset] = useState<SincePreset>('')
   const [tagFilter, setTagFilter] = useState('')
+  const [assetFilter, setAssetFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [findings, setFindings] = useState<Finding[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -189,6 +191,14 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
   useEffect(() => {
     if (selected) setDomainId(selected.id)
   }, [selected])
+
+  useEffect(() => {
+    const pending = takePendingFindingFilter()
+    if (!pending) return
+    if (pending.domainId != null) setDomainId(pending.domainId)
+    setAssetFilter(pending.asset)
+    setStatusFilter('all')
+  }, [])
 
   const hostOf = (id: number | null) =>
     id == null ? 'global' : domains.find((d) => d.id === id)?.host ?? `#${id}`
@@ -298,10 +308,16 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
         : statusFilter === 'active'
           ? !TRIAGED_AWAY.includes(f.status)
           : f.status === statusFilter
-    return findings.filter(
-      (f) => matchesStatus(f) && (tagQuery ? f.tags.some((t) => t.toLowerCase().includes(tagQuery)) : true),
-    )
-  }, [findings, statusFilter, tagQuery])
+    const assetQuery = assetFilter.trim().toLowerCase()
+    return findings.filter((f) => {
+      const d = (f.data ?? {}) as Record<string, unknown>
+      const assetText = [f.host, f.ip, f.url, d.host, d.ip, d.url, d.target, ...(Array.isArray(d.hostnames) ? d.hostnames : [])]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return matchesStatus(f) && (!tagQuery || f.tags.some((t) => t.toLowerCase().includes(tagQuery))) && (!assetQuery || assetText.includes(assetQuery))
+    })
+  }, [findings, statusFilter, tagQuery, assetFilter])
   filteredRef.current = filtered
 
   const selectCls =
@@ -410,11 +426,21 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
             className="mt-1 block w-56 rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm outline-none focus:border-accent-500"
           />
         </label>
+        <label className="text-sm">
+          <span className="text-zinc-400">Asset</span>
+          <input
+            value={assetFilter}
+            onChange={(e) => setAssetFilter(e.target.value)}
+            placeholder="host or IP"
+            className="mt-1 block w-44 rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm outline-none focus:border-accent-500"
+          />
+        </label>
         <span className="pb-1.5 text-xs text-zinc-600">{filtered.length} shown</span>
-        {(tagFilter || type || domainId !== '' || statusFilter !== 'active' || sincePreset !== '') && (
+        {(tagFilter || assetFilter || type || domainId !== '' || statusFilter !== 'active' || sincePreset !== '') && (
           <button
             onClick={() => {
               setTagFilter('')
+              setAssetFilter('')
               setType('')
               setDomainId('')
               setStatusFilter('active')
