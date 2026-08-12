@@ -78,7 +78,7 @@ export async function httpxProbeHosts(hosts: string[], signal?: AbortSignal): Pr
       await writeFile(input, allowed.join('\n'), 'utf8')
       const { stdout } = await run(
         'httpx',
-        ['-l', input, '-json', '-silent', '-no-color', '-status-code', '-title', '-web-server', '-tech-detect', '-ip', '-cname', '-location', '-content-length', '-hash', 'sha256', '-timeout', '8', '-retries', '1', '-threads', '25'],
+        ['-l', input, '-no-stdin', '-json', '-silent', '-no-color', '-status-code', '-title', '-web-server', '-tech-detect', '-ip', '-cname', '-location', '-content-length', '-hash', 'sha256', '-timeout', '8', '-retries', '1', '-threads', '25'],
         { timeoutMs: 240_000, signal },
       )
       available = true
