@@ -1,10 +1,10 @@
 FROM node:22-bookworm-slim
 
 # --- System + recon tooling --------------------------------------------------
-# build deps for better-sqlite3 native module; nmap + whois from apt;
+# Build dependencies, distro utilities, and runtime libraries.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-       python3 make g++ ca-certificates curl unzip nmap whois gosu \
+       python3 make g++ git zlib1g-dev libssl-dev libssh2-1-dev ca-certificates curl unzip nmap whois gosu \
        dnsutils iputils-ping sslscan sqlmap libpcap0.8 chromium chromium-sandbox fonts-liberation \
   && rm -rf /var/lib/apt/lists/*
 
@@ -16,13 +16,19 @@ ENV CHROMIUM_PATH=/usr/bin/chromium
 ARG SUBFINDER_VERSION=2.15.0
 ARG DNSX_VERSION=1.3.0
 ARG HTTPX_VERSION=1.10.0
-ARG NUCLEI_VERSION=3.3.7
-ARG FFUF_VERSION=2.1.0
+ARG NUCLEI_VERSION=3.11.1
+ARG FFUF_VERSION=2.2.1
+ARG KATANA_VERSION=1.7.0
+ARG NAABU_VERSION=2.6.1
+ARG DALFOX_VERSION=3.2.1
+ARG NMAP_VERSION=7.99
+ARG SQLMAP_VERSION=1.10
+ARG SSLSCAN_VERSION=2.2.2
 
 # The continuous-discovery pipeline depends on subfinder, dnsx, and httpx. Keep
 # their versions deterministic and fail the image build if any core binary is
 # missing; a deploy must never produce a superficially healthy but incomplete
-# scanner image. Optional tools below still degrade gracefully.
+# scanner image.
 RUN set -ux; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in amd64) GOARCH=amd64 ;; arm64) GOARCH=arm64 ;; *) echo "unsupported architecture: $arch" >&2; exit 1 ;; esac; \
@@ -33,37 +39,68 @@ RUN set -ux; \
     unzip -o dnsx.zip dnsx -d /usr/local/bin; \
     curl --retry 4 --retry-all-errors -fsSL -o httpx.zip "https://github.com/projectdiscovery/httpx/releases/download/v${HTTPX_VERSION}/httpx_${HTTPX_VERSION}_linux_${GOARCH}.zip"; \
     unzip -o httpx.zip httpx -d /usr/local/bin; \
-    ( curl -fsSL -o nuclei.zip "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_${GOARCH}.zip" \
-      && unzip -o nuclei.zip nuclei -d /usr/local/bin ) || echo "WARN: nuclei install failed"; \
-    ( curl -fsSL -o ffuf.tar.gz "https://github.com/ffuf/ffuf/releases/download/v${FFUF_VERSION}/ffuf_${FFUF_VERSION}_linux_${GOARCH}.tar.gz" \
-      && tar -xzf ffuf.tar.gz -C /usr/local/bin ffuf ) || echo "WARN: ffuf install failed"; \
-    chmod +x /usr/local/bin/subfinder /usr/local/bin/dnsx /usr/local/bin/httpx; \
-    chmod +x /usr/local/bin/nuclei /usr/local/bin/ffuf 2>/dev/null || true; \
+    curl --retry 4 --retry-all-errors -fsSL -o nuclei.zip "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_${GOARCH}.zip"; \
+    unzip -o nuclei.zip nuclei -d /usr/local/bin; \
+    curl --retry 4 --retry-all-errors -fsSL -o ffuf.tar.gz "https://github.com/ffuf/ffuf/releases/download/v${FFUF_VERSION}/ffuf_${FFUF_VERSION}_linux_${GOARCH}.tar.gz"; \
+    tar -xzf ffuf.tar.gz -C /usr/local/bin ffuf; \
+    chmod +x /usr/local/bin/subfinder /usr/local/bin/dnsx /usr/local/bin/httpx /usr/local/bin/nuclei /usr/local/bin/ffuf; \
     rm -f /tmp/*.zip /tmp/*.tar.gz; \
-    subfinder -version; dnsx -version; httpx -version; nuclei -version || true; ffuf -V || true
+    subfinder -version; dnsx -version; httpx -version; nuclei -version; ffuf -V
 
-# Extra recon binaries (best-effort, latest release): katana (crawler), naabu
-# (fast port scanner) and dalfox (XSS). A failed download just marks the tool
-# unavailable — the app degrades gracefully.
+# Extra scanners are pinned too, avoiding GitHub API rate limits and preventing
+# an upstream release from changing an otherwise identical image build.
 RUN set -ux; \
     arch="$(dpkg --print-architecture)"; \
-    case "$arch" in amd64) GOARCH=amd64 ;; arm64) GOARCH=arm64 ;; *) GOARCH=amd64 ;; esac; \
-    ver() { curl -fsSL "https://api.github.com/repos/$1/releases/latest" | grep -oP '"tag_name":\s*"v?\K[^"]+' | head -1; }; \
+    case "$arch" in amd64) GOARCH=amd64; DALARCH=x86_64 ;; arm64) GOARCH=arm64; DALARCH=aarch64 ;; *) echo "unsupported architecture: $arch" >&2; exit 1 ;; esac; \
     cd /tmp; \
-    KAT="$(ver projectdiscovery/katana)"; \
-    ( [ -n "$KAT" ] && curl -fsSL -o katana.zip "https://github.com/projectdiscovery/katana/releases/download/v${KAT}/katana_${KAT}_linux_${GOARCH}.zip" \
-      && unzip -o katana.zip katana -d /usr/local/bin ) || echo "WARN: katana install failed"; \
-    NAB="$(ver projectdiscovery/naabu)"; \
-    ( [ -n "$NAB" ] && curl -fsSL -o naabu.zip "https://github.com/projectdiscovery/naabu/releases/download/v${NAB}/naabu_${NAB}_linux_${GOARCH}.zip" \
-      && unzip -o naabu.zip naabu -d /usr/local/bin ) || echo "WARN: naabu install failed"; \
-    DAL="$(ver hahwul/dalfox)"; \
-    case "$GOARCH" in amd64) DALARCH=x86_64 ;; arm64) DALARCH=aarch64 ;; *) DALARCH=x86_64 ;; esac; \
-    ( [ -n "$DAL" ] && curl -fsSL -o dalfox.tar.gz "https://github.com/hahwul/dalfox/releases/download/v${DAL}/dalfox-v${DAL}-linux-${DALARCH}.tar.gz" \
-      && tar -xzf dalfox.tar.gz -C /usr/local/bin --strip-components=0 dalfox 2>/dev/null \
-      || tar -xzf dalfox.tar.gz -C /usr/local/bin --wildcards --transform='s#.*/##' '*/dalfox' 2>/dev/null ) || echo "WARN: dalfox install failed"; \
-    chmod +x /usr/local/bin/katana /usr/local/bin/naabu /usr/local/bin/dalfox 2>/dev/null || true; \
+    curl --retry 4 --retry-all-errors -fsSL -o katana.zip "https://github.com/projectdiscovery/katana/releases/download/v${KATANA_VERSION}/katana_${KATANA_VERSION}_linux_${GOARCH}.zip"; \
+    unzip -o katana.zip katana -d /usr/local/bin; \
+    curl --retry 4 --retry-all-errors -fsSL -o naabu.zip "https://github.com/projectdiscovery/naabu/releases/download/v${NAABU_VERSION}/naabu_${NAABU_VERSION}_linux_${GOARCH}.zip"; \
+    unzip -o naabu.zip naabu -d /usr/local/bin; \
+    curl --retry 4 --retry-all-errors -fsSL -o dalfox.tar.gz "https://github.com/hahwul/dalfox/releases/download/v${DALFOX_VERSION}/dalfox-v${DALFOX_VERSION}-linux-${DALARCH}.tar.gz"; \
+    tar -xzf dalfox.tar.gz -C /usr/local/bin --wildcards --transform='s#.*/##' '*/dalfox'; \
+    chmod +x /usr/local/bin/katana /usr/local/bin/naabu /usr/local/bin/dalfox; \
     rm -f /tmp/*.zip /tmp/*.tar.gz; \
-    katana -version || true; naabu -version || true; dalfox --version || true
+    katana -version; naabu -version; dalfox --version
+
+# Debian Bookworm intentionally ships older stable packages for these tools.
+# Install the audited upstream releases over them while retaining the distro
+# packages as runtime dependency providers and emergency fallbacks.
+RUN set -ux; \
+    cd /tmp; \
+    curl --retry 10 --retry-all-errors --continue-at - --max-time 180 -fsSL -o nmap.tar.bz2 "https://nmap.org/dist/nmap-${NMAP_VERSION}.tar.bz2"; \
+    python3 -m tarfile -e nmap.tar.bz2; \
+    cd "nmap-${NMAP_VERSION}"; \
+    ./configure --without-zenmap; \
+    make -j2; \
+    make install; \
+    cd /tmp; \
+    rm -rf /tmp/nmap*; \
+    nmap --version | head -n 1 | grep -F "Nmap version ${NMAP_VERSION} "
+
+RUN set -ux; \
+    cd /tmp; \
+    curl --retry 4 --retry-all-errors -fsSL -o sqlmap.zip "https://github.com/sqlmapproject/sqlmap/archive/refs/tags/${SQLMAP_VERSION}.zip"; \
+    unzip -q sqlmap.zip; \
+    rm -rf /opt/sqlmap; \
+    mv "sqlmap-${SQLMAP_VERSION}" /opt/sqlmap; \
+    sed -i '1s|python$|python3|' /opt/sqlmap/sqlmap.py; \
+    ln -sf /opt/sqlmap/sqlmap.py /usr/local/bin/sqlmap; \
+    rm -f /tmp/sqlmap.zip; \
+    sqlmap --version
+
+# SSLScan 2.2+ requires OpenSSL 3.5, newer than Bookworm. Its supported static
+# build bundles the compatible OpenSSL libraries and avoids changing system TLS.
+RUN set -ux; \
+    cd /tmp; \
+    curl --retry 4 --retry-all-errors -fsSL -o sslscan.zip "https://github.com/rbsec/sslscan/archive/refs/tags/${SSLSCAN_VERSION}.zip"; \
+    unzip -q sslscan.zip; \
+    cd "sslscan-${SSLSCAN_VERSION}"; \
+    make -j2 static; \
+    install -m 0755 sslscan /usr/local/bin/sslscan; \
+    cd /tmp; \
+    rm -rf /tmp/sslscan*; \
+    sslscan --version
 
 # Curated SecLists wordlists for ffuf content discovery (best-effort downloads;
 # a moved URL must not fail the build). Names are friendly for the UI picker.
@@ -111,8 +148,10 @@ RUN npm ci
 
 COPY . .
 COPY docker-entrypoint.sh /usr/local/bin/recon-entrypoint
+COPY tool-startup-check.sh /usr/local/bin/tool-startup-check
 
-RUN mkdir -p /data && chown -R node:node /app /data && chmod 0755 /usr/local/bin/recon-entrypoint
+RUN mkdir -p /data && chown -R node:node /app /data \
+  && chmod 0755 /usr/local/bin/recon-entrypoint /usr/local/bin/tool-startup-check
 
 EXPOSE 3001
 
