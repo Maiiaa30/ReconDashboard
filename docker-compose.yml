@@ -6,6 +6,7 @@
 
 services:
   backend:
+    restart: unless-stopped
     build: ./backend
     env_file:
       - .env
@@ -26,6 +27,7 @@ services:
       - "3001:3001"
 
   frontend:
+    restart: unless-stopped
     build: ./frontend
     environment:
       - VITE_API_PROXY=http://backend:3001
