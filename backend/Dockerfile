@@ -2,13 +2,6 @@ FROM node:22-bookworm-slim
 
 # --- System + recon tooling --------------------------------------------------
 # build deps for better-sqlite3 native module; nmap + whois from apt;
-# subfinder/nuclei/ffuf as pinned prebuilt release binaries (ProjectDiscovery/ffuf).
-ARG SUBFINDER_VERSION=2.6.6
-ARG DNSX_VERSION=1.3.0
-ARG HTTPX_VERSION=1.10.0
-ARG NUCLEI_VERSION=3.3.7
-ARG FFUF_VERSION=2.1.0
-
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
        python3 make g++ ca-certificates curl unzip nmap whois gosu \
@@ -17,6 +10,14 @@ RUN apt-get update \
 
 # Where headless Chromium lives, for the screenshot job.
 ENV CHROMIUM_PATH=/usr/bin/chromium
+
+# Pinned prebuilt release binaries. Keep these arguments after the system
+# packages so a scanner version bump does not invalidate the large apt layer.
+ARG SUBFINDER_VERSION=2.15.0
+ARG DNSX_VERSION=1.3.0
+ARG HTTPX_VERSION=1.10.0
+ARG NUCLEI_VERSION=3.3.7
+ARG FFUF_VERSION=2.1.0
 
 # The continuous-discovery pipeline depends on subfinder, dnsx, and httpx. Keep
 # their versions deterministic and fail the image build if any core binary is
