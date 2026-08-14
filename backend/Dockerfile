@@ -68,8 +68,8 @@ RUN set -ux; \
 # packages as runtime dependency providers and emergency fallbacks.
 RUN set -ux; \
     cd /tmp; \
-    curl --retry 10 --retry-all-errors --continue-at - --max-time 180 -fsSL -o nmap.tar.bz2 "https://nmap.org/dist/nmap-${NMAP_VERSION}.tar.bz2"; \
-    python3 -m tarfile -e nmap.tar.bz2; \
+    curl --retry 10 --retry-all-errors --continue-at - --max-time 180 -fsSL -o nmap.tgz "https://nmap.org/dist/nmap-${NMAP_VERSION}.tgz"; \
+    tar -xzf nmap.tgz; \
     cd "nmap-${NMAP_VERSION}"; \
     ./configure --without-zenmap; \
     make -j2; \
