@@ -1,10 +1,9 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Activity, AlertTriangle, ArrowRight, CheckCircle2, Circle, Clock, FileCheck2, Flag, ListChecks, Loader, Radar, RotateCcw, ShieldCheck, Sparkles, Square, type LucideIcon } from 'lucide-react'
+import { Activity, ArrowRight, CheckCircle2, Circle, Clock, FileCheck2, Flag, ListChecks, Radar, ShieldAlert, ShieldCheck, Sparkles, type LucideIcon } from 'lucide-react'
 import { api, type AssessmentRun, type Asset, type Finding, type Job, type Methodology, type NextAction, type ReportSnapshot } from '../api'
 import { useApp, usePoll } from '../state'
-import { Badge, Button, Card, Empty, PageHeader, ScoreBadge, SkeletonList } from '../components/ui'
+import { Badge, Button, Card, Empty, PageHeader, SkeletonList } from '../components/ui'
 import { summarizeFinding, timeAgo } from '../lib/format'
-import { useToast } from '../components/Toast'
 import { setPendingFindingFilter, setPendingOwasp, setPendingScan } from '../lib/navigationHandoff'
 
 export function CommandCenter({ navigate }: { navigate: (page: string, domainId?: number) => void }) {
@@ -17,7 +16,6 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
   const [snapshots, setSnapshots] = useState<ReportSnapshot[]>([])
   const [run, setRun] = useState<AssessmentRun | null>(null)
   const [nextActions, setNextActions] = useState<NextAction[]>([])
-  const toast = useToast()
 
   const load = useCallback(() => {
     if (!selected) return
@@ -69,7 +67,7 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
     { label: 'Scope', done: true, page: 'domains' },
     { label: 'Discover', done: assets.some((asset) => asset.kind === 'host'), page: 'profiles' },
     { label: 'Map', done: assets.length > 0, page: 'assets' },
-    { label: 'Test', done: run?.status === 'completed' || data.methodologyCoverage > 20, page: run ? 'runs' : 'methodology' },
+    { label: 'Test', done: run?.status === 'completed' || data.methodologyCoverage > 20, page: run ? 'runs' : 'actions' },
     { label: 'Triage', done: data.confirmed.length > 0 || findings.some((finding) => finding.status !== 'open'), page: 'findings' },
     { label: 'Report', done: snapshots.length > 0, page: 'reports' },
   ]
@@ -95,36 +93,24 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
       </Card>
 
       {run && <Card className={`mb-5 ${run.status === 'partial' ? 'border-amber-800/60' : 'border-accent-500/25'}`}>
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="min-w-0 flex-1"><div className="flex items-center gap-2">{run.status === 'running' ? <Loader size={16} className="animate-spin text-amber-400" /> : run.status === 'completed' ? <CheckCircle2 size={16} className="text-emerald-400" /> : <AlertTriangle size={16} className="text-amber-400" />}<h2 className="text-sm font-semibold">Current assessment · {run.name}</h2><Badge tone={run.status === 'completed' ? 'green' : run.status === 'partial' ? 'amber' : 'indigo'}>{run.status}</Badge></div><p className="mt-1 text-xs text-zinc-500">Run #{run.id} · phase {Math.min(run.currentPhase + 1, run.totalPhases)}/{run.totalPhases} · {run.completedSteps}/{run.totalSteps} steps · {run.completedTargetJobs}/{run.totalTargetJobs} target jobs complete</p></div>
-          <div className="flex gap-2">{run.status === 'partial' && <Button variant="ghost" onClick={async () => { try { setRun((await api.retryAssessmentRun(run.id)).run); toast.success('Failed steps queued for retry.') } catch (error) { toast.error(error instanceof Error ? error.message : 'Retry failed.') } }}><RotateCcw size={14} /> Retry</Button>}{(run.status === 'queued' || run.status === 'running') && <Button variant="ghost" onClick={async () => { try { setRun((await api.cancelAssessmentRun(run.id)).run); toast.success('Assessment cancelled.') } catch (error) { toast.error(error instanceof Error ? error.message : 'Cancel failed.') } }}><Square size={13} /> Cancel</Button>}<Button variant="ghost" onClick={() => navigate('runs', selected.id)}>View run</Button></div>
-        </div>
-        <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink-950"><div className="h-full bg-accent-500 transition-all" style={{ width: `${run.coverage}%` }} /></div>
-        <div className="mt-3 flex flex-wrap gap-1.5">{run.steps.map((step) => <Badge key={step.id} tone={step.status === 'done' ? 'green' : ['unavailable', 'failed', 'skipped'].includes(step.status) ? 'red' : ['running', 'degraded'].includes(step.status) ? 'amber' : 'zinc'}>{step.label}: {step.status}{step.evidence.targets ? ` · ${step.evidence.completed}/${step.evidence.targets} executed · ${step.evidence.findingsProduced} findings` : ''}</Badge>)}</div>
-        {run.steps.some((step) => step.error) && <div className="mt-3 space-y-1 border-t border-hair/60 pt-3">{run.steps.filter((step) => step.error).map((step) => <p key={step.id} className="text-xs text-amber-300"><span className="font-medium">{step.label}:</span> {step.error}</p>)}</div>}
+        <div className="flex flex-wrap items-center gap-3"><span className={`flex h-9 w-9 items-center justify-center rounded-lg ${run.status === 'completed' ? 'bg-emerald-500/15 text-emerald-400' : run.status === 'partial' ? 'bg-amber-500/15 text-amber-400' : 'bg-accent-500/15 text-accent-400'}`}>{run.status === 'partial' ? <ShieldAlert size={17} /> : <Activity size={17} className={run.status === 'running' ? 'animate-pulse' : ''} />}</span><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h2 className="truncate text-sm font-semibold">Latest assessment · {run.name}</h2><Badge tone={run.status === 'completed' ? 'green' : run.status === 'partial' ? 'amber' : 'indigo'}>{run.status}</Badge></div><p className="mt-0.5 text-xs text-zinc-500">Run #{run.id} · {run.coverage}% step coverage · {run.targetCoverage}% target coverage</p></div><Button variant="ghost" onClick={() => navigate('runs', selected.id)}>Open assessment runs <ArrowRight size={14} /></Button></div>
       </Card>}
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Metric label="Assets" value={assets.length} icon={Sparkles} tone="text-blue-400" onClick={() => navigate('assets', selected.id)} />
         <Metric label="Active findings" value={data.active.length} icon={Flag} tone="text-amber-400" onClick={() => navigate('findings', selected.id)} />
         <Metric label="High risk" value={data.high.length} icon={ShieldCheck} tone="text-red-400" onClick={() => navigate('findings', selected.id)} />
-        <Metric label="Coverage" value={`${data.coverage}%`} icon={ListChecks} tone="text-violet-400" onClick={() => navigate('methodology', selected.id)} />
+        <Metric label="Coverage" value={`${data.coverage}%`} icon={ListChecks} tone="text-violet-400" onClick={() => navigate('actions', selected.id)} />
         <Metric label="Running" value={data.running.length} icon={Activity} tone="text-emerald-400" onClick={() => navigate('jobs', selected.id)} />
       </div>
 
+      <Card className="mb-5 border-violet-900/40">
+        <div className="mb-3 flex items-center gap-2"><ListChecks size={15} className="text-violet-400" /><h2 className="text-sm font-semibold">Top next actions</h2><Badge tone="indigo">{nextActions.length} active</Badge><button className="ml-auto text-xs text-zinc-500 hover:text-zinc-300" onClick={() => navigate('actions', selected.id)}>Open full queue →</button></div>
+        {nextActions.length === 0 ? <p className="text-sm text-zinc-500">No active recommendations. Review completed or dismissed actions in the full queue.</p> : <div className="grid gap-2 lg:grid-cols-3">{nextActions.slice(0, 3).map((action, index) => <button key={action.key} onClick={() => openNextAction(action)} className="group flex items-start gap-3 rounded-lg border border-hair/60 px-3 py-3 text-left hover:border-accent-500/40"><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-semibold ${action.priority >= 90 ? 'bg-red-500/15 text-red-300' : action.priority >= 70 ? 'bg-amber-500/15 text-amber-300' : 'bg-ink-700 text-zinc-400'}`}>{index + 1}</span><span className="min-w-0 flex-1"><span className="block text-sm text-zinc-200">{action.title}</span><span className="mt-1 line-clamp-2 text-xs text-zinc-600">{action.why}</span><Badge tone={action.mode === 'loud' ? 'red' : action.mode === 'passive' ? 'green' : 'zinc'}>{action.mode}</Badge></span><ArrowRight size={13} className="mt-1 text-zinc-600 group-hover:text-accent-fg" /></button>)}</div>}
+      </Card>
+
       <div className="grid gap-5 xl:grid-cols-[1.15fr_.85fr]">
         <div className="space-y-5">
-          <Card>
-            <div className="mb-3 flex items-center gap-2"><Flag size={15} className="text-amber-400" /><h2 className="text-sm font-semibold">Priority queue</h2><button className="ml-auto text-xs text-zinc-500 hover:text-zinc-300" onClick={() => navigate('findings', selected.id)}>All findings →</button></div>
-            {data.active.length === 0 ? <p className="text-sm text-zinc-500">No active findings. Start a discovery profile or review informational results.</p> : (
-              <div className="space-y-1.5">{data.active.slice().sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 8).map((finding) => (
-                <button key={finding.id} onClick={() => navigate('findings', selected.id)} className="flex w-full items-center gap-3 rounded-lg border border-hair/70 bg-ink-950/35 px-3 py-2 text-left hover:border-hair-strong">
-                  <ScoreBadge score={finding.score} /><span className="min-w-0 flex-1 truncate text-sm text-zinc-200">{summarizeFinding(finding.type, finding.data)}</span><Badge>{finding.status === 'open' ? 'draft' : finding.status.replace('_', ' ')}</Badge>
-                </button>
-              ))}</div>
-            )}
-          </Card>
-
           <Card>
             <div className="mb-3 flex items-center gap-2"><Sparkles size={15} className="text-blue-400" /><h2 className="text-sm font-semibold">Recent changes</h2></div>
             {data.changes.length === 0 ? <p className="text-sm text-zinc-500">No material asset changes recorded yet.</p> : <div className="space-y-2">{data.changes.map((finding) => <button key={finding.id} onClick={() => navigate('findings', selected.id)} className="flex w-full items-start gap-3 rounded-lg border border-hair/60 px-3 py-2 text-left hover:bg-ink-850"><Clock size={14} className="mt-0.5 shrink-0 text-zinc-500" /><span className="min-w-0 flex-1"><span className="block truncate text-sm text-zinc-200">{summarizeFinding(finding.type, finding.data)}</span><span className="text-xs text-zinc-600">{timeAgo(new Date(finding.createdAt).getTime())}</span></span></button>)}</div>}
@@ -132,11 +118,6 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
         </div>
 
         <div className="space-y-5">
-          <Card>
-            <div className="mb-3 flex items-center gap-2"><ListChecks size={15} className="text-violet-400" /><h2 className="text-sm font-semibold">Prioritized next actions</h2><Badge tone="indigo">{nextActions.length} active</Badge><button className="ml-auto text-xs text-zinc-500 hover:text-zinc-300" onClick={() => navigate('actions', selected.id)}>Full queue →</button></div>
-            {nextActions.length === 0 ? <p className="text-sm text-zinc-500">No active recommendations. Review completed or dismissed actions in the full queue.</p> : <div className="space-y-2">{nextActions.slice(0, 6).map((action) => <button key={action.key} onClick={() => openNextAction(action)} className="group flex w-full items-center gap-3 rounded-lg border border-hair/60 px-3 py-2 text-left hover:border-accent-500/40"><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-semibold ${action.priority >= 90 ? 'bg-red-500/15 text-red-300' : action.priority >= 70 ? 'bg-amber-500/15 text-amber-300' : 'bg-ink-700 text-zinc-400'}`}>{action.priority}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm text-zinc-200">{action.title}</span><span className="block truncate text-xs text-zinc-600">{action.why}</span></span><Badge tone={action.mode === 'loud' ? 'red' : action.mode === 'passive' ? 'green' : 'zinc'}>{action.mode}</Badge><ArrowRight size={13} className="text-zinc-600 group-hover:text-accent-fg" /></button>)}</div>}
-          </Card>
-
           <Card>
             <div className="mb-3 flex items-center gap-2"><Activity size={15} className="text-emerald-400" /><h2 className="text-sm font-semibold">Current activity</h2></div>
             {data.running.length === 0 ? <p className="text-sm text-zinc-500">No queued or running jobs.</p> : <div className="space-y-2">{data.running.slice(0, 6).map((job) => <button key={job.id} onClick={() => navigate('jobs', selected.id)} className="w-full rounded-lg border border-hair/60 px-3 py-2 text-left"><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${job.status === 'running' ? 'animate-pulse bg-amber-400' : 'bg-zinc-500'}`} /><span className="text-sm text-zinc-200">{job.type.replaceAll('_', ' ')}</span><span className="ml-auto text-xs text-zinc-600">#{job.id}</span></div>{job.progress && <p className="mt-1 truncate text-xs text-zinc-500">{job.progress}</p>}</button>)}</div>}

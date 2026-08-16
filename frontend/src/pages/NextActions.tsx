@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { ArrowRight, Check, CheckCircle2, CircleDot, RotateCcw, ShieldAlert, Sparkles, Target, X } from 'lucide-react'
+import { ArrowRight, Check, CheckCircle2, CircleDot, ListChecks, RotateCcw, ShieldAlert, Sparkles, Target, X } from 'lucide-react'
 import { api, type NextAction, type NextActionStatus } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, SkeletonList } from '../components/ui'
@@ -64,7 +64,7 @@ export function NextActions({ navigate }: { navigate: (page: string, domainId?: 
   if (!selected) return <Empty>Select an engagement to view its next actions.</Empty>
 
   return <div>
-    <PageHeader title="Next actions" subtitle={`${selected.host} - an explainable queue built from current evidence and coverage gaps`} />
+    <PageHeader title="Next actions" subtitle={`${selected.host} - the complete operational queue`} actions={<Button variant="ghost" onClick={() => navigate('methodology', selected.id)}><ListChecks size={14} /> Coverage reference</Button>} />
     {!loaded ? <SkeletonList rows={7} /> : <>
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Metric label="Active" value={counts.active} tone="text-accent-400" />

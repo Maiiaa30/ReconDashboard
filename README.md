@@ -59,13 +59,13 @@ The sidebar is grouped into **Engagement · Intelligence · Testing · HTTP Lab 
 | Module | What it does | Mode |
 | --- | --- | :---: |
 | **Portfolio** | Cross-engagement dashboard - a **"Today" panel** ranking what changed / got riskier since your last visit (new high-risk findings, new CVEs, new login-page subdomains, expiring authorization windows), plus KPI vitals, attention buckets, top open findings and recent asset changes | - |
-| **Command Center** | Per-engagement control surface for the assessment lifecycle: current persistent run, ordered phase progress, evidence-backed coverage, concrete target-job counts, priority findings, recent changes, recommended actions, activity and deliverables. Supports cancelling active runs and retrying degraded/unavailable/failed steps | - |
+| **Command Center** | Concise per-engagement summary: lifecycle position, latest assessment status, key coverage and risk indicators, the top three next actions, recent changes, current activity and deliverables. Detailed work links into the specialized views instead of duplicating their controls | - |
 | **Next Actions** | Ranked, evidence-backed work queue across assessment gaps, attack chains, material findings and methodology coverage. Explains each recommendation, distinguishes passive/loud/manual and automated/guided work, deep-links to the correct module and tracks attempted/completed/dismissed state | - |
 | **Scope & Targets** | Track targets; per-domain `passive_only` / `active_authorized` mode; engagement scope (allow/deny hosts + CIDRs), authorization window, scheduled monitoring, labels, data reset and destructive-action safeguards | - |
 | **Asset Inventory** | Durable host, IP and service inventory enriched with ports, technologies, ASN/CDN data, response baselines and linked findings | - |
-| **Methodology** | Target-aware recon methodology: applicable skills, per-step found / done / running / todo / skipped state, one-click gated execution and manual overrides | - |
-| **Scan Profiles** | Persistent server-managed assessment workflows: Passive foundation, Continuous surface refresh, Web assessment, Full authorized assessment and a reusable custom profile. Profiles execute dependency-aware phases, expand to discovered live assets and retain progress across refreshes/restarts | - |
-| **Assessment Runs** | Durable run history with exact per-target outcomes, attempt history, individual target cancel/retry controls, evidence counts, run-to-run new/unchanged/resolved/regressed finding comparison and report snapshots linked to the run that produced them | - |
+| **Methodology** | Secondary coverage reference reached from Next Actions: applicable recon skills, per-step found / done / running / todo / skipped state, gated execution and manual overrides without competing for permanent sidebar space | - |
+| **Scan Profiles** | Configure, select and launch persistent server-managed workflows: Passive foundation, Continuous surface refresh, Web assessment, Full authorized assessment and a reusable custom profile. A successful launch moves directly to Assessment Runs | - |
+| **Assessment Runs** | The sole execution-control and history surface: live phase progress, exact per-target outcomes, attempt history, cancel/retry controls, evidence counts, run-to-run new/unchanged/resolved/regressed finding comparison and report snapshots linked to the run that produced them | - |
 | **Attack Paths** | Rules-based triage + **attack-path correlation** as a force-directed **network graph**; deterministic chain suggestions and an optional advisor with prioritized, gated testing actions | - |
 | **Subdomains** | Passive discovery (crt.sh · certspotter · subfinder), HTTP-probe enrichment, **sortable by status / host / IP / last-seen**, diff & flag new, Discord alerts, exports | 🟢 passive |
 | **Screenshots** | Headless-Chromium gallery with lightbox | 🟢 passive |
@@ -107,6 +107,8 @@ Assessment profiles are persistent backend workflows, not browser-side batches. 
 | **6. Web testing** | Run active checks against mapped live web assets | Nuclei, ffuf and the OWASP engine |
 
 Passive profiles stop after mapping. Active phases remain operator-initiated and continue to enforce the domain mode, authorization window, allow/deny scope and per-target validation before anything is queued.
+
+The workflow deliberately separates responsibilities: **Scan Profiles** configures and starts a run, **Assessment Runs** owns live progress, evidence, history, retry and cancellation, **Command Center** provides only the concise engagement summary and top three priorities, and **Next Actions** holds the complete operational queue. **Methodology** remains available as a contextual coverage reference from Next Actions.
 
 ### Execution outcomes and coverage
 

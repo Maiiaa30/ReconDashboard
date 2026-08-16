@@ -10,7 +10,7 @@ import {
   type StepStatus,
 } from '../api'
 import { useApp, usePoll } from '../state'
-import { Badge, Card, Empty, PageHeader } from '../components/ui'
+import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
 import { useConfirm } from '../components/Confirm'
 
 const STATUS: Record<StepStatus, { label: string; cls: string; icon: typeof Circle; spin?: boolean }> = {
@@ -188,7 +188,7 @@ function SkillCard({
 
 // Recon methodology / coverage: which packaged "skills" apply to the target, how
 // far through each you are, one-click run per step, and manual done/skip.
-export function Methodology() {
+export function Methodology({ navigate }: { navigate: (page: string, domainId?: number) => void }) {
   const { selected } = useApp()
   const [data, setData] = useState<MethodologyData | null>(null)
 
@@ -211,8 +211,8 @@ export function Methodology() {
     <div>
       <PageHeader
         title="Methodology"
-        subtitle={`${selected.host} — coverage across the recon skills that apply`}
-        actions={<Badge tone={overall >= 80 ? 'green' : overall >= 40 ? 'amber' : 'zinc'}>{overall}% overall</Badge>}
+        subtitle={`${selected.host} - reference coverage across applicable recon skills`}
+        actions={<><Badge tone={overall >= 80 ? 'green' : overall >= 40 ? 'amber' : 'zinc'}>{overall}% overall</Badge><Button variant="ghost" onClick={() => navigate('actions', selected.id)}>Back to next actions</Button></>}
       />
 
       {data && (

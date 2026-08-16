@@ -57,7 +57,6 @@ const NAV_SECTIONS: { title: string; items: { key: string; label: string; icon: 
       { key: 'actions', label: 'Next Actions', icon: ListChecks },
       { key: 'domains', label: 'Scope & Targets', icon: Globe },
       { key: 'assets', label: 'Asset Inventory', icon: Boxes },
-      { key: 'methodology', label: 'Methodology', icon: ListChecks },
       { key: 'profiles', label: 'Scan Profiles', icon: Radar },
       { key: 'runs', label: 'Assessment Runs', icon: History },
     ],
@@ -116,7 +115,10 @@ const NAV_SECTIONS: { title: string; items: { key: string; label: string; icon: 
   },
 ]
 
-const MODULES = NAV_SECTIONS.flatMap((s) => s.items)
+// Secondary reference pages remain routable and retain their header/refresh
+// state without competing for permanent sidebar space.
+const HIDDEN_MODULES = [{ key: 'methodology', label: 'Methodology', icon: ListChecks }]
+const MODULES = [...NAV_SECTIONS.flatMap((s) => s.items), ...HIDDEN_MODULES]
 
 // Flat index (with section) for the command palette's fuzzy search.
 const MODULE_INDEX = NAV_SECTIONS.flatMap((s) => s.items.map((it) => ({ key: it.key, label: it.label, section: s.title })))
@@ -437,7 +439,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {active === 'reports' && <Reports navigate={navigate} />}
           {active === 'changes' && <Changes navigate={navigate} />}
           {active === 'intel' && <Intel navigate={navigate} />}
-          {active === 'methodology' && <Methodology />}
+          {active === 'methodology' && <Methodology navigate={navigate} />}
           {active === 'subdomains' && <Subdomains />}
           {active === 'screenshots' && <Screenshots />}
           {active === 'fuzzing' && <Fuzzing />}
