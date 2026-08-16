@@ -1,50 +1,10 @@
-// Thin typed wrapper around the backend REST API. Cookies (the session) are
-// sent automatically (same origin via the Vite proxy in dev, same origin in prod).
-
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message)
-    this.name = 'ApiError'
-  }
-}
-
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    // Only send a JSON content-type when there's actually a body, so GET/DELETE
-    // don't trigger needless CORS preflights or strict-server rejections.
-    headers: options.body ? { 'Content-Type': 'application/json' } : {},
-    ...options,
-  })
-  let body: unknown = null
-  const text = await res.text()
-  if (text) {
-    try {
-      body = JSON.parse(text)
-    } catch {
-      body = text
-    }
-  }
-  if (!res.ok) {
-    const message =
-      body && typeof body === 'object' && 'error' in body
-        ? String((body as { error: unknown }).error)
-        : `HTTP ${res.status}`
-    throw new ApiError(res.status, message)
-  }
-  return body as T
-}
-
-type RequestOptions = Pick<RequestInit, 'signal'>
-
-const get = <T>(p: string, options: RequestOptions = {}) => request<T>(p, options)
-const post = <T>(p: string, body?: unknown) =>
-  request<T>(p, { method: 'POST', body: body == null ? undefined : JSON.stringify(body) })
-const patch = <T>(p: string, body: unknown) => request<T>(p, { method: 'PATCH', body: JSON.stringify(body) })
-const put = <T>(p: string, body: unknown) => request<T>(p, { method: 'PUT', body: JSON.stringify(body) })
-const del = <T>(p: string) => request<T>(p, { method: 'DELETE' })
+// Typed facade around domain API clients. Existing imports stay stable while
+// focused clients can move out of this file incrementally.
+import { del, get, patch, post, put, type RequestOptions } from './api/http'
+import { systemApi } from './api/system'
+export { ApiError } from './api/http'
+export type { RequestOptions } from './api/http'
+export type { BackupCheckResult, MetaStatus, Wordlist } from './api/system'
 
 // --- Types -------------------------------------------------------------------
 
@@ -320,13 +280,6 @@ export interface Drawing extends DrawingMeta {
   data: any
 }
 
-export interface Wordlist {
-  path: string
-  name: string
-  sizeKb: number
-  category?: 'payload' | 'content'
-}
-
 export interface SitemapEndpoint {
   path: string
   method: string
@@ -524,49 +477,6 @@ export interface AssessmentComparison {
   regressed: AssessmentFindingSnapshot[]
 }
 
-export interface MetaStatus {
-  scorer: string
-  aiProvider: string
-  scheduler: { enabled: boolean; intervalMinutes: number }
-  discordConfigured: boolean
-  llm?: { enabled: boolean; model: string | null }
-  leaks?: { enabled: boolean; provider: string | null }
-  tools: {
-    subfinder: boolean
-    nmap: boolean
-    nuclei: boolean
-    ffuf: boolean
-    chromium: boolean
-    dig: boolean
-    katana?: boolean
-    naabu?: boolean
-    dalfox?: boolean
-    dnsx?: boolean
-    httpx?: boolean
-    sslscan?: boolean
-    sqlmap?: boolean
-    wpenum?: boolean
-    bypass403?: boolean
-    methods?: boolean
-    datastores?: boolean
-  }
-  wordlists: Wordlist[]
-  readiness: {
-    checkedAt: number
-    database: { ok: boolean; sizeBytes: number }
-    storage: { freeBytes: number | null }
-    worker: {
-      running: boolean
-      startedAt: number | null
-      lastTickAt: number | null
-      lanes: { passive: boolean; loud: boolean }
-    }
-    queue: { queued: number; running: number; failed: number; lastActivityAt: number | null }
-    capture: { enabled: boolean; extensionSeenAt: number | null }
-    backup: { serverPassphraseConfigured: boolean }
-  }
-}
-
 export interface LeaksResponse {
   enabled: boolean
   provider: string | null
@@ -702,8 +612,7 @@ export const api = {
   today: () => get<TodayData>('/home/today'),
   acknowledgeToday: () => post<{ viewedAt: string }>('/home/today/ack'),
 
-  // meta
-  meta: (options?: RequestOptions) => get<MetaStatus>('/meta/status', options),
+  ...systemApi,
 
   // domains
   domains: () => get<{ domains: Domain[] }>('/domains'),
@@ -1020,50 +929,4 @@ export const api = {
     return get<{ entries: AuditEntry[] }>(`/audit${qs ? `?${qs}` : ''}`)
   },
 
-  // backup
-  backupStatus: () => get<{ serverPassphraseConfigured: boolean }>('/backup/status'),
-  // backup download is handled directly in the component (binary response).
-  // Upload an encrypted .rdb (verify = safe check; restore = stage for restart).
-  backupVerify: (blob: Blob, passphrase?: string) => uploadBackup('/backup/verify', blob, passphrase),
-  // Restore is destructive → the operator re-authenticates (password + 2FA if
-  // enabled); sent as X-Reauth-* headers since the body is the raw blob.
-  backupRestore: (blob: Blob, passphrase: string | undefined, reauth: { password: string; token?: string }) =>
-    uploadBackup('/backup/restore', blob, passphrase, reauth),
-}
-
-export interface BackupCheckResult {
-  ok: boolean
-  error?: string
-  bytes?: number
-  staged?: boolean
-  restartRequired?: boolean
-  message?: string
-}
-
-async function uploadBackup(
-  path: string,
-  blob: Blob,
-  passphrase?: string,
-  reauth?: { password: string; token?: string },
-): Promise<BackupCheckResult> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' }
-  if (passphrase) headers['X-Backup-Passphrase'] = passphrase
-  if (reauth?.password) headers['X-Reauth-Password'] = reauth.password
-  if (reauth?.token) headers['X-Reauth-Token'] = reauth.token
-  const res = await fetch(`/api${path}`, { method: 'POST', headers, body: blob })
-  const text = await res.text()
-  let body: unknown = null
-  if (text) {
-    try {
-      body = JSON.parse(text)
-    } catch {
-      body = text
-    }
-  }
-  if (!res.ok && res.status !== 422) {
-    const message =
-      body && typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : `HTTP ${res.status}`
-    throw new ApiError(res.status, message)
-  }
-  return body as BackupCheckResult
 }
