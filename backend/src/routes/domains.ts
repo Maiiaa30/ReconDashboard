@@ -20,6 +20,7 @@ import { adviseIntel } from '../domains/advisor'
 import { suggestChains } from '../domains/chainSuggest'
 import { llmEnabled } from '../util/llm'
 import { safeJsonParse } from '../util/json'
+import { listNextActions, setNextActionState, type NextActionStatus } from '../domains/nextActions'
 
 export const domainRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/domains', async () => ({
@@ -167,6 +168,39 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
     if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
     return buildMethodology(id)
   })
+
+  app.get<{ Params: { id: string }; Querystring: { includeClosed?: string } }>('/api/domains/:id/next-actions', async (request, reply) => {
+    const id = Number(request.params.id)
+    const actions = listNextActions(id, request.query.includeClosed !== 'false')
+    if (!actions) return reply.code(404).send({ error: 'domain not found' })
+    return { actions }
+  })
+
+  app.patch<{ Params: { id: string }; Body: { actionKey?: string; state?: NextActionStatus } }>(
+    '/api/domains/:id/next-actions',
+    {
+      schema: {
+        body: {
+          type: 'object', required: ['actionKey', 'state'], additionalProperties: false,
+          properties: {
+            actionKey: { type: 'string', minLength: 1, maxLength: 300 },
+            state: { type: 'string', enum: ['open', 'attempted', 'completed', 'dismissed'] },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      const domain = getDomain(id)
+      if (!domain) return reply.code(404).send({ error: 'domain not found' })
+      const current = listNextActions(id, true)
+      const action = current?.find((item) => item.key === request.body.actionKey)
+      if (!action) return reply.code(404).send({ error: 'next action is no longer available' })
+      setNextActionState(id, action, request.body.state!)
+      writeAudit({ actor: actorName(request.session.userId), action: `next-action:${request.body.state}`, domainId: id, target: domain.host, detail: { actionKey: request.body.actionKey } })
+      return { actions: listNextActions(id, true) }
+    },
+  )
 
   // Manual override of a methodology step (mark done / skip / clear).
   app.patch<{ Params: { id: string }; Body: { skillId?: string; stepKey?: string; state?: string } }>(

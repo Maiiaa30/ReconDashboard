@@ -15,6 +15,7 @@ import {
   assets,
   assetSnapshots,
   assessmentRuns,
+  nextActionState,
 } from '../db/schema'
 import { isValidDomain, normalizeDomain } from '../util/validate'
 import { screenshotDirFor } from '../util/screenshotPaths'
@@ -126,6 +127,7 @@ export async function purgeDomainData(id: number): Promise<void> {
     tx.delete(jobs).where(eq(jobs.domainId, id)).run()
     tx.delete(assetCves).where(eq(assetCves.domainId, id)).run()
     tx.delete(skillStepState).where(eq(skillStepState.domainId, id)).run()
+    tx.delete(nextActionState).where(eq(nextActionState.domainId, id)).run()
     tx.delete(reportSnapshots).where(eq(reportSnapshots.domainId, id)).run()
     tx.delete(capturedRequests).where(eq(capturedRequests.domainId, id)).run()
     tx.delete(replayHistory).where(eq(replayHistory.domainId, id)).run()

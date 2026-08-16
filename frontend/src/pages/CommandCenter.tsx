@@ -1,10 +1,11 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Activity, AlertTriangle, ArrowRight, CheckCircle2, Circle, Clock, FileCheck2, Flag, ListChecks, Loader, Radar, RotateCcw, ShieldCheck, Sparkles, Square, type LucideIcon } from 'lucide-react'
-import { api, type AssessmentRun, type Asset, type Finding, type Job, type Methodology, type ReportSnapshot } from '../api'
+import { api, type AssessmentRun, type Asset, type Finding, type Job, type Methodology, type NextAction, type ReportSnapshot } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, ScoreBadge, SkeletonList } from '../components/ui'
 import { summarizeFinding, timeAgo } from '../lib/format'
 import { useToast } from '../components/Toast'
+import { setPendingFindingFilter, setPendingOwasp, setPendingScan } from '../lib/navigationHandoff'
 
 export function CommandCenter({ navigate }: { navigate: (page: string, domainId?: number) => void }) {
   const { selected } = useApp()
@@ -15,6 +16,7 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
   const [methodology, setMethodology] = useState<Methodology | null>(null)
   const [snapshots, setSnapshots] = useState<ReportSnapshot[]>([])
   const [run, setRun] = useState<AssessmentRun | null>(null)
+  const [nextActions, setNextActions] = useState<NextAction[]>([])
   const toast = useToast()
 
   const load = useCallback(() => {
@@ -26,13 +28,15 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
       api.methodology(selected.id),
       api.snapshots(selected.id),
       api.assessmentRuns(selected.id),
-    ]).then(([findingResult, assetResult, jobResult, methodologyResult, snapshotResult, runResult]) => {
+      api.nextActions(selected.id, false),
+    ]).then(([findingResult, assetResult, jobResult, methodologyResult, snapshotResult, runResult, actionResult]) => {
       setFindings(findingResult.findings)
       setAssets(assetResult.assets)
       setJobs(jobResult.jobs.filter((job) => job.domainId === selected.id))
       setMethodology(methodologyResult)
       setSnapshots(snapshotResult.snapshots)
       setRun(runResult.runs[0] ?? null)
+      setNextActions(actionResult.actions)
     }).catch(() => {}).finally(() => setLoaded(true))
   }, [selected])
   usePoll(load, 6000, !!selected, selected?.id)
@@ -46,12 +50,20 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
     const applicable = methodology?.skills.filter((skill) => skill.applicable) ?? []
     const methodologyCoverage = applicable.length ? Math.round(applicable.reduce((sum, skill) => sum + skill.coverage, 0) / applicable.length) : 0
     const coverage = run?.coverage ?? methodologyCoverage
-    const nextSteps = applicable.flatMap((skill) => skill.steps.filter((step) => step.status === 'todo').map((step) => ({ ...step, skill: skill.name }))).slice(0, 6)
-    return { active, confirmed, high, running, changes, coverage, methodologyCoverage, nextSteps }
+    return { active, confirmed, high, running, changes, coverage, methodologyCoverage }
   }, [assets, findings, jobs, methodology, run])
 
   if (!selected) return <Empty>Select an engagement to open its command center.</Empty>
   if (!loaded) return <><PageHeader title="Command center" subtitle={selected.host} /><SkeletonList rows={7} /></>
+
+  function openNextAction(action: NextAction) {
+    if (!selected) return
+    if (action.status === 'open') void api.updateNextAction(selected.id, action.key, 'attempted').catch(() => {})
+    if (action.page === 'findings') setPendingFindingFilter({ domainId: selected.id, asset: action.target })
+    if (action.page === 'scans') setPendingScan({ target: action.target })
+    if (action.page === 'owasp') setPendingOwasp({ target: action.target })
+    navigate(action.page, selected.id)
+  }
 
   const stages = [
     { label: 'Scope', done: true, page: 'domains' },
@@ -121,8 +133,8 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
 
         <div className="space-y-5">
           <Card>
-            <div className="mb-3 flex items-center gap-2"><ListChecks size={15} className="text-violet-400" /><h2 className="text-sm font-semibold">Recommended next actions</h2><Badge tone="indigo">{data.coverage}% covered</Badge></div>
-            {data.nextSteps.length === 0 ? <p className="text-sm text-zinc-500">No outstanding methodology steps.</p> : <div className="space-y-2">{data.nextSteps.map((step) => <button key={`${step.skill}:${step.key}`} onClick={() => navigate('methodology', selected.id)} className="group flex w-full items-center gap-3 rounded-lg border border-hair/60 px-3 py-2 text-left hover:border-accent-500/40"><Circle size={13} className="shrink-0 text-zinc-600" /><span className="min-w-0 flex-1"><span className="block truncate text-sm text-zinc-200">{step.label}</span><span className="block truncate text-xs text-zinc-600">{step.skill}</span></span><span className="text-[11px] text-accent-fg">Review & run</span><ArrowRight size={13} className="text-zinc-600 group-hover:text-accent-fg" /></button>)}</div>}
+            <div className="mb-3 flex items-center gap-2"><ListChecks size={15} className="text-violet-400" /><h2 className="text-sm font-semibold">Prioritized next actions</h2><Badge tone="indigo">{nextActions.length} active</Badge><button className="ml-auto text-xs text-zinc-500 hover:text-zinc-300" onClick={() => navigate('actions', selected.id)}>Full queue →</button></div>
+            {nextActions.length === 0 ? <p className="text-sm text-zinc-500">No active recommendations. Review completed or dismissed actions in the full queue.</p> : <div className="space-y-2">{nextActions.slice(0, 6).map((action) => <button key={action.key} onClick={() => openNextAction(action)} className="group flex w-full items-center gap-3 rounded-lg border border-hair/60 px-3 py-2 text-left hover:border-accent-500/40"><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-semibold ${action.priority >= 90 ? 'bg-red-500/15 text-red-300' : action.priority >= 70 ? 'bg-amber-500/15 text-amber-300' : 'bg-ink-700 text-zinc-400'}`}>{action.priority}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm text-zinc-200">{action.title}</span><span className="block truncate text-xs text-zinc-600">{action.why}</span></span><Badge tone={action.mode === 'loud' ? 'red' : action.mode === 'passive' ? 'green' : 'zinc'}>{action.mode}</Badge><ArrowRight size={13} className="text-zinc-600 group-hover:text-accent-fg" /></button>)}</div>}
           </Card>
 
           <Card>

@@ -417,6 +417,23 @@ export interface Methodology {
   skills: MethodologySkill[]
 }
 
+export type NextActionStatus = 'open' | 'attempted' | 'completed' | 'dismissed'
+export interface NextAction {
+  key: string
+  priority: number
+  risk: 'critical' | 'high' | 'medium' | 'low'
+  mode: 'passive' | 'loud' | 'manual'
+  automation: 'automated' | 'guided'
+  source: 'assessment' | 'finding' | 'attack_chain' | 'methodology'
+  title: string
+  why: string
+  target: string
+  page: string
+  moduleLabel: string
+  status: NextActionStatus
+  findingIds: number[]
+}
+
 export type AssessmentProfile = 'passive' | 'monitor' | 'web' | 'full' | 'custom'
 export type AssessmentAction = 'discover' | 'exposure' | 'osint' | 'screenshots' | 'api' | 'nmap' | 'nuclei' | 'ffuf' | 'owasp' | 'params'
 export type AssessmentRunStatus = 'queued' | 'running' | 'completed' | 'partial' | 'cancelled'
@@ -707,6 +724,9 @@ export const api = {
   methodology: (id: number) => get<Methodology>(`/domains/${id}/methodology`),
   setMethodologyStep: (id: number, skillId: string, stepKey: string, state: 'done' | 'skipped' | 'clear') =>
     patch<Methodology>(`/domains/${id}/methodology/step`, { skillId, stepKey, state }),
+  nextActions: (id: number, includeClosed = true) => get<{ actions: NextAction[] }>(`/domains/${id}/next-actions?includeClosed=${includeClosed}`),
+  updateNextAction: (id: number, actionKey: string, state: NextActionStatus) =>
+    patch<{ actions: NextAction[] }>(`/domains/${id}/next-actions`, { actionKey, state }),
 
   // Persistent, dependency-aware assessment workflows.
   assessmentRuns: (id: number) => get<{ runs: AssessmentRun[] }>(`/domains/${id}/assessment-runs`),

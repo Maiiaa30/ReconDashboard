@@ -350,6 +350,23 @@ export const skillStepState = sqliteTable(
   (t) => [unique('skill_step_uq').on(t.domainId, t.skillId, t.stepKey)],
 )
 
+// Operator disposition for stable, deterministically generated next actions.
+// The recommendation itself is rebuilt from current evidence; this table keeps
+// the human workflow state across refreshes and restarts.
+export const nextActionState = sqliteTable(
+  'next_action_state',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id').notNull().references(() => domains.id, { onDelete: 'cascade' }),
+    actionKey: text('action_key').notNull(),
+    state: text('state').notNull(), // attempted | completed | dismissed
+    snapshot: text('snapshot').notNull(), // frozen recommendation metadata for closed-history views
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [unique('next_action_state_domain_key_uq').on(t.domainId, t.actionKey), index('next_action_state_domain_idx').on(t.domainId, t.updatedAt)],
+)
+
 // Immutable, frozen engagement reports. A snapshot captures the full Markdown +
 // HTML report AS OF a point in time, so later re-scans never mutate what a
 // delivered report says. Content is stored verbatim; only the row's existence is

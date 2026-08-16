@@ -44,6 +44,7 @@ import { ScanProfiles } from '../pages/ScanProfiles'
 import { Reports } from '../pages/Reports'
 import { Changes } from '../pages/Changes'
 import { AssessmentRuns } from '../pages/AssessmentRuns'
+import { NextActions } from '../pages/NextActions'
 
 // Nav grouped into labeled sections so a 20+ item list stays scannable instead
 // of being one long undifferentiated column.
@@ -53,6 +54,7 @@ const NAV_SECTIONS: { title: string; items: { key: string; label: string; icon: 
     items: [
       { key: 'home', label: 'Portfolio', icon: HomeIcon },
       { key: 'command', label: 'Command Center', icon: BriefcaseBusiness },
+      { key: 'actions', label: 'Next Actions', icon: ListChecks },
       { key: 'domains', label: 'Scope & Targets', icon: Globe },
       { key: 'assets', label: 'Asset Inventory', icon: Boxes },
       { key: 'methodology', label: 'Methodology', icon: ListChecks },
@@ -122,7 +124,7 @@ const MODULE_INDEX = NAV_SECTIONS.flatMap((s) => s.items.map((it) => ({ key: it.
 type ModuleKey = (typeof MODULES)[number]['key']
 
 // Modules that operate on a selected domain show the domain picker.
-const DOMAIN_SCOPED: ModuleKey[] = ['command', 'assets', 'profiles', 'runs', 'reports', 'changes', 'intel', 'methodology', 'subdomains', 'screenshots', 'fuzzing', 'replay', 'traffic', 'exposure', 'ports', 'api', 'osint', 'leaks', 'origin', 'scans', 'tools', 'owasp', 'notes']
+const DOMAIN_SCOPED: ModuleKey[] = ['command', 'actions', 'assets', 'profiles', 'runs', 'reports', 'changes', 'intel', 'methodology', 'subdomains', 'screenshots', 'fuzzing', 'replay', 'traffic', 'exposure', 'ports', 'api', 'osint', 'leaks', 'origin', 'scans', 'tools', 'owasp', 'notes']
 
 // Map a job type to the nav module whose page shows its results, so a running /
 // just-finished job can flag that item in the sidebar.
@@ -427,6 +429,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         <ErrorBoundary key={active}>
           {active === 'home' && <Home navigate={navigate} />}
           {active === 'command' && <CommandCenter navigate={navigate} />}
+          {active === 'actions' && <NextActions navigate={navigate} />}
           {active === 'domains' && <Domains />}
           {active === 'assets' && <Assets navigate={navigate} />}
           {active === 'profiles' && <ScanProfiles navigate={navigate} />}

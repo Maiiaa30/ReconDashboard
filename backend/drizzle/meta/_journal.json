@@ -246,6 +246,13 @@
       "when": 1786926400000,
       "tag": "0034_assessment_run_history",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1787012800000,
+      "tag": "0035_next_action_state",
+      "breakpoints": true
     }
   ]
 }
