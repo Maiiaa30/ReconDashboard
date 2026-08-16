@@ -1,6 +1,6 @@
 import {
   Activity, Bot, Boxes, Brain, BriefcaseBusiness, Camera, Crosshair, DatabaseZap, Eye, FileCheck2,
-  FileText, Fingerprint, Flag, Globe, History, Home, ListChecks, Network, PenTool, Radar, Radio,
+  FileText, Fingerprint, Flag, Globe, HeartPulse, History, Home, ListChecks, Network, PenTool, Radar, Radio,
   Repeat, Router, ScanSearch, ScrollText, Settings, ShieldAlert, ShieldCheck, StickyNote, Webhook,
   Wrench, type LucideIcon,
 } from 'lucide-react'
@@ -85,6 +85,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'System',
     icon: Settings,
     items: [
+      { key: 'readiness', label: 'Readiness', icon: HeartPulse },
       { key: 'jobs', label: 'Logs', icon: ScrollText },
       { key: 'audit', label: 'Audit', icon: History },
       { key: 'settings', label: 'Settings', icon: Settings },

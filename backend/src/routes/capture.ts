@@ -21,6 +21,10 @@ const INGEST_RATE = { max: 600, timeWindow: '1 minute' } // a busy browsing sess
 let lastExtensionSeen = 0
 let lastCapturePrune = 0
 
+export function getCaptureRuntimeStatus(): { enabled: boolean; extensionSeenAt: number | null } {
+  return { enabled: !!config.captureToken, extensionSeenAt: lastExtensionSeen || null }
+}
+
 // Constant-time token compare (avoids leaking the token via response timing).
 function tokenMatches(provided: string, expected: string): boolean {
   if (!expected) return false
@@ -119,10 +123,7 @@ export const captureRoutes: FastifyPluginAsync = async (app) => {
 
   // Dashboard-side status (session-authed): is capture enabled on the server, and
   // when did we last hear from the extension? Powers the Traffic "not detected" hint.
-  app.get('/api/capture/status', async () => ({
-    enabled: !!config.captureToken,
-    extensionSeenAt: lastExtensionSeen || null,
-  }))
+  app.get('/api/capture/status', async () => getCaptureRuntimeStatus())
 
   // List captured requests for a domain (dashboard read — session-authed).
   app.get<{ Querystring: { domainId?: string; limit?: string } }>('/api/capture', async (request) => {

@@ -71,6 +71,8 @@ export function withTimeout<T>(p: Promise<T>, ms: number, onTimeout: () => void)
 }
 
 let timer: NodeJS.Timeout | null = null
+let workerStartedAt = 0
+let workerLastTickAt = 0
 
 // Two independent lanes so a long LOUD scan (nmap/naabu/katana can run for
 // minutes) doesn't block passive monitoring behind it. Each lane drains its own
@@ -188,7 +190,10 @@ export function startWorker(log: FastifyBaseLogger, intervalMs = 2_000): void {
   if (dead > 0) log.warn(`dead-lettered ${dead} stale running job(s) (loud/exhausted — not auto-resumed)`)
   if (cancelled > 0) log.warn(`cancelled ${cancelled} stale running job(s) with a pending cancel request`)
 
+  workerStartedAt = Date.now()
+  workerLastTickAt = workerStartedAt
   timer = setInterval(() => {
+    workerLastTickAt = Date.now()
     // Reap any job stuck 'running' past the wall-clock deadline (its in-process
     // timer died with a previous worker) — durable backstop for the in-memory
     // withTimeout. Cheap: 'running' rows are few and indexed.
@@ -208,4 +213,15 @@ export function startWorker(log: FastifyBaseLogger, intervalMs = 2_000): void {
 export function stopWorker(): void {
   if (timer) clearInterval(timer)
   timer = null
+  workerStartedAt = 0
+  workerLastTickAt = 0
+}
+
+export function getWorkerStatus(): { running: boolean; startedAt: number | null; lastTickAt: number | null; lanes: Record<JobLane, boolean> } {
+  return {
+    running: timer != null,
+    startedAt: workerStartedAt || null,
+    lastTickAt: workerLastTickAt || null,
+    lanes: { ...laneRunning },
+  }
 }

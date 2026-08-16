@@ -34,6 +34,7 @@ const LlmSecurity = lazy(() => import('../pages/LlmSecurity').then((module) => (
 const Findings = lazy(() => import('../pages/Findings').then((module) => ({ default: module.Findings })))
 const Notes = lazy(() => import('../pages/Notes').then((module) => ({ default: module.Notes })))
 const Canvas = lazy(() => import('../pages/Canvas').then((module) => ({ default: module.Canvas })))
+const Readiness = lazy(() => import('../pages/Readiness').then((module) => ({ default: module.Readiness })))
 const Jobs = lazy(() => import('../pages/Jobs').then((module) => ({ default: module.Jobs })))
 const Audit = lazy(() => import('../pages/Audit').then((module) => ({ default: module.Audit })))
 const Settings = lazy(() => import('../pages/Settings').then((module) => ({ default: module.Settings })))
@@ -42,7 +43,7 @@ export const PAGE_KEYS: readonly ModuleKey[] = [
   'home', 'command', 'actions', 'domains', 'assets', 'profiles', 'runs', 'reports', 'changes', 'intel',
   'methodology', 'subdomains', 'screenshots', 'fuzzing', 'replay', 'traffic', 'exposure', 'ports', 'api',
   'osint', 'social', 'leaks', 'origin', 'whois', 'checkhost', 'scans', 'tools', 'owasp', 'llm', 'findings',
-  'notes', 'canvas', 'jobs', 'audit', 'settings',
+  'notes', 'canvas', 'readiness', 'jobs', 'audit', 'settings',
 ]
 
 interface PageContentProps {
@@ -85,6 +86,7 @@ function ActivePage({ active, navigate, totpEnabled }: PageContentProps) {
     case 'findings': return <Findings navigate={navigate} />
     case 'notes': return <Notes />
     case 'canvas': return <Canvas />
+    case 'readiness': return <Readiness />
     case 'jobs': return <Jobs />
     case 'audit': return <Audit />
     case 'settings': return <Settings totpEnabled={totpEnabled} />

@@ -87,7 +87,7 @@ The sidebar keeps the primary **Workflow** visible and places specialist modules
 | **Findings** | Scored & deduped with "why this score" + CVE detail, **one-click nuclei CVE verification** (promotes a passively-observed CVE to *confirmed-exploitable* with the PoC attached), triage lifecycle, bulk triage, **suggest-only AI triage** (LLM proposes a disposition per finding - apply with one click, nothing auto-changes), **attached request/response evidence**, CSV/JSON + Markdown/HTML reports, and **immutable report snapshots** you can **export to PDF** | - |
 | **Reports / Change History** | Live engagement report, immutable report snapshots and PDF export; chronological material changes across known assets and findings | - |
 | **Notes / Canvas** | Markdown notes (push to Discord) · Excalidraw board auto-saved to the DB | - |
-| **Logs / Audit / Settings** | Live activity log with job control · append-only **audit ledger** · 2FA enrollment · system status · encrypted backup & restore | - |
+| **Readiness / Logs / Audit / Settings** | Consolidated database, storage, worker, queue, scanner, provider, capture and backup readiness · live activity log with job control · append-only **audit ledger** · 2FA enrollment · encrypted backup & restore | - |
 
 Each tracked target can also be **reset** - a per-domain *Clear data* wipes its recon records (assessment runs, findings, assets, subdomains, jobs, captures, history and screenshots) while keeping the target and your notes.
 

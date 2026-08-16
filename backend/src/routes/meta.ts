@@ -1,9 +1,12 @@
-import { readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync, statfsSync, statSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import type { FastifyPluginAsync } from 'fastify'
 import { config } from '../config'
+import { sqlite } from '../db/index'
+import { getWorkerStatus } from '../jobs/worker'
 import { getScorer } from '../scoring'
 import { toolExists } from '../util/exec'
+import { getCaptureRuntimeStatus } from './capture'
 
 // Lightweight capability/status endpoint so the UI can adapt (e.g. show which
 // active scanners are installed, the scorer in use, scheduler state).
@@ -36,6 +39,48 @@ function listWordlists(): { path: string; name: string; sizeKb: number; category
       .sort((a, b) => a.sizeKb - b.sizeKb)
   } catch {
     return []
+  }
+}
+
+interface QueueCountRow {
+  status: string
+  count: number
+}
+
+export function getLocalReadiness() {
+  const databasePath = resolve(config.databasePath)
+  let databaseOk = false
+  let databaseSizeBytes = 0
+  let storageFreeBytes: number | null = null
+  try {
+    databaseOk = sqlite.pragma('quick_check', { simple: true }) === 'ok'
+    databaseSizeBytes = statSync(databasePath).size
+    const storage = statfsSync(dirname(databasePath))
+    storageFreeBytes = storage.bavail * storage.bsize
+  } catch {
+    // The response should still explain the failing subsystem instead of making
+    // the entire readiness endpoint unavailable.
+  }
+
+  const counts: Record<string, number> = {}
+  for (const row of sqlite.prepare("SELECT status, COUNT(*) AS count FROM jobs GROUP BY status").all() as QueueCountRow[]) {
+    counts[row.status] = row.count
+  }
+  const latest = sqlite.prepare('SELECT MAX(updated_at) AS updatedAt FROM jobs').get() as { updatedAt: number | null }
+
+  return {
+    checkedAt: Date.now(),
+    database: { ok: databaseOk, sizeBytes: databaseSizeBytes },
+    storage: { freeBytes: storageFreeBytes },
+    worker: getWorkerStatus(),
+    queue: {
+      queued: counts.queued ?? 0,
+      running: counts.running ?? 0,
+      failed: (counts.error ?? 0) + (counts.dead ?? 0),
+      lastActivityAt: latest.updatedAt ?? null,
+    },
+    capture: getCaptureRuntimeStatus(),
+    backup: { serverPassphraseConfigured: Boolean(config.backupPassphrase) },
   }
 }
 
@@ -72,6 +117,7 @@ export const metaRoutes: FastifyPluginAsync = async (app) => {
       leaks: { enabled: config.leaks.enabled, provider: config.leaks.enabled ? config.leaks.provider : null },
       tools: toolCache,
       wordlists: (wordlistCache ??= listWordlists()),
+      readiness: getLocalReadiness(),
     }
   })
 }

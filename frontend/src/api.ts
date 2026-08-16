@@ -551,6 +551,20 @@ export interface MetaStatus {
     datastores?: boolean
   }
   wordlists: Wordlist[]
+  readiness: {
+    checkedAt: number
+    database: { ok: boolean; sizeBytes: number }
+    storage: { freeBytes: number | null }
+    worker: {
+      running: boolean
+      startedAt: number | null
+      lastTickAt: number | null
+      lanes: { passive: boolean; loud: boolean }
+    }
+    queue: { queued: number; running: number; failed: number; lastActivityAt: number | null }
+    capture: { enabled: boolean; extensionSeenAt: number | null }
+    backup: { serverPassphraseConfigured: boolean }
+  }
 }
 
 export interface LeaksResponse {
@@ -689,7 +703,7 @@ export const api = {
   acknowledgeToday: () => post<{ viewedAt: string }>('/home/today/ack'),
 
   // meta
-  meta: () => get<MetaStatus>('/meta/status'),
+  meta: (options?: RequestOptions) => get<MetaStatus>('/meta/status', options),
 
   // domains
   domains: () => get<{ domains: Domain[] }>('/domains'),
