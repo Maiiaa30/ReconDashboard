@@ -167,7 +167,7 @@ export async function cveVerifyHandler({ params, log, signal, progress }: JobCon
 
     // Upgrade the originating cve_new finding in place: confirmed + score floor.
     if (existing) {
-      const kevKnown = kev || (existing.data as any)?.kev === true
+      const kevKnown = kev || existing.data.kev === true
       recordCveVerification(
         existing.id,
         { result, templateId: hit['template-id'] ?? cveId, matchedAt, curl, at },

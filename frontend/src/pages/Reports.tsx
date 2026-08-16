@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Camera, Download, FileCheck2, FileText, Flag, ListChecks, Trash2, type LucideIcon } from 'lucide-react'
 import { api, type Finding, type Methodology, type ReportSnapshot } from '../api'
 import { useApp, usePoll } from '../state'
@@ -14,15 +14,30 @@ export function Reports({ navigate }: { navigate: (page: string, domainId?: numb
   const [label, setLabel] = useState('')
   const [busy, setBusy] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState(false)
 
-  const load = useCallback(() => {
+  useEffect(() => {
+    setSnapshots([])
+    setFindings([])
+    setMethodology(null)
+    setLoaded(false)
+    setLoadError(false)
+  }, [selected?.id])
+
+  const load = useCallback((signal?: AbortSignal) => {
     if (!selected) return
-    Promise.all([api.snapshots(selected.id), api.findings({ domainId: selected.id, limit: 500 }), api.methodology(selected.id)])
+    return Promise.all([api.snapshots(selected.id), api.findings({ domainId: selected.id, limit: 500 }), api.methodology(selected.id)])
       .then(([snapshotResult, findingResult, methodologyResult]) => {
+        if (signal?.aborted) return
         setSnapshots(snapshotResult.snapshots)
         setFindings(findingResult.findings)
         setMethodology(methodologyResult)
-      }).catch(() => {}).finally(() => setLoaded(true))
+        setLoadError(false)
+      }).catch(() => {
+        if (!signal?.aborted) setLoadError(true)
+      }).finally(() => {
+        if (!signal?.aborted) setLoaded(true)
+      })
   }, [selected])
   usePoll(load, 10000, !!selected, selected?.id)
 
@@ -61,7 +76,7 @@ export function Reports({ navigate }: { navigate: (page: string, domainId?: numb
   return (
     <div>
       <PageHeader title="Reports" subtitle={`${selected.host} — live exports and immutable assessment deliverables`} actions={<ExportLinks path={`/domains/${selected.id}/report`} formats={['md', 'html']} />} />
-      {!loaded ? <SkeletonList rows={6} /> : <>
+      {!loaded ? <SkeletonList rows={6} /> : loadError ? <Empty>Unable to load report readiness. The dashboard will retry automatically.</Empty> : <>
         <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Readiness label="Reportable findings" value={readiness.reportable.length} detail={`${readiness.draft.length} draft`} icon={Flag} tone="text-amber-400" onClick={() => navigate('findings', selected.id)} />
           <Readiness label="Confirmed" value={readiness.confirmed.length} detail={`${readiness.withEvidence.length} with evidence`} icon={FileCheck2} tone="text-red-400" onClick={() => navigate('findings', selected.id)} />

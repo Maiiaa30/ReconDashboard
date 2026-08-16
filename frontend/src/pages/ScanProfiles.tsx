@@ -41,10 +41,16 @@ export function ScanProfiles({ navigate }: { navigate: (page: string, domainId?:
   const [builderOpen, setBuilderOpen] = useState(false)
   const [activeRun, setActiveRun] = useState<AssessmentRun | null>(null)
 
-  usePoll(() => {
+  usePoll((signal) => {
     if (!selected) return
-    api.assessmentRuns(selected.id).then((result) => setActiveRun(result.runs.find((run) => run.status === 'queued' || run.status === 'running') ?? null)).catch(() => {})
+    return api.assessmentRuns(selected.id).then((result) => {
+      if (!signal.aborted) setActiveRun(result.runs.find((run) => run.status === 'queued' || run.status === 'running') ?? null)
+    }).catch(() => {})
   }, 6000, !!selected, selected?.id)
+
+  useEffect(() => {
+    setActiveRun(null)
+  }, [selected?.id])
 
   useEffect(() => {
     try {

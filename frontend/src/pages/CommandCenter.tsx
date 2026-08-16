@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowRight, CheckCircle2, Circle, Clock, FileCheck2, Flag, ListChecks, Radar, ShieldAlert, ShieldCheck, Sparkles, type LucideIcon } from 'lucide-react'
 import { api, type AssessmentRun, type Asset, type Finding, type Job, type Methodology, type NextAction, type ReportSnapshot } from '../api'
 import { useApp, usePoll } from '../state'
@@ -16,10 +16,23 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
   const [snapshots, setSnapshots] = useState<ReportSnapshot[]>([])
   const [run, setRun] = useState<AssessmentRun | null>(null)
   const [nextActions, setNextActions] = useState<NextAction[]>([])
+  const [loadError, setLoadError] = useState(false)
 
-  const load = useCallback(() => {
+  useEffect(() => {
+    setLoaded(false)
+    setLoadError(false)
+    setFindings([])
+    setAssets([])
+    setJobs([])
+    setMethodology(null)
+    setSnapshots([])
+    setRun(null)
+    setNextActions([])
+  }, [selected?.id])
+
+  const load = useCallback((signal: AbortSignal) => {
     if (!selected) return
-    Promise.all([
+    return Promise.all([
       api.findings({ domainId: selected.id, limit: 500 }),
       api.assets(selected.id),
       api.jobs(),
@@ -28,6 +41,7 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
       api.assessmentRuns(selected.id),
       api.nextActions(selected.id, false),
     ]).then(([findingResult, assetResult, jobResult, methodologyResult, snapshotResult, runResult, actionResult]) => {
+      if (signal.aborted) return
       setFindings(findingResult.findings)
       setAssets(assetResult.assets)
       setJobs(jobResult.jobs.filter((job) => job.domainId === selected.id))
@@ -35,7 +49,12 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
       setSnapshots(snapshotResult.snapshots)
       setRun(runResult.runs[0] ?? null)
       setNextActions(actionResult.actions)
-    }).catch(() => {}).finally(() => setLoaded(true))
+      setLoadError(false)
+    }).catch(() => {
+      if (!signal.aborted) setLoadError(true)
+    }).finally(() => {
+      if (!signal.aborted) setLoaded(true)
+    })
   }, [selected])
   usePoll(load, 6000, !!selected, selected?.id)
 
@@ -53,6 +72,7 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
 
   if (!selected) return <Empty>Select an engagement to open its command center.</Empty>
   if (!loaded) return <><PageHeader title="Command center" subtitle={selected.host} /><SkeletonList rows={7} /></>
+  if (loadError) return <><PageHeader title="Command center" subtitle={selected.host} /><Empty>Unable to load the engagement summary. The dashboard will retry automatically.</Empty></>
 
   function openNextAction(action: NextAction) {
     if (!selected) return

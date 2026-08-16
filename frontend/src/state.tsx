@@ -120,15 +120,36 @@ export function useHosts(domain: Domain | null): { host: string; live: boolean }
 // immediate refetch. Pass those inputs as `resetKey` when you need the poll to
 // re-fire at once (e.g. the selected domain id) — otherwise the view shows stale
 // data until the next tick.
-export function usePoll(fn: () => void, intervalMs: number, active = true, resetKey?: unknown) {
+export function usePoll(fn: (signal: AbortSignal) => void | Promise<void>, intervalMs: number, active = true, resetKey?: unknown) {
   const fnRef = useRef(fn)
   useEffect(() => {
     fnRef.current = fn
   })
   useEffect(() => {
     if (!active) return
-    fnRef.current()
-    const t = setInterval(() => fnRef.current(), intervalMs)
-    return () => clearInterval(t)
+    const controller = new AbortController()
+    let running = false
+    const poll = async () => {
+      // Slow endpoints must not build up overlapping requests. Besides wasting
+      // work, an older response can otherwise overwrite newer page state.
+      if (running) return
+      running = true
+      try {
+        await fnRef.current(controller.signal)
+      } catch (error) {
+        // Pages normally render their own error state. Keep an unexpected
+        // rejection observable without turning an interval callback into an
+        // unhandled promise rejection.
+        console.error('Polling callback failed', error)
+      } finally {
+        running = false
+      }
+    }
+    void poll()
+    const t = setInterval(() => void poll(), intervalMs)
+    return () => {
+      controller.abort()
+      clearInterval(t)
+    }
   }, [active, intervalMs, resetKey])
 }

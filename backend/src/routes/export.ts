@@ -146,14 +146,14 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
     if (!domain) return reply.code(404).send({ error: 'domain not found' })
 
     const findings = listFindings({ domainId: id, limit: 5000 }).filter(
-      (f) => (f as any).status !== 'false_positive' && (f as any).status !== 'ignored',
+      (f) => f.status !== 'false_positive' && f.status !== 'ignored',
     )
     const high = findings.filter((f) => ['critical', 'high'].includes(findingSeverity(f)))
     const medium = findings.filter((f) => findingSeverity(f) === 'medium')
     const subs = listSubdomains(id)
     const live = subs.filter((s) => s.httpStatus != null)
     const exposures = findings.filter((f) => f.type === 'exposure')
-    const cves = exposures.reduce((n, f: any) => n + (f.data?.vulns?.length ?? 0), 0)
+    const cves = exposures.reduce((n, f) => n + (Array.isArray(f.data.vulns) ? f.data.vulns.length : 0), 0)
     const topLines = [...high, ...medium].slice(0, 15).map((f) => `- [${f.score}] ${summarize(f.type, f.data)}`).join('\n')
 
     const facts =
@@ -219,10 +219,10 @@ export const exportRoutes: FastifyPluginAsync = async (app) => {
       // artifact a lead/client sees should carry the triage judgment, not drop it.
       const headers = ['id', 'type', 'score', 'status', 'summary', 'note', 'tags', 'domain_id', 'first_seen', 'last_seen']
       const rows = findings.map((f) => [
-        f.id, f.type, f.score, (f as any).status ?? '', summarize(f.type, f.data), (f as any).note ?? '',
+        f.id, f.type, f.score, f.status, summarize(f.type, f.data), f.note ?? '',
         (f.tags ?? []).join('|'), f.domainId,
         f.createdAt ? new Date(f.createdAt).toISOString() : '',
-        (f as any).lastSeenAt ? new Date((f as any).lastSeenAt).toISOString() : '',
+        f.lastSeenAt ? new Date(f.lastSeenAt).toISOString() : '',
       ])
       return send(reply, 'csv', base, toCsv(headers, rows))
     },

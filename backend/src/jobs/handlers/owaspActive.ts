@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
-import { listFindings } from '../../findings/store'
+import { asFindingData, listFindings } from '../../findings/store'
 import { listCaptures } from '../../capture/store'
 import { getCorpusUrls } from '../../corpus/store'
 import { jsRecon } from '../../sources/jsRecon'
@@ -63,13 +63,12 @@ export function knownUrlsFor(domainId: number): string[] {
   const urls = new Set<string>(getCorpusUrls(domainId, { limit: 20_000 }))
   const findings = listFindings({ domainId, limit: 2000 })
   for (const f of findings) {
-    const d = f.data as any
-    if (!d) continue
+    const d = asFindingData(f.data)
     if (f.type === 'tool' && Array.isArray(d.items)) for (const x of d.items) if (typeof x === 'string') urls.add(x)
     if (typeof d.url === 'string') urls.add(d.url)
     if (typeof d.matched === 'string') urls.add(d.matched)
     // Legacy fallback: pre-corpus osint findings kept ~50 URLs in their blob.
-    for (const arr of [d?.wayback?.withParams, d?.wayback?.sample, d?.commoncrawl?.withParams, d?.commoncrawl?.sample]) {
+    for (const arr of [d.wayback?.withParams, d.wayback?.sample, d.commoncrawl?.withParams, d.commoncrawl?.sample]) {
       if (Array.isArray(arr)) for (const u of arr) if (typeof u === 'string') urls.add(u)
     }
   }

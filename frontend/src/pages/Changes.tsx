@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Bell, Clock, History, Network, ShieldAlert } from 'lucide-react'
 import { api, type Finding, type Subdomain } from '../api'
 import { useApp, usePoll } from '../state'
@@ -12,12 +12,29 @@ export function Changes({ navigate }: { navigate: (page: string, domainId?: numb
   const [findings, setFindings] = useState<Finding[]>([])
   const [subdomains, setSubdomains] = useState<Subdomain[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState(false)
 
-  const load = useCallback(() => {
+  useEffect(() => {
+    setFindings([])
+    setSubdomains([])
+    setLoaded(false)
+    setLoadError(false)
+  }, [selected?.id])
+
+  const load = useCallback((signal: AbortSignal) => {
     if (!selected) return
-    Promise.all([api.findings({ domainId: selected.id, limit: 1000 }), api.subdomains(selected.id)])
-      .then(([findingResult, subdomainResult]) => { setFindings(findingResult.findings); setSubdomains(subdomainResult.subdomains) })
-      .catch(() => {}).finally(() => setLoaded(true))
+    return Promise.all([api.findings({ domainId: selected.id, limit: 1000 }), api.subdomains(selected.id)])
+      .then(([findingResult, subdomainResult]) => {
+        if (signal.aborted) return
+        setFindings(findingResult.findings)
+        setSubdomains(subdomainResult.subdomains)
+        setLoadError(false)
+      })
+      .catch(() => {
+        if (!signal.aborted) setLoadError(true)
+      }).finally(() => {
+        if (!signal.aborted) setLoaded(true)
+      })
   }, [selected])
   usePoll(load, 10000, !!selected, selected?.id)
 
@@ -43,7 +60,7 @@ export function Changes({ navigate }: { navigate: (page: string, domainId?: numb
 
   if (!selected) return <Empty>Select an engagement to view its change history.</Empty>
   return <div><PageHeader title="Change history" subtitle={`${selected.host} — new hosts, CVEs, HTTP, technology and visual changes`} />
-    {!loaded ? <SkeletonList rows={7} /> : timeline.length === 0 ? <Empty>No material changes recorded yet. Enable monitoring or rerun a passive profile to establish and compare baselines.</Empty> : <div className="relative ml-3 border-l border-hair pl-6">{timeline.map((item) => {
+    {!loaded ? <SkeletonList rows={7} /> : loadError ? <Empty>Unable to load change history. The dashboard will retry automatically.</Empty> : timeline.length === 0 ? <Empty>No material changes recorded yet. Enable monitoring or rerun a passive profile to establish and compare baselines.</Empty> : <div className="relative ml-3 border-l border-hair pl-6">{timeline.map((item) => {
       const Icon = item.kind === 'cve' ? ShieldAlert : item.kind === 'subdomain' ? Network : Bell
       const tone = item.kind === 'cve' ? 'text-red-400 border-red-900 bg-red-950' : item.kind === 'subdomain' ? 'text-blue-400 border-blue-900 bg-blue-950' : 'text-amber-400 border-amber-900 bg-amber-950'
       return <div key={item.id} className="relative mb-3"><span className={`absolute -left-[39px] top-4 flex h-7 w-7 items-center justify-center rounded-full border ${tone}`}><Icon size={13} /></span><button onClick={() => navigate(item.kind === 'subdomain' ? 'subdomains' : 'findings', selected.id)} className="w-full text-left"><Card className="!p-3 transition hover:border-hair-strong"><div className="flex items-start gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Badge tone={item.kind === 'cve' ? 'red' : item.kind === 'subdomain' ? 'blue' : 'amber'}>{item.kind}</Badge><span className="text-sm font-medium text-zinc-100">{item.title}</span></div>{item.detail && <p className="mt-1 text-xs text-zinc-500">{item.detail}</p>}</div>{item.finding && <ScoreBadge score={item.finding.score} />}<span className="flex shrink-0 items-center gap-1 text-xs text-zinc-600"><Clock size={12} /> {timeAgo(item.at)}</span></div></Card></button></div>

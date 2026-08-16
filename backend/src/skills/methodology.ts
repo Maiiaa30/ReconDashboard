@@ -1,4 +1,4 @@
-import { listFindings } from '../findings/store'
+import { asFindingData, listFindings } from '../findings/store'
 import { listJobs } from '../jobs/queue'
 import { safeJsonParse } from '../util/json'
 import { SKILLS, type StepAction, type StepDetect } from './registry'
@@ -62,15 +62,18 @@ function computeMethodology(domainId: number): Methodology {
   const ports = new Set<number>()
   for (const f of findings) {
     for (const t of f.tags ?? []) if (t.startsWith('tech:')) tech.add(t.slice(5))
-    const d = (f.data ?? {}) as any
+    const d = asFindingData(f.data)
     if (f.type === 'exposure' && Array.isArray(d.ports)) for (const p of d.ports) ports.add(Number(p))
-    if (f.type === 'nmap' && Array.isArray(d.openPorts)) for (const p of d.openPorts) ports.add(Number(p?.port ?? p))
+    if (f.type === 'nmap' && Array.isArray(d.openPorts)) for (const p of d.openPorts) {
+      const port = p && typeof p === 'object' && 'port' in p ? p.port : p
+      ports.add(Number(port))
+    }
     if (f.type === 'tool' && d.tool === 'naabu' && Array.isArray(d.items)) for (const p of d.items) ports.add(Number(p))
   }
 
   const autoStatus = (detect: StepDetect): StepStatus => {
     const found = findings.some((f) => {
-      const d = (f.data ?? {}) as any
+      const d = asFindingData(f.data)
       if (detect.findingType && f.type === detect.findingType) return true
       if (detect.findingTool && f.type === 'tool' && d.tool === detect.findingTool) return true
       if (detect.owaspCategory && f.type === 'owasp' && String(d.category ?? '').startsWith(detect.owaspCategory)) return true
@@ -81,7 +84,7 @@ function computeMethodology(domainId: number): Methodology {
       jobs.some(
         (j) =>
           statuses.includes(j.status) &&
-          (((detect.jobTypes?.includes(j.type as any)) ?? false) ||
+          (((detect.jobTypes?.some((type) => type === j.type)) ?? false) ||
             (!!detect.jobTool && j.type === 'tool_scan' && j.p?.tool === detect.jobTool)),
       )
     if (jobMatches(['done'])) return 'done'

@@ -1,6 +1,6 @@
 import { getDomain } from '../domains/store'
 import { listCaptures } from '../capture/store'
-import { listFindings } from '../findings/store'
+import { asFindingData, listFindings } from '../findings/store'
 import { knownUrlsFor } from '../jobs/handlers/owaspActive'
 import { hostBelongsToDomain } from '../util/validate'
 
@@ -62,17 +62,18 @@ export function buildSitemap(domainId: number): SitemapHost[] {
   // API-surface findings store endpoints as PATHS (js recon) or {method, path}
   // (OpenAPI) — resolve them to absolute URLs against the finding's host/servers.
   for (const f of listFindings({ domainId, type: 'api', limit: 500 })) {
-    const d = f.data as any
-    const host = typeof d?.host === 'string' ? d.host : domain.host
-    const base = Array.isArray(d?.servers) && typeof d.servers[0] === 'string' ? d.servers[0] : `https://${host}`
-    if (typeof d?.endpoint === 'string') add(d.endpoint, 'POST', null, 'discovered') // graphql
-    for (const ep of Array.isArray(d?.endpoints) ? d.endpoints : []) {
+    const d = asFindingData(f.data)
+    const host = typeof d.host === 'string' ? d.host : domain.host
+    const base = Array.isArray(d.servers) && typeof d.servers[0] === 'string' ? d.servers[0] : `https://${host}`
+    if (typeof d.endpoint === 'string') add(d.endpoint, 'POST', null, 'discovered') // graphql
+    for (const ep of Array.isArray(d.endpoints) ? d.endpoints : []) {
       if (typeof ep === 'string') {
         const url = ep.startsWith('/') ? `https://${host}${ep}` : /^https?:\/\//.test(ep) ? ep : `https://${ep}`
         add(url, 'GET', null, 'discovered')
-      } else if (ep && typeof ep === 'object' && typeof ep.path === 'string') {
+      } else if (ep && typeof ep === 'object' && 'path' in ep && typeof ep.path === 'string') {
         const p = ep.path.startsWith('/') ? ep.path : `/${ep.path}`
-        add(`${base.replace(/\/+$/, '')}${p}`, String(ep.method || 'GET').toUpperCase(), null, 'discovered')
+        const method = 'method' in ep ? ep.method : 'GET'
+        add(`${base.replace(/\/+$/, '')}${p}`, String(method || 'GET').toUpperCase(), null, 'discovered')
       }
     }
   }

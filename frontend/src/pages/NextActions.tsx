@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowRight, Check, CheckCircle2, CircleDot, ListChecks, RotateCcw, ShieldAlert, Sparkles, Target, X } from 'lucide-react'
 import { api, type NextAction, type NextActionStatus } from '../api'
 import { useApp, usePoll } from '../state'
@@ -20,10 +20,25 @@ export function NextActions({ navigate }: { navigate: (page: string, domainId?: 
   const [view, setView] = useState<View>('active')
   const [mode, setMode] = useState<Mode>('all')
   const [busy, setBusy] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState(false)
 
-  const load = useCallback(() => {
+  useEffect(() => {
+    setActions([])
+    setLoaded(false)
+    setLoadError(false)
+  }, [selected?.id])
+
+  const load = useCallback((signal: AbortSignal) => {
     if (!selected) return
-    api.nextActions(selected.id).then((result) => setActions(result.actions)).catch(() => {}).finally(() => setLoaded(true))
+    return api.nextActions(selected.id).then((result) => {
+      if (signal.aborted) return
+      setActions(result.actions)
+      setLoadError(false)
+    }).catch(() => {
+      if (!signal.aborted) setLoadError(true)
+    }).finally(() => {
+      if (!signal.aborted) setLoaded(true)
+    })
   }, [selected])
   usePoll(load, 6000, !!selected, selected?.id)
 
@@ -65,7 +80,7 @@ export function NextActions({ navigate }: { navigate: (page: string, domainId?: 
 
   return <div>
     <PageHeader title="Next actions" subtitle={`${selected.host} - the complete operational queue`} actions={<Button variant="ghost" onClick={() => navigate('methodology', selected.id)}><ListChecks size={14} /> Coverage reference</Button>} />
-    {!loaded ? <SkeletonList rows={7} /> : <>
+    {!loaded ? <SkeletonList rows={7} /> : loadError ? <Empty>Unable to load the action queue. The dashboard will retry automatically.</Empty> : <>
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Metric label="Active" value={counts.active} tone="text-accent-400" />
         <Metric label="Critical" value={counts.critical} tone="text-red-400" />

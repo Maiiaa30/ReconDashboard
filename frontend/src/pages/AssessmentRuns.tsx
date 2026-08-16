@@ -25,20 +25,28 @@ export function AssessmentRuns({ navigate }: { navigate: (page: string, domainId
   const [comparison, setComparison] = useState<AssessmentComparison | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState(false)
 
-  useEffect(() => { setSelectedRunId(null); setRun(null); setComparison(null); setLoaded(false) }, [selected?.id])
+  useEffect(() => { setRuns([]); setSelectedRunId(null); setRun(null); setComparison(null); setLoaded(false); setLoadError(false) }, [selected?.id])
 
-  const load = useCallback(() => {
+  const load = useCallback((signal?: AbortSignal) => {
     if (!selected) return
-    api.assessmentRuns(selected.id).then(async ({ runs: next }) => {
+    return api.assessmentRuns(selected.id).then(async ({ runs: next }) => {
+      if (signal?.aborted) return
       setRuns(next)
+      setLoadError(false)
       const id = selectedRunId && next.some((item) => item.id === selectedRunId) ? selectedRunId : next[0]?.id ?? null
       if (id !== selectedRunId) setSelectedRunId(id)
       if (!id) { setRun(null); setComparison(null); return }
       const [{ run: detail }, { comparison: diff }] = await Promise.all([api.assessmentRun(id), api.assessmentComparison(id)])
+      if (signal?.aborted) return
       setRun(detail)
       setComparison(diff)
-    }).catch(() => {}).finally(() => setLoaded(true))
+    }).catch(() => {
+      if (!signal?.aborted) setLoadError(true)
+    }).finally(() => {
+      if (!signal?.aborted) setLoaded(true)
+    })
   }, [selected, selectedRunId])
   usePoll(load, 3500, !!selected, `${selected?.id ?? ''}:${selectedRunId ?? ''}`)
 
@@ -61,7 +69,7 @@ export function AssessmentRuns({ navigate }: { navigate: (page: string, domainId
 
   return <div>
     <PageHeader title="Assessment runs" subtitle={`${selected.host} — durable target evidence, retries and run-to-run change tracking`} actions={<Button variant="primary" onClick={() => navigate('profiles', selected.id)}>Start a profile</Button>} />
-    {!loaded ? <SkeletonList rows={7} /> : runs.length === 0 ? <Empty>No assessment runs yet. Start a scan profile to create the first evidence trail.</Empty> : (
+    {!loaded ? <SkeletonList rows={7} /> : loadError ? <Empty>Unable to load assessment runs. The dashboard will retry automatically.</Empty> : runs.length === 0 ? <Empty>No assessment runs yet. Start a scan profile to create the first evidence trail.</Empty> : (
       <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
         <div className="space-y-2">{runs.map((item) => <button key={item.id} onClick={() => setSelectedRunId(item.id)} className={`w-full rounded-xl border p-3 text-left transition ${item.id === run?.id ? 'border-accent-500/50 bg-accent-500/10' : 'border-hair bg-ink-850 hover:border-hair-strong'}`}>
           <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100">{item.name}</span><Badge tone={statusTone(item.status)}>{item.status}</Badge></div>

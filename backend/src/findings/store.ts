@@ -59,13 +59,16 @@ export interface FindingDataBase {
   provider?: string
   ports?: number[]
   openPorts?: unknown[]
+  items?: unknown[]
+  servers?: unknown[]
+  endpoints?: unknown[]
   cves?: Array<{ cvss_v3?: number; cvss?: number; kev?: boolean }>
   vulns?: unknown[]
   confirmedOrigins?: Array<{ ip?: string }>
   asn?: { asn?: string; asName?: string }
   tech?: Record<string, unknown>
-  wayback?: { withParams?: string[] }
-  commoncrawl?: { withParams?: string[] }
+  wayback?: { withParams?: string[]; sample?: string[] }
+  commoncrawl?: { withParams?: string[]; sample?: string[] }
   _scoreReasons?: string[]
 }
 
