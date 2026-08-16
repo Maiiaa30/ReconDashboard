@@ -33,13 +33,13 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
   const load = useCallback((signal: AbortSignal) => {
     if (!selected) return
     return Promise.all([
-      api.findings({ domainId: selected.id, limit: 500 }),
-      api.assets(selected.id),
-      api.jobs(),
-      api.methodology(selected.id),
-      api.snapshots(selected.id),
-      api.assessmentRuns(selected.id),
-      api.nextActions(selected.id, false),
+      api.findings({ domainId: selected.id, limit: 500 }, { signal }),
+      api.assets(selected.id, { signal }),
+      api.jobs({ signal }),
+      api.methodology(selected.id, { signal }),
+      api.snapshots(selected.id, { signal }),
+      api.assessmentRuns(selected.id, { signal }),
+      api.nextActions(selected.id, false, { signal }),
     ]).then(([findingResult, assetResult, jobResult, methodologyResult, snapshotResult, runResult, actionResult]) => {
       if (signal.aborted) return
       setFindings(findingResult.findings)

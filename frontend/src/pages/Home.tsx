@@ -22,6 +22,7 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
   const [top, setTop] = useState<HomeFinding[]>([])
   const [changes, setChanges] = useState<RecentChange[]>([])
   const [today, setToday] = useState<TodayData | null>(null)
+  const [loadError, setLoadError] = useState(false)
 
   // Fetch and acknowledge "Today" exactly once per mount. The ref survives a
   // StrictMode double-invoke in dev.
@@ -35,12 +36,23 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
     }).catch(() => {})
   }, [])
 
-  const load = useCallback(() => {
-    api.home().then((r) => {
+  const load = useCallback((signal: AbortSignal) => {
+    return api.home({ signal }).then((r) => {
+      if (signal.aborted) return
       setOverview(r.overview)
       setTop(r.topFindings)
       setChanges(r.recentChanges ?? [])
-    }).catch(() => toast.error('Failed to load overview.')).finally(() => setLoaded(true))
+      setLoadError(false)
+    }).catch(() => {
+      if (!signal.aborted) {
+        setLoadError((alreadyFailed) => {
+          if (!alreadyFailed) toast.error('Failed to load overview.')
+          return true
+        })
+      }
+    }).finally(() => {
+      if (!signal.aborted) setLoaded(true)
+    })
   }, [toast])
   usePoll(load, 8000)
 
@@ -74,14 +86,14 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
     return (
       <div>
         <Hero count={0} lastActivity={null} navigate={navigate} />
-        <Empty>
+        {loadError ? <Empty>Unable to load the portfolio. The dashboard will retry automatically.</Empty> : <Empty>
           <div className="flex flex-col items-start gap-3">
             <span>No targets yet — add a domain to begin recon.</span>
             <Button variant="primary" onClick={() => navigate('domains')}>
               <Globe size={15} /> Add your first target
             </Button>
           </div>
-        </Empty>
+        </Empty>}
       </div>
     )
   }
@@ -89,6 +101,8 @@ export function Home({ navigate }: { navigate: (page: string, domainId?: number)
   return (
     <div>
       <Hero count={overview.length} lastActivity={lastActivity} navigate={navigate} />
+
+      {loadError && <Card className="mb-5 border-amber-900/50 bg-amber-950/10"><div className="flex items-center gap-2 text-sm text-amber-300"><AlertTriangle size={15} /> Portfolio refresh failed. Showing the last successful data while retrying automatically.</div></Card>}
 
       <TodayPanel today={today} navigate={navigate} />
 

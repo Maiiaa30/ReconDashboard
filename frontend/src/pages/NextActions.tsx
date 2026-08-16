@@ -30,7 +30,7 @@ export function NextActions({ navigate }: { navigate: (page: string, domainId?: 
 
   const load = useCallback((signal: AbortSignal) => {
     if (!selected) return
-    return api.nextActions(selected.id).then((result) => {
+    return api.nextActions(selected.id, true, { signal }).then((result) => {
       if (signal.aborted) return
       setActions(result.actions)
       setLoadError(false)

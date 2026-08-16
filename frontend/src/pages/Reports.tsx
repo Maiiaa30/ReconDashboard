@@ -26,7 +26,7 @@ export function Reports({ navigate }: { navigate: (page: string, domainId?: numb
 
   const load = useCallback((signal?: AbortSignal) => {
     if (!selected) return
-    return Promise.all([api.snapshots(selected.id), api.findings({ domainId: selected.id, limit: 500 }), api.methodology(selected.id)])
+    return Promise.all([api.snapshots(selected.id, { signal }), api.findings({ domainId: selected.id, limit: 500 }, { signal }), api.methodology(selected.id, { signal })])
       .then(([snapshotResult, findingResult, methodologyResult]) => {
         if (signal?.aborted) return
         setSnapshots(snapshotResult.snapshots)

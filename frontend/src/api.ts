@@ -37,7 +37,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return body as T
 }
 
-const get = <T>(p: string) => request<T>(p)
+type RequestOptions = Pick<RequestInit, 'signal'>
+
+const get = <T>(p: string, options: RequestOptions = {}) => request<T>(p, options)
 const post = <T>(p: string, body?: unknown) =>
   request<T>(p, { method: 'POST', body: body == null ? undefined : JSON.stringify(body) })
 const patch = <T>(p: string, body: unknown) => request<T>(p, { method: 'PATCH', body: JSON.stringify(body) })
@@ -681,7 +683,7 @@ export const api = {
     post<{ ok: true; username: string }>('/auth/username', { password, newUsername }),
 
   // engagement home (cross-target overview + top open findings + recent changes)
-  home: () => get<{ overview: DomainOverview[]; topFindings: HomeFinding[]; recentChanges: RecentChange[] }>('/home'),
+  home: (options?: RequestOptions) => get<{ overview: DomainOverview[]; topFindings: HomeFinding[]; recentChanges: RecentChange[] }>('/home', options),
   // "Today" — new/risky since the last explicit acknowledgement.
   today: () => get<TodayData>('/home/today'),
   acknowledgeToday: () => post<{ viewedAt: string }>('/home/today/ack'),
@@ -691,7 +693,7 @@ export const api = {
 
   // domains
   domains: () => get<{ domains: Domain[] }>('/domains'),
-  domainsOverview: () => get<{ overview: DomainOverview[] }>('/domains/overview'),
+  domainsOverview: (options?: RequestOptions) => get<{ overview: DomainOverview[] }>('/domains/overview', options),
   createDomain: (host: string, mode: DomainMode, label?: string) =>
     post<{ domain: Domain }>('/domains', { host, mode, label }),
   setDomainMode: (id: number, mode: DomainMode) => patch<{ domain: Domain }>(`/domains/${id}`, { mode }),
@@ -721,21 +723,21 @@ export const api = {
   correlate: (id: number) => get<{ paths: AttackPath[]; signatureClusters: SignatureCluster[] }>(`/domains/${id}/correlate`),
 
   // recon methodology / coverage
-  methodology: (id: number) => get<Methodology>(`/domains/${id}/methodology`),
+  methodology: (id: number, options?: RequestOptions) => get<Methodology>(`/domains/${id}/methodology`, options),
   setMethodologyStep: (id: number, skillId: string, stepKey: string, state: 'done' | 'skipped' | 'clear') =>
     patch<Methodology>(`/domains/${id}/methodology/step`, { skillId, stepKey, state }),
-  nextActions: (id: number, includeClosed = true) => get<{ actions: NextAction[] }>(`/domains/${id}/next-actions?includeClosed=${includeClosed}`),
+  nextActions: (id: number, includeClosed = true, options?: RequestOptions) => get<{ actions: NextAction[] }>(`/domains/${id}/next-actions?includeClosed=${includeClosed}`, options),
   updateNextAction: (id: number, actionKey: string, state: NextActionStatus) =>
     patch<{ actions: NextAction[] }>(`/domains/${id}/next-actions`, { actionKey, state }),
 
   // Persistent, dependency-aware assessment workflows.
-  assessmentRuns: (id: number) => get<{ runs: AssessmentRun[] }>(`/domains/${id}/assessment-runs`),
-  assessmentRun: (id: number) => get<{ run: AssessmentRun }>(`/assessment-runs/${id}`),
+  assessmentRuns: (id: number, options?: RequestOptions) => get<{ runs: AssessmentRun[] }>(`/domains/${id}/assessment-runs`, options),
+  assessmentRun: (id: number, options?: RequestOptions) => get<{ run: AssessmentRun }>(`/assessment-runs/${id}`, options),
   createAssessmentRun: (id: number, body: { profile: AssessmentProfile; name?: string; steps?: AssessmentAction[]; confirm?: boolean }) =>
     post<{ run: AssessmentRun }>(`/domains/${id}/assessment-runs`, body),
   retryAssessmentRun: (id: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${id}/retry`),
   cancelAssessmentRun: (id: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${id}/cancel`),
-  assessmentComparison: (id: number) => get<{ comparison: AssessmentComparison }>(`/assessment-runs/${id}/comparison`),
+  assessmentComparison: (id: number, options?: RequestOptions) => get<{ comparison: AssessmentComparison }>(`/assessment-runs/${id}/comparison`, options),
   retryAssessmentTarget: (runId: number, stepId: number, jobId: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${runId}/steps/${stepId}/jobs/${jobId}/retry`),
   cancelAssessmentTarget: (runId: number, stepId: number, jobId: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${runId}/steps/${stepId}/jobs/${jobId}/cancel`),
   createAssessmentReport: (id: number) => post<{ snapshot: ReportSnapshot }>(`/assessment-runs/${id}/report-snapshot`),
@@ -748,8 +750,8 @@ export const api = {
   chainSuggestions: (id: number) => get<{ chains: ChainSuggestion[] }>(`/domains/${id}/chains`),
 
   // subdomains
-  subdomains: (id: number) => get<{ subdomains: Subdomain[] }>(`/domains/${id}/subdomains`),
-  assets: (id: number) => get<{ assets: Asset[] }>(`/domains/${id}/assets`),
+  subdomains: (id: number, options?: RequestOptions) => get<{ subdomains: Subdomain[] }>(`/domains/${id}/subdomains`, options),
+  assets: (id: number, options?: RequestOptions) => get<{ assets: Asset[] }>(`/domains/${id}/assets`, options),
   discover: (id: number) => post<{ jobId: number }>(`/domains/${id}/discover`),
   // passive DNS permutation + brute-resolve (wildcard-guarded)
   dnsPermute: (id: number) => post<{ jobId: number }>(`/domains/${id}/dns-permute`),
@@ -938,19 +940,19 @@ export const api = {
   clearCaptures: (domainId: number) => del<{ cleared: number }>(`/capture?domainId=${domainId}`),
 
   // jobs
-  jobs: () => get<{ jobs: Job[] }>('/jobs'),
+  jobs: (options?: RequestOptions) => get<{ jobs: Job[] }>('/jobs', options),
   job: (id: number) => get<{ job: Job }>(`/jobs/${id}`),
   cancelJob: (id: number) => post<{ job: Job }>(`/jobs/${id}/cancel`),
 
   // findings
-  findings: (q: { domainId?: number; type?: string; limit?: number; since?: number } = {}) => {
+  findings: (q: { domainId?: number; type?: string; limit?: number; since?: number } = {}, options?: RequestOptions) => {
     const params = new URLSearchParams()
     if (q.domainId != null) params.set('domainId', String(q.domainId))
     if (q.type) params.set('type', q.type)
     if (q.limit) params.set('limit', String(q.limit))
     if (q.since) params.set('since', String(q.since))
     const qs = params.toString()
-    return get<{ findings: Finding[] }>(`/findings${qs ? `?${qs}` : ''}`)
+    return get<{ findings: Finding[] }>(`/findings${qs ? `?${qs}` : ''}`, options)
   },
   updateFinding: (id: number, patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ finding: Finding }>(`/findings/${id}`, patchBody),
@@ -960,7 +962,7 @@ export const api = {
   findingLinks: (id: number) => get<{ links: FindingLink[] }>(`/findings/${id}/links`),
 
   // immutable report snapshots (frozen deliverables)
-  snapshots: (domainId: number) => get<{ snapshots: ReportSnapshot[] }>(`/domains/${domainId}/report/snapshots`),
+  snapshots: (domainId: number, options?: RequestOptions) => get<{ snapshots: ReportSnapshot[] }>(`/domains/${domainId}/report/snapshots`, options),
   createSnapshot: (domainId: number, label?: string) =>
     post<{ snapshot: ReportSnapshot }>(`/domains/${domainId}/report/snapshot`, label ? { label } : {}),
   deleteSnapshot: (id: number) => del<{ ok: true }>(`/report/snapshots/${id}`),

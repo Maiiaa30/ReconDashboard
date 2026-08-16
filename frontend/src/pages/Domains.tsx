@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { api, ApiError, type Domain, type DomainMode, type DomainOverview } from '../api'
 import { useApp, usePoll } from '../state'
-import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
+import { Badge, Button, Card, Empty, PageHeader, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/Confirm'
 import { riskFromScore, timeAgo } from '../lib/format'
@@ -47,9 +47,19 @@ export function Domains() {
   const [overview, setOverview] = useState<DomainOverview[]>([])
   const [showAdd, setShowAdd] = useState(false)
   const [busyAction, setBusyAction] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState(false)
 
-  const load = useCallback(() => {
-    api.domainsOverview().then((r) => setOverview(r.overview)).catch(() => {})
+  const load = useCallback((signal?: AbortSignal) => {
+    return api.domainsOverview({ signal }).then((r) => {
+      if (signal?.aborted) return
+      setOverview(r.overview)
+      setLoadError(false)
+    }).catch(() => {
+      if (!signal?.aborted) setLoadError(true)
+    }).finally(() => {
+      if (!signal?.aborted) setLoaded(true)
+    })
   }, [])
 
   // Poll so cards update live while jobs run (backend caches overview ~8s).
@@ -92,10 +102,11 @@ export function Domains() {
         />
       )}
 
-      {overview.length === 0 ? (
-        <Empty>No domains yet. Click “Add domain” to start recon.</Empty>
+      {!loaded ? <SkeletonList rows={6} /> : overview.length === 0 ? (
+        <Empty>{loadError ? 'Unable to load scope and targets. The dashboard will retry automatically.' : 'No domains yet. Click “Add domain” to start recon.'}</Empty>
       ) : (
         <>
+          {loadError && <Card className="mb-4 border-amber-900/50 bg-amber-950/10"><p className="text-sm text-amber-300">Target refresh failed. Showing the last successful data while retrying automatically.</p></Card>}
           <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
             <Kpi icon={Network} tone="blue" label="Subdomains" value={totals.subs} />
             <Kpi icon={Flag} tone="amber" label="Findings" value={totals.findings} />

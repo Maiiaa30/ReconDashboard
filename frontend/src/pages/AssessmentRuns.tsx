@@ -31,14 +31,14 @@ export function AssessmentRuns({ navigate }: { navigate: (page: string, domainId
 
   const load = useCallback((signal?: AbortSignal) => {
     if (!selected) return
-    return api.assessmentRuns(selected.id).then(async ({ runs: next }) => {
+    return api.assessmentRuns(selected.id, { signal }).then(async ({ runs: next }) => {
       if (signal?.aborted) return
       setRuns(next)
       setLoadError(false)
       const id = selectedRunId && next.some((item) => item.id === selectedRunId) ? selectedRunId : next[0]?.id ?? null
       if (id !== selectedRunId) setSelectedRunId(id)
       if (!id) { setRun(null); setComparison(null); return }
-      const [{ run: detail }, { comparison: diff }] = await Promise.all([api.assessmentRun(id), api.assessmentComparison(id)])
+      const [{ run: detail }, { comparison: diff }] = await Promise.all([api.assessmentRun(id, { signal }), api.assessmentComparison(id, { signal })])
       if (signal?.aborted) return
       setRun(detail)
       setComparison(diff)

@@ -43,7 +43,7 @@ export function ScanProfiles({ navigate }: { navigate: (page: string, domainId?:
 
   usePoll((signal) => {
     if (!selected) return
-    return api.assessmentRuns(selected.id).then((result) => {
+    return api.assessmentRuns(selected.id, { signal }).then((result) => {
       if (!signal.aborted) setActiveRun(result.runs.find((run) => run.status === 'queued' || run.status === 'running') ?? null)
     }).catch(() => {})
   }, 6000, !!selected, selected?.id)

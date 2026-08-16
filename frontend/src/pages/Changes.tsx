@@ -23,7 +23,7 @@ export function Changes({ navigate }: { navigate: (page: string, domainId?: numb
 
   const load = useCallback((signal: AbortSignal) => {
     if (!selected) return
-    return Promise.all([api.findings({ domainId: selected.id, limit: 1000 }), api.subdomains(selected.id)])
+    return Promise.all([api.findings({ domainId: selected.id, limit: 1000 }, { signal }), api.subdomains(selected.id, { signal })])
       .then(([findingResult, subdomainResult]) => {
         if (signal.aborted) return
         setFindings(findingResult.findings)
