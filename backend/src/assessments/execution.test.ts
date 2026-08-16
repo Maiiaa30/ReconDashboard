@@ -21,5 +21,11 @@ describe('assessment execution truth', () => {
     expect(classifyJobExecution({ status: 'done', result: JSON.stringify({ available: true, target: 'example.com', count: 0 }) }))
       .toMatchObject({ outcome: 'completed', reason: null })
   })
-})
 
+  it('honors an explicit handler outcome contract before legacy inference', () => {
+    const result = { available: true, execution: { outcome: 'unavailable', reason: 'provider quota exhausted', summary: ['provider: censys'] } }
+    expect(classifyJobExecution({ status: 'done', result: JSON.stringify(result) })).toEqual({
+      outcome: 'unavailable', reason: 'provider quota exhausted', summary: ['provider: censys'],
+    })
+  })
+})

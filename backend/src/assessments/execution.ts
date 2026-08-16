@@ -14,6 +14,15 @@ export interface ExecutionClassification {
   summary: string[]
 }
 
+// Handlers may return this contract in their result payload. The fallback
+// inference below remains for older handlers, while assessment history always
+// persists the normalized classification.
+export interface JobExecutionContract {
+  outcome: 'completed' | 'degraded' | 'unavailable'
+  reason?: string | null
+  summary?: string[]
+}
+
 const SUMMARY_KEYS = [
   'count', 'hits', 'found', 'tested', 'captured', 'attempted', 'hostsChecked',
   'ipsResolved', 'exposedIps', 'discovered', 'newCount', 'specs', 'graphql',
@@ -67,6 +76,16 @@ export function classifyJobExecution(job: ExecutionJob | undefined): ExecutionCl
 
   const result = safeJsonParse<Record<string, unknown>>(job.result, {})
   const summary = resultSummary(result)
+  const explicit = result.execution && typeof result.execution === 'object'
+    ? result.execution as Partial<JobExecutionContract>
+    : null
+  if (explicit && ['completed', 'degraded', 'unavailable'].includes(String(explicit.outcome))) {
+    return {
+      outcome: explicit.outcome as JobExecutionContract['outcome'],
+      reason: typeof explicit.reason === 'string' ? explicit.reason : null,
+      summary: Array.isArray(explicit.summary) ? explicit.summary.filter((item): item is string => typeof item === 'string').slice(0, 8) : summary,
+    }
+  }
   const note = typeof result.note === 'string' ? result.note : typeof result.reason === 'string' ? result.reason : null
   if (result.available === false) return { outcome: 'unavailable', reason: note ?? 'required scanner or provider is unavailable', summary }
 
@@ -80,4 +99,3 @@ export function classifyJobExecution(job: ExecutionJob | undefined): ExecutionCl
 
   return { outcome: 'completed', reason: null, summary }
 }
-

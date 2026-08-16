@@ -425,6 +425,8 @@ export type AssessmentExecutionOutcome = 'pending' | 'running' | 'completed' | '
 export interface AssessmentStepJob {
   id: number
   target: string | null
+  attempt: number
+  current: boolean
   status: string
   outcome: AssessmentExecutionOutcome
   reason: string | null
@@ -480,6 +482,27 @@ export interface AssessmentRun {
   completedAt: string | null
   createdAt: string
   updatedAt: string
+  reportSnapshot: ReportSnapshot | null
+}
+
+export interface AssessmentFindingSnapshot {
+  findingKey: string
+  findingId: number | null
+  type: string
+  title: string
+  target: string | null
+  score: number | null
+  severity: string | null
+  status: string
+}
+
+export interface AssessmentComparison {
+  previousRunId: number | null
+  counts: { new: number; unchanged: number; resolved: number; regressed: number }
+  new: AssessmentFindingSnapshot[]
+  unchanged: AssessmentFindingSnapshot[]
+  resolved: AssessmentFindingSnapshot[]
+  regressed: AssessmentFindingSnapshot[]
 }
 
 export interface MetaStatus {
@@ -538,6 +561,7 @@ export interface SnapshotMeta {
 
 export interface ReportSnapshot {
   id: number
+  assessmentRunId: number | null
   host: string
   label: string | null
   meta: SnapshotMeta | null
@@ -691,6 +715,10 @@ export const api = {
     post<{ run: AssessmentRun }>(`/domains/${id}/assessment-runs`, body),
   retryAssessmentRun: (id: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${id}/retry`),
   cancelAssessmentRun: (id: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${id}/cancel`),
+  assessmentComparison: (id: number) => get<{ comparison: AssessmentComparison }>(`/assessment-runs/${id}/comparison`),
+  retryAssessmentTarget: (runId: number, stepId: number, jobId: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${runId}/steps/${stepId}/jobs/${jobId}/retry`),
+  cancelAssessmentTarget: (runId: number, stepId: number, jobId: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${runId}/steps/${stepId}/jobs/${jobId}/cancel`),
+  createAssessmentReport: (id: number) => post<{ snapshot: ReportSnapshot }>(`/assessment-runs/${id}/report-snapshot`),
 
   // AI-drafted report narrative (optional; only when llm.enabled)
   generateNarrative: (id: number) => post<{ narrative: string; model: string; note: string }>(`/domains/${id}/report/narrative`),

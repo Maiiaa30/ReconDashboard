@@ -37,7 +37,7 @@ function summariseFindings(domainId: number): SnapshotMeta {
 
 // Freeze the current report (Markdown + HTML) as an immutable row. Returns null
 // if the domain is gone.
-export function createSnapshot(domainId: number, label?: string) {
+export function createSnapshot(domainId: number, label?: string, assessmentRunId?: number) {
   const domain = getDomain(domainId)
   if (!domain) return null
   const iso = new Date().toISOString()
@@ -49,6 +49,7 @@ export function createSnapshot(domainId: number, label?: string) {
     .insert(reportSnapshots)
     .values({
       domainId,
+      assessmentRunId: assessmentRunId ?? null,
       host: domain.host,
       label: label?.trim() || null,
       contentMd,
@@ -66,6 +67,7 @@ export function listSnapshots(domainId: number) {
       id: reportSnapshots.id,
       host: reportSnapshots.host,
       label: reportSnapshots.label,
+      assessmentRunId: reportSnapshots.assessmentRunId,
       meta: reportSnapshots.meta,
       createdAt: reportSnapshots.createdAt,
     })
@@ -83,6 +85,7 @@ function metaRow(id: number) {
       id: reportSnapshots.id,
       host: reportSnapshots.host,
       label: reportSnapshots.label,
+      assessmentRunId: reportSnapshots.assessmentRunId,
       meta: reportSnapshots.meta,
       createdAt: reportSnapshots.createdAt,
     })
@@ -91,6 +94,17 @@ function metaRow(id: number) {
     .limit(1)
     .all()[0]
   return r ? { ...r, meta: r.meta ? (JSON.parse(r.meta) as SnapshotMeta) : null } : null
+}
+
+export function latestSnapshotForRun(assessmentRunId: number) {
+  const row = db
+    .select({ id: reportSnapshots.id })
+    .from(reportSnapshots)
+    .where(eq(reportSnapshots.assessmentRunId, assessmentRunId))
+    .orderBy(desc(reportSnapshots.id))
+    .limit(1)
+    .all()[0]
+  return row ? metaRow(row.id) : null
 }
 
 // Full row incl. frozen content (for download).

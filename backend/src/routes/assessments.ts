@@ -2,10 +2,14 @@ import type { FastifyPluginAsync } from 'fastify'
 import {
   AssessmentRunError,
   cancelAssessmentRun,
+  cancelAssessmentTarget,
+  createAssessmentReport,
   createAssessmentRun,
   getAssessmentRun,
+  getAssessmentComparison,
   listAssessmentRuns,
   retryAssessmentRun,
+  retryAssessmentTarget,
   type AssessmentAction,
   type AssessmentProfile,
 } from '../assessments/runs'
@@ -61,5 +65,27 @@ export const assessmentRoutes: FastifyPluginAsync = async (app) => {
 
   app.post<{ Params: { id: string } }>('/api/assessment-runs/:id/cancel', async (request, reply) => {
     try { return { run: cancelAssessmentRun(Number(request.params.id)) } } catch (error) { return sendError(reply, error) }
+  })
+
+  app.get<{ Params: { id: string } }>('/api/assessment-runs/:id/comparison', async (request, reply) => {
+    const comparison = getAssessmentComparison(Number(request.params.id))
+    if (!comparison) return reply.code(404).send({ error: 'assessment run not found' })
+    return { comparison }
+  })
+
+  app.post<{ Params: { id: string; stepId: string; jobId: string } }>('/api/assessment-runs/:id/steps/:stepId/jobs/:jobId/retry', async (request, reply) => {
+    try { return { run: await retryAssessmentTarget(Number(request.params.id), Number(request.params.stepId), Number(request.params.jobId)) } } catch (error) { return sendError(reply, error) }
+  })
+
+  app.post<{ Params: { id: string; stepId: string; jobId: string } }>('/api/assessment-runs/:id/steps/:stepId/jobs/:jobId/cancel', async (request, reply) => {
+    try { return { run: await cancelAssessmentTarget(Number(request.params.id), Number(request.params.stepId), Number(request.params.jobId)) } } catch (error) { return sendError(reply, error) }
+  })
+
+  app.post<{ Params: { id: string } }>('/api/assessment-runs/:id/report-snapshot', async (request, reply) => {
+    try {
+      const snapshot = createAssessmentReport(Number(request.params.id))
+      if (!snapshot) return reply.code(404).send({ error: 'domain not found' })
+      return { snapshot }
+    } catch (error) { return sendError(reply, error) }
   })
 }

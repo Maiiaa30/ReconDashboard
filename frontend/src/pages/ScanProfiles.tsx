@@ -146,7 +146,7 @@ function RunProgress({ run, onChange, navigate }: { run: AssessmentRun; onChange
   return <Card className="mb-5 border-accent-500/30">
     <div className="mb-3 flex flex-wrap items-start gap-3">
       <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h2 className="font-medium text-zinc-100">{run.name}</h2><Badge tone={run.status === 'completed' ? 'green' : problem ? 'amber' : 'indigo'}>{run.status}</Badge></div><p className="mt-1 text-xs text-zinc-500">Run #{run.id} · phase {Math.min(run.currentPhase + 1, run.totalPhases)}/{run.totalPhases} · {run.completedSteps}/{run.totalSteps} steps · {run.completedTargetJobs}/{run.totalTargetJobs} concrete target jobs complete</p></div>
-      <div className="flex gap-2">{problem && !active && <Button variant="ghost" onClick={retry}><RotateCcw size={14} /> Retry problems</Button>}{active && <Button variant="ghost" onClick={cancel}><Square size={13} /> Cancel run</Button>}<Button variant="ghost" onClick={() => navigate('command', run.domainId)}>Command center</Button></div>
+      <div className="flex gap-2">{problem && !active && <Button variant="ghost" onClick={retry}><RotateCcw size={14} /> Retry problems</Button>}{active && <Button variant="ghost" onClick={cancel}><Square size={13} /> Cancel run</Button>}<Button variant="ghost" onClick={() => navigate('runs', run.domainId)}>View details</Button></div>
     </div>
     <div className="mb-4 h-2 overflow-hidden rounded-full bg-ink-950"><div className="h-full bg-accent-500 transition-all" style={{ width: `${run.coverage}%` }} /></div>
     <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{run.steps.map((step) => {

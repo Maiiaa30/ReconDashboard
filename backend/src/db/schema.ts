@@ -218,6 +218,29 @@ export const assessmentSteps = sqliteTable(
   (t) => [unique('assessment_steps_run_key_uq').on(t.runId, t.key), index('assessment_steps_run_phase_idx').on(t.runId, t.phase, t.position)],
 )
 
+// Durable, normalized evidence for each concrete target attempt. General job
+// rows are retention-pruned, so assessment history must not depend on them
+// remaining in the queue forever.
+export const assessmentExecutions = sqliteTable(
+  'assessment_executions',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    stepId: integer('step_id').notNull().references(() => assessmentSteps.id, { onDelete: 'cascade' }),
+    jobId: integer('job_id').notNull(),
+    target: text('target'),
+    attempt: integer('attempt').notNull().default(1),
+    status: text('status').notNull().default('queued'),
+    outcome: text('outcome').notNull().default('pending'),
+    reason: text('reason'),
+    summary: text('summary').notNull().default('[]'),
+    findingsProduced: integer('findings_produced').notNull().default(0),
+    highFindings: integer('high_findings').notNull().default(0),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [unique('assessment_executions_job_uq').on(t.jobId), index('assessment_executions_step_idx').on(t.stepId, t.id)],
+)
+
 // --- Findings / notes / drawings --------------------------------------------
 
 export const findings = sqliteTable(
@@ -260,6 +283,27 @@ export const findings = sqliteTable(
     index('findings_status_idx').on(t.status),
     index('findings_type_idx').on(t.type),
   ],
+)
+
+// Finding identities observed by a completed assessment. These rows make
+// run-to-run new/resolved/regressed comparisons stable even after live findings
+// are updated by later scans.
+export const assessmentRunFindings = sqliteTable(
+  'assessment_run_findings',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    runId: integer('run_id').notNull().references(() => assessmentRuns.id, { onDelete: 'cascade' }),
+    findingId: integer('finding_id').references(() => findings.id, { onDelete: 'set null' }),
+    findingKey: text('finding_key').notNull(),
+    type: text('type').notNull(),
+    title: text('title').notNull(),
+    target: text('target'),
+    score: integer('score'),
+    severity: text('severity'),
+    status: text('status').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [unique('assessment_run_findings_key_uq').on(t.runId, t.findingKey), index('assessment_run_findings_run_idx').on(t.runId)],
 )
 
 // Per-asset CVE ledger powering the "new CVE on a known asset" watch. Every CVE
@@ -315,6 +359,7 @@ export const reportSnapshots = sqliteTable(
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
     domainId: integer('domain_id').references(() => domains.id, { onDelete: 'cascade' }),
+    assessmentRunId: integer('assessment_run_id').references(() => assessmentRuns.id, { onDelete: 'set null' }),
     host: text('host').notNull(),
     label: text('label'),
     contentMd: text('content_md').notNull(),
@@ -322,7 +367,7 @@ export const reportSnapshots = sqliteTable(
     meta: text('meta'), // JSON: { findings, high, medium, low, cves }
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
   },
-  (t) => [index('report_snapshot_domain_idx').on(t.domainId)],
+  (t) => [index('report_snapshot_domain_idx').on(t.domainId), index('report_snapshot_run_idx').on(t.assessmentRunId)],
 )
 
 export const notes = sqliteTable('notes', {

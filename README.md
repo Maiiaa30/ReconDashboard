@@ -63,6 +63,7 @@ The sidebar is grouped into **Engagement · Intelligence · Testing · HTTP Lab 
 | **Asset Inventory** | Durable host, IP and service inventory enriched with ports, technologies, ASN/CDN data, response baselines and linked findings | - |
 | **Methodology** | Target-aware recon methodology: applicable skills, per-step found / done / running / todo / skipped state, one-click gated execution and manual overrides | - |
 | **Scan Profiles** | Persistent server-managed assessment workflows: Passive foundation, Continuous surface refresh, Web assessment, Full authorized assessment and a reusable custom profile. Profiles execute dependency-aware phases, expand to discovered live assets and retain progress across refreshes/restarts | - |
+| **Assessment Runs** | Durable run history with exact per-target outcomes, attempt history, individual target cancel/retry controls, evidence counts, run-to-run new/unchanged/resolved/regressed finding comparison and report snapshots linked to the run that produced them | - |
 | **Attack Paths** | Rules-based triage + **attack-path correlation** as a force-directed **network graph**; deterministic chain suggestions and an optional advisor with prioritized, gated testing actions | - |
 | **Subdomains** | Passive discovery (crt.sh · certspotter · subfinder), HTTP-probe enrichment, **sortable by status / host / IP / last-seen**, diff & flag new, Discord alerts, exports | 🟢 passive |
 | **Screenshots** | Headless-Chromium gallery with lightbox | 🟢 passive |
@@ -118,6 +119,8 @@ The queue status and the execution outcome are deliberately separate. A job can 
 | **cancelled** | The operator cancelled the job/run | ❌ |
 
 For every step, the UI reports concrete targets planned and completed, findings produced, high-risk findings, safe result summaries, omissions and failure/degradation reasons. A run with any unavailable, degraded, skipped or failed work finishes as **partial** and exposes **Retry problems** instead of presenting a misleading 100% result.
+
+The dedicated **Assessment Runs** view preserves normalized target execution evidence independently of the retention-pruned job queue. Retrying one target keeps its prior attempt visible, while current coverage uses only the latest attempt. Completed runs snapshot the finding identities they observed and compare them with the previous completed run of the same profile, separating **new**, **unchanged**, **resolved** and **regressed** results. Each completion also freezes an immutable report linked back to that run.
 
 Dynamic fan-out is bounded for safety: active web steps consider up to **20 live web targets**, while network sweeps consider up to **50 live hosts**. If a run reaches either limit, the omitted count is recorded and the run remains partial.
 

@@ -1,8 +1,8 @@
-import { asc, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, lt } from 'drizzle-orm'
 import type { FastifyBaseLogger } from 'fastify'
 import { actorName, writeAudit } from '../audit/store'
 import { db } from '../db/index'
-import { assessmentRuns, assessmentSteps, type AssessmentRunRow, type AssessmentStepRow } from '../db/schema'
+import { assessmentExecutions, assessmentRunFindings, assessmentRuns, assessmentSteps, findings, type AssessmentRunRow, type AssessmentStepRow } from '../db/schema'
 import { assertDomainActive, assertHostInScope, ScanPolicyError } from '../domains/scanPolicy'
 import { getDomain } from '../domains/store'
 import { cancelJob, enqueueJob, getJob, markCancelRequested, type JobType } from '../jobs/queue'
@@ -11,6 +11,7 @@ import { listSubdomains } from '../subdomains/store'
 import { safeJsonParse } from '../util/json'
 import { listFindings } from '../findings/store'
 import { classifyJobExecution, type ExecutionOutcome } from './execution'
+import { createSnapshot, latestSnapshotForRun } from '../findings/snapshots'
 
 export type AssessmentProfile = 'passive' | 'monitor' | 'web' | 'full' | 'custom'
 export type AssessmentAction = 'discover' | 'exposure' | 'osint' | 'screenshots' | 'api' | 'nmap' | 'nuclei' | 'ffuf' | 'owasp' | 'params'
@@ -29,6 +30,26 @@ interface StepDefinition {
 interface StepJob {
   id: number
   target: string | null
+}
+
+export interface AssessmentFindingSnapshot {
+  findingKey: string
+  findingId: number | null
+  type: string
+  title: string
+  target: string | null
+  score: number | null
+  severity: string | null
+  status: string
+}
+
+export interface AssessmentComparison {
+  previousRunId: number | null
+  counts: { new: number; unchanged: number; resolved: number; regressed: number }
+  new: AssessmentFindingSnapshot[]
+  unchanged: AssessmentFindingSnapshot[]
+  resolved: AssessmentFindingSnapshot[]
+  regressed: AssessmentFindingSnapshot[]
 }
 
 const LABELS: Record<AssessmentAction, string> = {
@@ -94,6 +115,77 @@ function definitions(profile: AssessmentProfile, customActions?: AssessmentActio
 
 function parseStepJobs(step: AssessmentStepRow): StepJob[] {
   return safeJsonParse<StepJob[]>(step.jobs, []).filter((item) => Number.isFinite(item?.id))
+}
+
+function executionAttempt(stepId: number, target: string | null): number {
+  const previous = db.select({ attempt: assessmentExecutions.attempt }).from(assessmentExecutions)
+    .where(and(eq(assessmentExecutions.stepId, stepId), target == null ? eq(assessmentExecutions.target, '') : eq(assessmentExecutions.target, target)))
+    .orderBy(desc(assessmentExecutions.attempt)).limit(1).all()[0]
+  return (previous?.attempt ?? 0) + 1
+}
+
+function registerExecution(stepId: number, ref: StepJob): void {
+  db.insert(assessmentExecutions).values({
+    stepId,
+    jobId: ref.id,
+    target: ref.target ?? '',
+    attempt: executionAttempt(stepId, ref.target),
+  }).onConflictDoNothing().run()
+}
+
+function syncExecution(step: AssessmentStepRow, ref: StepJob, domainFindings: ReturnType<typeof listFindings>) {
+  registerExecution(step.id, ref)
+  const job = getJob(ref.id)
+  const persisted = db.select().from(assessmentExecutions).where(eq(assessmentExecutions.jobId, ref.id)).limit(1).all()[0]
+  if (!persisted) throw new Error(`assessment execution for job ${ref.id} was not persisted`)
+  if (job) {
+    const execution = classifyJobExecution(job)
+    const produced = domainFindings.filter((finding) => finding.jobId === ref.id)
+    db.update(assessmentExecutions).set({
+      status: job.status,
+      outcome: execution.outcome,
+      reason: execution.reason,
+      summary: JSON.stringify(execution.summary),
+      findingsProduced: produced.length,
+      highFindings: produced.filter((finding) => (finding.score ?? 0) >= 70).length,
+      updatedAt: new Date(),
+    }).where(eq(assessmentExecutions.id, persisted.id)).run()
+    return { ...persisted, status: job.status, outcome: execution.outcome, reason: execution.reason, summary: execution.summary, progress: job.progress, error: job.error, findingsProduced: produced.length, highFindings: produced.filter((finding) => (finding.score ?? 0) >= 70).length }
+  }
+  if (persisted.outcome === 'pending') {
+    db.update(assessmentExecutions).set({ status: 'missing', outcome: 'missing', reason: 'job record was pruned before assessment evidence was captured', updatedAt: new Date() }).where(eq(assessmentExecutions.id, persisted.id)).run()
+    return { ...persisted, target: persisted.target || null, status: 'missing', outcome: 'missing' as const, reason: 'job record was pruned before assessment evidence was captured', summary: [], progress: null, error: null }
+  }
+  return { ...persisted, target: persisted.target || null, summary: safeJsonParse<string[]>(persisted.summary, []), progress: null, error: null }
+}
+
+function snapshotTitle(row: typeof findings.$inferSelect): string {
+  const data = safeJsonParse<Record<string, unknown>>(row.data, {})
+  for (const value of [data.title, data.name, data.category, data.templateId, data.cveId, data.kind]) {
+    if (typeof value === 'string' && value.trim()) return value.trim().slice(0, 240)
+  }
+  return row.type.replaceAll('_', ' ')
+}
+
+function snapshotRunFindings(runId: number): void {
+  const steps = db.select().from(assessmentSteps).where(eq(assessmentSteps.runId, runId)).all()
+  const jobIds = steps.flatMap(parseStepJobs).map((ref) => ref.id)
+  db.delete(assessmentRunFindings).where(eq(assessmentRunFindings.runId, runId)).run()
+  if (!jobIds.length) return
+  const rows = db.select().from(findings).where(inArray(findings.jobId, jobIds)).all()
+    .filter((row) => row.status !== 'false_positive' && row.status !== 'ignored')
+  if (!rows.length) return
+  db.insert(assessmentRunFindings).values(rows.map((row) => ({
+    runId,
+    findingId: row.id,
+    findingKey: `${row.type}:${row.dedupeKey ?? row.id}`,
+    type: row.type,
+    title: snapshotTitle(row),
+    target: row.url ?? row.host ?? row.ip,
+    score: row.score,
+    severity: row.severity,
+    status: row.status,
+  }))).onConflictDoNothing().run()
 }
 
 function stepExecution(stepJobs: StepJob[]): { status: StepStatus; error: string | null } {
@@ -196,7 +288,9 @@ async function enqueueStep(run: AssessmentRunRow, step: AssessmentStepRow): Prom
     if (ACTIVE_ACTIONS.has(action)) {
       writeAudit({ actor: run.createdBy, action: `enqueue:${spec.type}`, domainId: run.domainId, target: host, mode: domain.mode, jobId: id, detail: { assessmentRunId: run.id, assessmentStep: step.key } })
     }
-    return { id, target: step.targetStrategy === 'domain' ? null : host }
+    const ref = { id, target: step.targetStrategy === 'domain' ? null : host }
+    registerExecution(step.id, ref)
+    return ref
   })
   db.update(assessmentSteps).set({ status: 'queued', jobs: JSON.stringify(refs), error: skipped.length ? skipped.join(' | ').slice(0, 2000) : null, startedAt: new Date(), updatedAt: new Date() }).where(eq(assessmentSteps.id, step.id)).run()
 }
@@ -214,6 +308,8 @@ export async function advanceAssessmentRun(runId: number): Promise<void> {
     // rather than presenting a misleading clean 100%.
     const partial = steps.some((step) => ['degraded', 'unavailable', 'failed', 'skipped'].includes(step.status) || !!step.error)
     db.update(assessmentRuns).set({ status: partial ? 'partial' : 'completed', currentPhase: run.totalPhases, completedAt: new Date(), updatedAt: new Date() }).where(eq(assessmentRuns.id, runId)).run()
+    snapshotRunFindings(runId)
+    try { createSnapshot(run.domainId, `${run.name} · run #${run.id}`, run.id) } catch { /* run evidence remains valid even if report rendering fails */ }
     writeAudit({ actor: run.createdBy, action: `assessment:${partial ? 'partial' : 'completed'}`, domainId: run.domainId, detail: { runId, completedSteps: steps.filter((step) => step.status === 'done').length, totalSteps: steps.length } })
     return
   }
@@ -262,40 +358,42 @@ export function getAssessmentRun(runId: number) {
   if (!run) return null
   const domainFindings = listFindings({ domainId: run.domainId, limit: 5000 })
   const steps = db.select().from(assessmentSteps).where(eq(assessmentSteps.runId, runId)).orderBy(asc(assessmentSteps.phase), asc(assessmentSteps.position)).all().map((step) => {
-    const stepJobs = parseStepJobs(step).map((ref) => {
-      const job = getJob(ref.id)
-      const execution = classifyJobExecution(job)
-      const findingsProduced = domainFindings.filter((finding) => finding.jobId === ref.id)
-      return {
-        ...ref,
-        status: job?.status ?? 'missing',
-        outcome: execution.outcome,
-        reason: execution.reason,
-        summary: execution.summary,
-        progress: job?.progress ?? null,
-        error: job?.error ?? null,
-        findingsProduced: findingsProduced.length,
-        highFindings: findingsProduced.filter((finding) => (finding.score ?? 0) >= 70).length,
-      }
-    })
-    const counts = (outcome: ExecutionOutcome) => stepJobs.filter((job) => job.outcome === outcome).length
+    const currentRefs = parseStepJobs(step)
+    const currentIds = new Set(currentRefs.map((ref) => ref.id))
+    currentRefs.forEach((ref) => syncExecution(step, ref, domainFindings))
+    const stepJobs = db.select().from(assessmentExecutions).where(eq(assessmentExecutions.stepId, step.id)).orderBy(asc(assessmentExecutions.id)).all().map((item) => ({
+      id: item.jobId,
+      target: item.target || null,
+      attempt: item.attempt,
+      current: currentIds.has(item.jobId),
+      status: item.status,
+      outcome: item.outcome as ExecutionOutcome,
+      reason: item.reason,
+      summary: safeJsonParse<string[]>(item.summary, []),
+      progress: currentIds.has(item.jobId) ? getJob(item.jobId)?.progress ?? null : null,
+      error: currentIds.has(item.jobId) ? getJob(item.jobId)?.error ?? null : null,
+      findingsProduced: item.findingsProduced,
+      highFindings: item.highFindings,
+    }))
+    const currentJobs = stepJobs.filter((job) => job.current)
+    const counts = (outcome: ExecutionOutcome) => currentJobs.filter((job) => job.outcome === outcome).length
     return {
       ...step,
       jobs: stepJobs,
       evidence: {
-        targets: stepJobs.length,
+        targets: currentJobs.length,
         completed: counts('completed'),
         degraded: counts('degraded'),
         unavailable: counts('unavailable'),
         failed: counts('failed') + counts('missing'),
         cancelled: counts('cancelled'),
-        findingsProduced: stepJobs.reduce((sum, job) => sum + job.findingsProduced, 0),
-        highFindings: stepJobs.reduce((sum, job) => sum + job.highFindings, 0),
+        findingsProduced: currentJobs.reduce((sum, job) => sum + job.findingsProduced, 0),
+        highFindings: currentJobs.reduce((sum, job) => sum + job.highFindings, 0),
       },
     }
   })
   const done = steps.filter((step) => step.status === 'done').length
-  const concreteJobs = steps.flatMap((step) => step.jobs)
+  const concreteJobs = steps.flatMap((step) => step.jobs.filter((job) => job.current))
   const completedJobs = concreteJobs.filter((job) => job.outcome === 'completed').length
   return {
     ...run,
@@ -306,11 +404,101 @@ export function getAssessmentRun(runId: number) {
     targetCoverage: concreteJobs.length ? Math.round((completedJobs / concreteJobs.length) * 100) : 0,
     completedTargetJobs: completedJobs,
     totalTargetJobs: concreteJobs.length,
+    reportSnapshot: latestSnapshotForRun(runId),
   }
 }
 
 export function listAssessmentRuns(domainId: number, limit = 20) {
   return db.select().from(assessmentRuns).where(eq(assessmentRuns.domainId, domainId)).orderBy(desc(assessmentRuns.id)).limit(Math.min(Math.max(limit, 1), 100)).all().map((run) => getAssessmentRun(run.id)!)
+}
+
+function findingSnapshotRows(runId: number): AssessmentFindingSnapshot[] {
+  return db.select().from(assessmentRunFindings).where(eq(assessmentRunFindings.runId, runId)).orderBy(desc(assessmentRunFindings.score), asc(assessmentRunFindings.id)).all()
+}
+
+export function compareFindingSnapshots(current: AssessmentFindingSnapshot[], previous: AssessmentFindingSnapshot[]): Omit<AssessmentComparison, 'previousRunId'> {
+  const currentByKey = new Map(current.map((item) => [item.findingKey, item]))
+  const previousByKey = new Map(previous.map((item) => [item.findingKey, item]))
+  const result = { new: [] as AssessmentFindingSnapshot[], unchanged: [] as AssessmentFindingSnapshot[], resolved: [] as AssessmentFindingSnapshot[], regressed: [] as AssessmentFindingSnapshot[] }
+  for (const item of current) {
+    const before = previousByKey.get(item.findingKey)
+    if (!before) result.new.push(item)
+    else if ((item.score ?? 0) > (before.score ?? 0) || (['resolved', 'retest_passed'].includes(before.status) && !['resolved', 'retest_passed'].includes(item.status))) result.regressed.push(item)
+    else result.unchanged.push(item)
+  }
+  for (const item of previous) if (!currentByKey.has(item.findingKey)) result.resolved.push(item)
+  return { ...result, counts: { new: result.new.length, unchanged: result.unchanged.length, resolved: result.resolved.length, regressed: result.regressed.length } }
+}
+
+export function getAssessmentComparison(runId: number): AssessmentComparison | null {
+  const run = db.select().from(assessmentRuns).where(eq(assessmentRuns.id, runId)).limit(1).all()[0]
+  if (!run) return null
+  const previous = db.select().from(assessmentRuns).where(and(
+    eq(assessmentRuns.domainId, run.domainId),
+    eq(assessmentRuns.profile, run.profile),
+    inArray(assessmentRuns.status, ['completed', 'partial']),
+    lt(assessmentRuns.id, run.id),
+  )).orderBy(desc(assessmentRuns.id)).limit(1).all()[0]
+  return { previousRunId: previous?.id ?? null, ...compareFindingSnapshots(findingSnapshotRows(runId), previous ? findingSnapshotRows(previous.id) : []) }
+}
+
+function ownedStep(runId: number, stepId: number): AssessmentStepRow {
+  const step = db.select().from(assessmentSteps).where(and(eq(assessmentSteps.id, stepId), eq(assessmentSteps.runId, runId))).limit(1).all()[0]
+  if (!step) throw new AssessmentRunError('assessment step not found', 404, 'not_found')
+  return step
+}
+
+export async function retryAssessmentTarget(runId: number, stepId: number, jobId: number): Promise<ReturnType<typeof getAssessmentRun>> {
+  const run = db.select().from(assessmentRuns).where(eq(assessmentRuns.id, runId)).limit(1).all()[0]
+  if (!run) throw new AssessmentRunError('assessment run not found', 404, 'not_found')
+  const step = ownedStep(runId, stepId)
+  const refs = parseStepJobs(step)
+  const ref = refs.find((item) => item.id === jobId)
+  if (!ref) throw new AssessmentRunError('target attempt is not current for this step', 409, 'stale_attempt')
+  const record = db.select().from(assessmentExecutions).where(eq(assessmentExecutions.jobId, jobId)).limit(1).all()[0]
+  const outcome = getJob(jobId) ? classifyJobExecution(getJob(jobId)).outcome : record?.outcome
+  if (!outcome || ['pending', 'running'].includes(outcome)) throw new AssessmentRunError('target attempt is still running', 409, 'still_running')
+  const domain = getDomain(run.domainId)
+  if (!domain) throw new AssessmentRunError('domain not found', 404, 'not_found')
+  const target = ref.target ?? domain.host
+  if (ACTIVE_ACTIONS.has(step.action as AssessmentAction)) {
+    assertDomainActive(domain, run.confirmActive)
+    await assertHostInScope(domain, target)
+  }
+  const oldParams = safeJsonParse<Record<string, unknown>>(getJob(jobId)?.params, {})
+  const scheme = oldParams.scheme === 'http' ? 'http' : 'https'
+  const spec = jobSpec(step.action as AssessmentAction, run.domainId, target, scheme, run.id, step.id)
+  const nextJobId = enqueueJob(spec.type, spec.params)
+  const nextRef = { id: nextJobId, target: ref.target }
+  registerExecution(step.id, nextRef)
+  db.update(assessmentSteps).set({ status: 'queued', jobs: JSON.stringify(refs.map((item) => item.id === jobId ? nextRef : item)), error: null, completedAt: null, updatedAt: new Date() }).where(eq(assessmentSteps.id, step.id)).run()
+  db.update(assessmentRuns).set({ status: 'running', currentPhase: step.phase, completedAt: null, updatedAt: new Date() }).where(eq(assessmentRuns.id, run.id)).run()
+  writeAudit({ actor: run.createdBy, action: `assessment:retry-target`, domainId: run.domainId, target, jobId: nextJobId, detail: { runId, stepId, previousJobId: jobId } })
+  return getAssessmentRun(runId)
+}
+
+export async function cancelAssessmentTarget(runId: number, stepId: number, jobId: number): Promise<ReturnType<typeof getAssessmentRun>> {
+  const run = db.select().from(assessmentRuns).where(eq(assessmentRuns.id, runId)).limit(1).all()[0]
+  if (!run) throw new AssessmentRunError('assessment run not found', 404, 'not_found')
+  const step = ownedStep(runId, stepId)
+  const ref = parseStepJobs(step).find((item) => item.id === jobId)
+  if (!ref) throw new AssessmentRunError('target attempt is not current for this step', 409, 'stale_attempt')
+  const job = getJob(jobId)
+  if (!job || !['queued', 'running'].includes(job.status)) throw new AssessmentRunError('target attempt is already finished', 409, 'not_running')
+  if (!cancelJob(jobId)) {
+    markCancelRequested(jobId)
+    cancelRunningJob(jobId)
+  }
+  writeAudit({ actor: run.createdBy, action: 'assessment:cancel-target', domainId: run.domainId, target: ref.target, jobId, detail: { runId, stepId } })
+  await advanceAssessmentRun(runId)
+  return getAssessmentRun(runId)
+}
+
+export function createAssessmentReport(runId: number) {
+  const run = db.select().from(assessmentRuns).where(eq(assessmentRuns.id, runId)).limit(1).all()[0]
+  if (!run) throw new AssessmentRunError('assessment run not found', 404, 'not_found')
+  if (!['completed', 'partial'].includes(run.status)) throw new AssessmentRunError('finish the assessment before creating its report', 409, 'not_finished')
+  return latestSnapshotForRun(run.id) ?? createSnapshot(run.domainId, `${run.name} · run #${run.id}`, run.id)
 }
 
 export async function retryAssessmentRun(runId: number): Promise<ReturnType<typeof getAssessmentRun>> {
