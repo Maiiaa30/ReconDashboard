@@ -54,7 +54,7 @@
 
 ## 🧩 Modules
 
-The sidebar keeps the primary **Workflow** visible and places specialist modules in remembered, collapsible **Intelligence · Testing · HTTP Lab · Workspace · System** groups. Every module remains available through **Ctrl-K** search.
+The sidebar keeps the primary **Workflow** visible and places specialist modules in remembered, collapsible **Intelligence · Testing · HTTP Lab · Workspace · System** groups. Every module remains available through **Ctrl-K** search. Workspace and engagement URLs can be bookmarked, shared, and traversed with browser Back/Forward.
 
 | Module | What it does | Mode |
 | --- | --- | :---: |

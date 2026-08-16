@@ -6,6 +6,7 @@ import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
 import { JobNotifier } from './JobNotifier'
 import { PageContent } from './PageContent'
+import { buildAppRoute, parseAppRoute, routeDomain } from './appRoute'
 import type { Me, Job } from '../api'
 import { api } from '../api'
 import { useApp, usePoll } from '../state'
@@ -34,6 +35,8 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const { domains, selectedId, selected, select } = useApp()
   // Persist the current page so a refresh stays put instead of jumping to Home.
   const [active, setActive] = useState<ModuleKey>(() => {
+    const route = parseAppRoute(window.location.pathname)
+    if (route) return route.page
     try {
       const saved = localStorage.getItem('activePage')
       if (saved && MODULES.some((m) => m.key === saved)) return saved as ModuleKey
@@ -42,6 +45,8 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     }
     return 'home'
   })
+  const [navOpen, setNavOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   useEffect(() => {
     try {
       localStorage.setItem('activePage', active)
@@ -49,8 +54,24 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
       /* storage unavailable — page just won't persist */
     }
   }, [active])
-  const [navOpen, setNavOpen] = useState(false)
-  const [paletteOpen, setPaletteOpen] = useState(false)
+
+  // Restore engagement context from direct links and keep browser Back/Forward
+  // useful without introducing a routing dependency for this single-shell app.
+  useEffect(() => {
+    const route = parseAppRoute(window.location.pathname)
+    if (route?.domainId != null && route.domainId !== selectedId) select(route.domainId)
+  }, [select, selectedId])
+  useEffect(() => {
+    const onPopState = () => {
+      const route = parseAppRoute(window.location.pathname)
+      if (!route) return
+      setActive(route.page)
+      if (route.domainId != null) select(route.domainId)
+      setNavOpen(false)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [select])
   // Desktop-only: collapse the sidebar to an icon rail. Persisted so it sticks
   // across reloads. Ignored on mobile, where the drawer always shows full width.
   const [collapsed, setCollapsed] = useState(() => {
@@ -137,9 +158,19 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
   // Deep-link from cross-target views (Home): switch page and optionally target.
   const navigate = (page: string, domainId?: number) => {
+    const module = MODULES.find((item) => item.key === page)
+    if (!module) return
+    const nextPage = module.key
+    const nextDomainId = routeDomain(nextPage, domainId, selectedId)
     if (domainId != null) select(domainId)
-    setActive(page)
+    setActive(nextPage)
+    window.history.pushState({}, '', buildAppRoute(nextPage, nextDomainId))
     setNavOpen(false)
+  }
+
+  const selectDomain = (domainId: number) => {
+    select(domainId)
+    window.history.pushState({}, '', buildAppRoute(active, domainId))
   }
 
   async function logout() {
@@ -318,7 +349,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               <span className="text-zinc-400">Target</span>
               <select
                 value={selectedId ?? ''}
-                onChange={(e) => select(Number(e.target.value))}
+                onChange={(e) => selectDomain(Number(e.target.value))}
                 className="rounded-lg border border-hair bg-ink-850 px-3 py-1.5 text-sm outline-none transition hover:border-hair-strong focus:border-accent-500"
               >
                 {domains.map((d) => (
@@ -339,7 +370,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <span className="text-zinc-400">Target</span>
             <select
               value={selectedId ?? ''}
-              onChange={(e) => select(Number(e.target.value))}
+              onChange={(e) => selectDomain(Number(e.target.value))}
               className="rounded-lg border border-hair bg-ink-850 px-3 py-1.5 text-sm outline-none transition hover:border-hair-strong focus:border-accent-500"
             >
               {domains.map((d) => (
