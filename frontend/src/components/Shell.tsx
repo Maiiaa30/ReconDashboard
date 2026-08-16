@@ -5,44 +5,10 @@ import {
 import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
 import { JobNotifier } from './JobNotifier'
+import { PageContent } from './PageContent'
 import type { Me, Job } from '../api'
 import { api } from '../api'
 import { useApp, usePoll } from '../state'
-import { Domains } from '../pages/Domains'
-import { Intel } from '../pages/Intel'
-import { Methodology } from '../pages/Methodology'
-import { Subdomains } from '../pages/Subdomains'
-import { Screenshots } from '../pages/Screenshots'
-import { Fuzzing } from '../pages/Fuzzing'
-import { Exposure } from '../pages/Exposure'
-import { Ports } from '../pages/Ports'
-import { Osint } from '../pages/Osint'
-import { SocialForensics } from '../pages/SocialForensics'
-import { DataLeaks } from '../pages/DataLeaks'
-import { Origin } from '../pages/Origin'
-import { ApiSurface } from '../pages/ApiSurface'
-import { Replay } from '../pages/Replay'
-import { Traffic } from '../pages/Traffic'
-import { Whois } from '../pages/Whois'
-import { CheckHost } from '../pages/CheckHost'
-import { Scans } from '../pages/Scans'
-import { Tools } from '../pages/Tools'
-import { Owasp } from '../pages/Owasp'
-import { LlmSecurity } from '../pages/LlmSecurity'
-import { Notes } from '../pages/Notes'
-import { Canvas } from '../pages/Canvas'
-import { Findings } from '../pages/Findings'
-import { Jobs } from '../pages/Jobs'
-import { Audit } from '../pages/Audit'
-import { Home } from '../pages/Home'
-import { Settings } from '../pages/Settings'
-import { CommandCenter } from '../pages/CommandCenter'
-import { Assets } from '../pages/Assets'
-import { ScanProfiles } from '../pages/ScanProfiles'
-import { Reports } from '../pages/Reports'
-import { Changes } from '../pages/Changes'
-import { AssessmentRuns } from '../pages/AssessmentRuns'
-import { NextActions } from '../pages/NextActions'
 import { DOMAIN_SCOPED, MODULE_INDEX, MODULES, NAV_SECTIONS, readExpandedSections, sectionForModule, type ModuleKey } from './navigation'
 
 // Map a job type to the nav module whose page shows its results, so a running /
@@ -386,41 +352,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         )}
 
         <ErrorBoundary key={active}>
-          {active === 'home' && <Home navigate={navigate} />}
-          {active === 'command' && <CommandCenter navigate={navigate} />}
-          {active === 'actions' && <NextActions navigate={navigate} />}
-          {active === 'domains' && <Domains />}
-          {active === 'assets' && <Assets navigate={navigate} />}
-          {active === 'profiles' && <ScanProfiles navigate={navigate} />}
-          {active === 'runs' && <AssessmentRuns navigate={navigate} />}
-          {active === 'reports' && <Reports navigate={navigate} />}
-          {active === 'changes' && <Changes navigate={navigate} />}
-          {active === 'intel' && <Intel navigate={navigate} />}
-          {active === 'methodology' && <Methodology navigate={navigate} />}
-          {active === 'subdomains' && <Subdomains />}
-          {active === 'screenshots' && <Screenshots />}
-          {active === 'fuzzing' && <Fuzzing />}
-          {active === 'replay' && <Replay />}
-          {active === 'traffic' && <Traffic navigate={navigate} />}
-          {active === 'exposure' && <Exposure />}
-          {active === 'ports' && <Ports />}
-          {active === 'api' && <ApiSurface navigate={navigate} />}
-          {active === 'osint' && <Osint />}
-          {active === 'social' && <SocialForensics />}
-          {active === 'leaks' && <DataLeaks />}
-          {active === 'origin' && <Origin />}
-          {active === 'whois' && <Whois />}
-          {active === 'checkhost' && <CheckHost />}
-          {active === 'scans' && <Scans />}
-          {active === 'tools' && <Tools />}
-          {active === 'owasp' && <Owasp />}
-          {active === 'llm' && <LlmSecurity />}
-          {active === 'findings' && <Findings navigate={navigate} />}
-          {active === 'notes' && <Notes />}
-          {active === 'canvas' && <Canvas />}
-          {active === 'jobs' && <Jobs />}
-          {active === 'audit' && <Audit />}
-          {active === 'settings' && <Settings totpEnabled={me.user.totpEnabled} />}
+          <PageContent active={active} navigate={navigate} totpEnabled={me.user.totpEnabled} />
         </ErrorBoundary>
         </div>
       </main>
