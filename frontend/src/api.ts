@@ -420,13 +420,19 @@ export interface Methodology {
 export type AssessmentProfile = 'passive' | 'monitor' | 'web' | 'full' | 'custom'
 export type AssessmentAction = 'discover' | 'exposure' | 'osint' | 'screenshots' | 'api' | 'nmap' | 'nuclei' | 'ffuf' | 'owasp' | 'params'
 export type AssessmentRunStatus = 'queued' | 'running' | 'completed' | 'partial' | 'cancelled'
-export type AssessmentStepStatus = 'pending' | 'queued' | 'running' | 'done' | 'failed' | 'skipped' | 'cancelled'
+export type AssessmentStepStatus = 'pending' | 'queued' | 'running' | 'done' | 'degraded' | 'unavailable' | 'failed' | 'skipped' | 'cancelled'
+export type AssessmentExecutionOutcome = 'pending' | 'running' | 'completed' | 'degraded' | 'unavailable' | 'failed' | 'cancelled' | 'missing'
 export interface AssessmentStepJob {
   id: number
   target: string | null
   status: string
+  outcome: AssessmentExecutionOutcome
+  reason: string | null
+  summary: string[]
   progress: string | null
   error: string | null
+  findingsProduced: number
+  highFindings: number
 }
 export interface AssessmentStep {
   id: number
@@ -442,6 +448,16 @@ export interface AssessmentStep {
   error: string | null
   startedAt: string | null
   completedAt: string | null
+  evidence: {
+    targets: number
+    completed: number
+    degraded: number
+    unavailable: number
+    failed: number
+    cancelled: number
+    findingsProduced: number
+    highFindings: number
+  }
 }
 export interface AssessmentRun {
   id: number

@@ -9,11 +9,13 @@ import { cancelJob, enqueueJob, getJob, markCancelRequested, type JobType } from
 import { cancelRunningJob } from '../jobs/worker'
 import { listSubdomains } from '../subdomains/store'
 import { safeJsonParse } from '../util/json'
+import { listFindings } from '../findings/store'
+import { classifyJobExecution, type ExecutionOutcome } from './execution'
 
 export type AssessmentProfile = 'passive' | 'monitor' | 'web' | 'full' | 'custom'
 export type AssessmentAction = 'discover' | 'exposure' | 'osint' | 'screenshots' | 'api' | 'nmap' | 'nuclei' | 'ffuf' | 'owasp' | 'params'
 type TargetStrategy = 'domain' | 'live_web' | 'live_hosts'
-type StepStatus = 'pending' | 'queued' | 'running' | 'done' | 'failed' | 'skipped' | 'cancelled'
+type StepStatus = 'pending' | 'queued' | 'running' | 'done' | 'degraded' | 'unavailable' | 'failed' | 'skipped' | 'cancelled'
 
 interface StepDefinition {
   key: string
@@ -58,7 +60,7 @@ const PROFILE_ACTIONS: Record<Exclude<AssessmentProfile, 'custom'>, AssessmentAc
 
 const ACTIVE_ACTIONS = new Set<AssessmentAction>(['nmap', 'nuclei', 'ffuf', 'owasp', 'params'])
 const ACTIVE_RUN_STATUSES = ['queued', 'running'] as const
-const TERMINAL_STEP_STATUSES = new Set<StepStatus>(['done', 'failed', 'skipped', 'cancelled'])
+const TERMINAL_STEP_STATUSES = new Set<StepStatus>(['done', 'degraded', 'unavailable', 'failed', 'skipped', 'cancelled'])
 const MAX_WEB_TARGETS = 20
 const MAX_HOST_TARGETS = 50
 
@@ -94,13 +96,20 @@ function parseStepJobs(step: AssessmentStepRow): StepJob[] {
   return safeJsonParse<StepJob[]>(step.jobs, []).filter((item) => Number.isFinite(item?.id))
 }
 
-function jobStatusFor(stepJobs: StepJob[]): StepStatus {
-  const statuses = stepJobs.map(({ id }) => getJob(id)?.status ?? 'error')
-  if (statuses.some((status) => status === 'running')) return 'running'
-  if (statuses.some((status) => status === 'queued')) return 'queued'
-  if (statuses.length && statuses.every((status) => status === 'done')) return 'done'
-  if (statuses.length && statuses.every((status) => status === 'cancelled')) return 'cancelled'
-  return 'failed'
+function stepExecution(stepJobs: StepJob[]): { status: StepStatus; error: string | null } {
+  const classified = stepJobs.map((ref) => ({ ref, execution: classifyJobExecution(getJob(ref.id)) }))
+  const outcomes = classified.map(({ execution }) => execution.outcome)
+  if (outcomes.some((outcome) => outcome === 'running')) return { status: 'running', error: null }
+  if (outcomes.some((outcome) => outcome === 'pending')) return { status: 'queued', error: null }
+  if (outcomes.length && outcomes.every((outcome) => outcome === 'cancelled')) return { status: 'cancelled', error: 'all target jobs were cancelled' }
+  if (outcomes.length && outcomes.every((outcome) => outcome === 'unavailable')) {
+    return { status: 'unavailable', error: classified.map(({ ref, execution }) => `${ref.target ?? 'domain'}: ${execution.reason ?? 'unavailable'}`).join(' | ').slice(0, 2000) }
+  }
+  const successful = outcomes.filter((outcome) => outcome === 'completed').length
+  const problems = classified.filter(({ execution }) => !['completed'].includes(execution.outcome)).map(({ ref, execution }) => `${ref.target ?? 'domain'}: ${execution.reason ?? execution.outcome}`)
+  if (problems.length) return { status: successful > 0 ? 'degraded' : outcomes.includes('degraded') || outcomes.includes('unavailable') ? 'degraded' : 'failed', error: problems.join(' | ').slice(0, 2000) }
+  if (outcomes.length) return { status: 'done', error: null }
+  return { status: 'failed', error: 'step has no job records' }
 }
 
 function refreshStepStatuses(runId: number): void {
@@ -108,16 +117,12 @@ function refreshStepStatuses(runId: number): void {
   for (const step of db.select().from(assessmentSteps).where(eq(assessmentSteps.runId, runId)).all()) {
     if (step.status !== 'queued' && step.status !== 'running') continue
     const refs = parseStepJobs(step)
-    const status = jobStatusFor(refs)
+    const execution = stepExecution(refs)
+    const status = execution.status
     if (status === step.status) continue
     const terminal = TERMINAL_STEP_STATUSES.has(status)
-    const failed = status === 'failed'
-      ? refs.map(({ id, target }) => {
-          const job = getJob(id)
-          return job?.status === 'done' ? null : `${target ?? 'domain'}: ${job?.error ?? job?.status ?? 'job missing'}`
-        }).filter(Boolean).join(' | ').slice(0, 2000)
-      : null
-    db.update(assessmentSteps).set({ status, error: failed ?? step.error, completedAt: terminal ? now : null, updatedAt: now }).where(eq(assessmentSteps.id, step.id)).run()
+    const combinedError = [step.error, execution.error].filter(Boolean).join(' | ').slice(0, 2000) || null
+    db.update(assessmentSteps).set({ status, error: combinedError, completedAt: terminal ? now : null, updatedAt: now }).where(eq(assessmentSteps.id, step.id)).run()
   }
 }
 
@@ -207,7 +212,7 @@ export async function advanceAssessmentRun(runId: number): Promise<void> {
     // A completed step can still carry a coverage warning (for example a
     // target omitted by the safety cap). Keep the whole run explicitly partial
     // rather than presenting a misleading clean 100%.
-    const partial = steps.some((step) => step.status === 'failed' || step.status === 'skipped' || !!step.error)
+    const partial = steps.some((step) => ['degraded', 'unavailable', 'failed', 'skipped'].includes(step.status) || !!step.error)
     db.update(assessmentRuns).set({ status: partial ? 'partial' : 'completed', currentPhase: run.totalPhases, completedAt: new Date(), updatedAt: new Date() }).where(eq(assessmentRuns.id, runId)).run()
     writeAudit({ actor: run.createdBy, action: `assessment:${partial ? 'partial' : 'completed'}`, domainId: run.domainId, detail: { runId, completedSteps: steps.filter((step) => step.status === 'done').length, totalSteps: steps.length } })
     return
@@ -255,16 +260,43 @@ export async function createAssessmentRun(input: { domainId: number; profile: As
 export function getAssessmentRun(runId: number) {
   const run = db.select().from(assessmentRuns).where(eq(assessmentRuns.id, runId)).limit(1).all()[0]
   if (!run) return null
-  const steps = db.select().from(assessmentSteps).where(eq(assessmentSteps.runId, runId)).orderBy(asc(assessmentSteps.phase), asc(assessmentSteps.position)).all().map((step) => ({
-    ...step,
-    jobs: parseStepJobs(step).map((ref) => {
+  const domainFindings = listFindings({ domainId: run.domainId, limit: 5000 })
+  const steps = db.select().from(assessmentSteps).where(eq(assessmentSteps.runId, runId)).orderBy(asc(assessmentSteps.phase), asc(assessmentSteps.position)).all().map((step) => {
+    const stepJobs = parseStepJobs(step).map((ref) => {
       const job = getJob(ref.id)
-      return { ...ref, status: job?.status ?? 'missing', progress: job?.progress ?? null, error: job?.error ?? null }
-    }),
-  }))
+      const execution = classifyJobExecution(job)
+      const findingsProduced = domainFindings.filter((finding) => finding.jobId === ref.id)
+      return {
+        ...ref,
+        status: job?.status ?? 'missing',
+        outcome: execution.outcome,
+        reason: execution.reason,
+        summary: execution.summary,
+        progress: job?.progress ?? null,
+        error: job?.error ?? null,
+        findingsProduced: findingsProduced.length,
+        highFindings: findingsProduced.filter((finding) => (finding.score ?? 0) >= 70).length,
+      }
+    })
+    const counts = (outcome: ExecutionOutcome) => stepJobs.filter((job) => job.outcome === outcome).length
+    return {
+      ...step,
+      jobs: stepJobs,
+      evidence: {
+        targets: stepJobs.length,
+        completed: counts('completed'),
+        degraded: counts('degraded'),
+        unavailable: counts('unavailable'),
+        failed: counts('failed') + counts('missing'),
+        cancelled: counts('cancelled'),
+        findingsProduced: stepJobs.reduce((sum, job) => sum + job.findingsProduced, 0),
+        highFindings: stepJobs.reduce((sum, job) => sum + job.highFindings, 0),
+      },
+    }
+  })
   const done = steps.filter((step) => step.status === 'done').length
   const concreteJobs = steps.flatMap((step) => step.jobs)
-  const completedJobs = concreteJobs.filter((job) => job.status === 'done').length
+  const completedJobs = concreteJobs.filter((job) => job.outcome === 'completed').length
   return {
     ...run,
     steps,
@@ -284,7 +316,7 @@ export function listAssessmentRuns(domainId: number, limit = 20) {
 export async function retryAssessmentRun(runId: number): Promise<ReturnType<typeof getAssessmentRun>> {
   const run = db.select().from(assessmentRuns).where(eq(assessmentRuns.id, runId)).limit(1).all()[0]
   if (!run) throw new AssessmentRunError('assessment run not found', 404, 'not_found')
-  const retryable = db.select().from(assessmentSteps).where(eq(assessmentSteps.runId, runId)).all().filter((step) => step.status === 'failed' || step.status === 'skipped' || !!step.error)
+  const retryable = db.select().from(assessmentSteps).where(eq(assessmentSteps.runId, runId)).all().filter((step) => ['degraded', 'unavailable', 'failed', 'skipped'].includes(step.status) || !!step.error)
   if (!retryable.length) throw new AssessmentRunError('this run has no failed or skipped steps to retry', 409, 'nothing_to_retry')
   const firstPhase = Math.min(...retryable.map((step) => step.phase))
   for (const step of retryable) db.update(assessmentSteps).set({ status: 'pending', jobs: '[]', error: null, startedAt: null, completedAt: null, updatedAt: new Date() }).where(eq(assessmentSteps.id, step.id)).run()

@@ -198,6 +198,33 @@ describe('persistent assessment orchestration', () => {
     expect(blocked.statusCode).toBe(400)
     expect(blocked.json().code).toBe('confirm_required')
   })
+
+  it('reports a completed queue job with an unavailable scanner as uncovered', async () => {
+    const id = newDomain({ host: 'workflow-unavailable.example.com', mode: 'passive_only' })
+    const created = await app.inject({
+      method: 'POST',
+      url: `/api/domains/${id}/assessment-runs`,
+      headers: { cookie },
+      payload: { profile: 'custom', steps: ['screenshots'] },
+    })
+    expect(created.statusCode).toBe(202)
+    const run = created.json().run
+    const jobId = run.steps[0].jobs[0].id
+    db.update(jobsTable).set({
+      status: 'done',
+      result: JSON.stringify({ available: false, note: 'chromium not installed in this image' }),
+      finishedAt: new Date(),
+      updatedAt: new Date(),
+    }).where((await import('drizzle-orm')).eq(jobsTable.id, jobId)).run()
+
+    const { advanceAssessmentRun } = await import('./assessments/runs')
+    await advanceAssessmentRun(run.id)
+    const detail = await app.inject({ method: 'GET', url: `/api/assessment-runs/${run.id}`, headers: { cookie } })
+    expect(detail.statusCode).toBe(200)
+    expect(detail.json().run).toMatchObject({ status: 'partial', coverage: 0, completedTargetJobs: 0 })
+    expect(detail.json().run.steps[0]).toMatchObject({ status: 'unavailable', evidence: { unavailable: 1, completed: 0 } })
+    expect(detail.json().run.steps[0].error).toContain('chromium not installed')
+  })
 })
 
 describe('engagement asset inventory', () => {

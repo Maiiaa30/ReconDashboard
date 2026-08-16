@@ -134,7 +134,7 @@ export function ScanProfiles({ navigate }: { navigate: (page: string, domainId?:
 function RunProgress({ run, onChange, navigate }: { run: AssessmentRun; onChange: (run: AssessmentRun) => void; navigate: (page: string, domainId?: number) => void }) {
   const toast = useToast()
   const active = run.status === 'queued' || run.status === 'running'
-  const problem = run.status === 'partial' || run.steps.some((step) => step.status === 'failed' || step.status === 'skipped')
+  const problem = run.status === 'partial' || run.steps.some((step) => ['degraded', 'unavailable', 'failed', 'skipped'].includes(step.status))
   async function retry() {
     try { onChange((await api.retryAssessmentRun(run.id)).run); toast.success('Failed steps queued for retry.') }
     catch (error) { toast.error(error instanceof Error ? error.message : 'Retry failed.') }
@@ -150,9 +150,11 @@ function RunProgress({ run, onChange, navigate }: { run: AssessmentRun; onChange
     </div>
     <div className="mb-4 h-2 overflow-hidden rounded-full bg-ink-950"><div className="h-full bg-accent-500 transition-all" style={{ width: `${run.coverage}%` }} /></div>
     <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{run.steps.map((step) => {
-      const Icon = step.status === 'done' ? CheckCircle2 : step.status === 'running' ? Loader : step.status === 'failed' || step.status === 'skipped' ? AlertTriangle : Clock3
-      const tone = step.status === 'done' ? 'text-emerald-400' : step.status === 'running' ? 'text-amber-400' : step.status === 'failed' || step.status === 'skipped' ? 'text-red-400' : 'text-zinc-600'
-      return <div key={step.id} className="rounded-lg border border-hair/70 bg-ink-950/30 px-3 py-2"><div className="flex items-center gap-2"><Icon size={14} className={`${tone} ${step.status === 'running' ? 'animate-spin' : ''}`} /><span className="min-w-0 flex-1 truncate text-sm text-zinc-200">{step.label}</span><span className={`text-[10px] ${tone}`}>{step.status}</span></div><p className="mt-1 truncate text-[11px] text-zinc-600">{step.jobs.length ? `${step.jobs.length} target job${step.jobs.length === 1 ? '' : 's'}` : step.error ?? `phase ${step.phase + 1}`}</p>{step.error && <p className="mt-1 line-clamp-2 text-[11px] text-red-400/80" title={step.error}>{step.error}</p>}</div>
+      const hasProblem = ['degraded', 'unavailable', 'failed', 'skipped'].includes(step.status)
+      const Icon = step.status === 'done' ? CheckCircle2 : step.status === 'running' ? Loader : hasProblem ? AlertTriangle : Clock3
+      const tone = step.status === 'done' ? 'text-emerald-400' : step.status === 'running' ? 'text-amber-400' : step.status === 'degraded' ? 'text-amber-400' : hasProblem ? 'text-red-400' : 'text-zinc-600'
+      const evidence = step.evidence
+      return <div key={step.id} className="rounded-lg border border-hair/70 bg-ink-950/30 px-3 py-2"><div className="flex items-center gap-2"><Icon size={14} className={`${tone} ${step.status === 'running' ? 'animate-spin' : ''}`} /><span className="min-w-0 flex-1 truncate text-sm text-zinc-200">{step.label}</span><span className={`text-[10px] ${tone}`}>{step.status}</span></div><p className="mt-1 truncate text-[11px] text-zinc-500">{evidence.targets ? `${evidence.completed}/${evidence.targets} executed · ${evidence.findingsProduced} finding${evidence.findingsProduced === 1 ? '' : 's'}${evidence.highFindings ? ` · ${evidence.highFindings} high-risk` : ''}` : step.error ?? `phase ${step.phase + 1}`}</p>{(evidence.degraded > 0 || evidence.unavailable > 0 || evidence.failed > 0) && <p className="mt-1 text-[11px] text-amber-400/90">{evidence.degraded ? `${evidence.degraded} degraded · ` : ''}{evidence.unavailable ? `${evidence.unavailable} unavailable · ` : ''}{evidence.failed ? `${evidence.failed} failed` : ''}</p>}{step.error && <p className="mt-1 line-clamp-2 text-[11px] text-red-400/80" title={step.error}>{step.error}</p>}{step.jobs.some((job) => job.summary.length) && <p className="mt-1 truncate text-[10px] text-zinc-600" title={step.jobs.flatMap((job) => job.summary).join(' · ')}>{step.jobs.flatMap((job) => job.summary).slice(0, 4).join(' · ')}</p>}</div>
     })}</div>
   </Card>
 }
