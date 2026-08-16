@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Home as HomeIcon, Globe, Brain, Network, Camera, Crosshair, Radar, Eye, ShieldAlert, FileText,
-  Activity, ScanSearch, ShieldCheck, Flag, StickyNote, PenTool, ScrollText, Boxes, BriefcaseBusiness, FileCheck2,
-  Settings as SettingsIcon, LogOut, Menu, X, Search, Radar as RadarLogo, Wrench, History, ListChecks, Bot, Fingerprint, DatabaseZap, Router, ChevronsLeft, ChevronsRight, Webhook, Repeat, Radio, type LucideIcon,
+  ChevronDown, ChevronsLeft, ChevronsRight, Globe, LogOut, Menu, Radar as RadarLogo, Search, X,
 } from 'lucide-react'
 import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -45,88 +43,7 @@ import { Reports } from '../pages/Reports'
 import { Changes } from '../pages/Changes'
 import { AssessmentRuns } from '../pages/AssessmentRuns'
 import { NextActions } from '../pages/NextActions'
-
-// Nav grouped into labeled sections so a 20+ item list stays scannable instead
-// of being one long undifferentiated column.
-const NAV_SECTIONS: { title: string; items: { key: string; label: string; icon: LucideIcon }[] }[] = [
-  {
-    title: 'Engagement',
-    items: [
-      { key: 'home', label: 'Portfolio', icon: HomeIcon },
-      { key: 'command', label: 'Command Center', icon: BriefcaseBusiness },
-      { key: 'actions', label: 'Next Actions', icon: ListChecks },
-      { key: 'domains', label: 'Scope & Targets', icon: Globe },
-      { key: 'assets', label: 'Asset Inventory', icon: Boxes },
-      { key: 'profiles', label: 'Scan Profiles', icon: Radar },
-      { key: 'runs', label: 'Assessment Runs', icon: History },
-    ],
-  },
-  {
-    title: 'Intelligence',
-    items: [
-      { key: 'subdomains', label: 'Subdomains', icon: Network },
-      { key: 'screenshots', label: 'Screenshots', icon: Camera },
-      { key: 'exposure', label: 'Exposure', icon: Radar },
-      { key: 'ports', label: 'Ports', icon: Router },
-      { key: 'api', label: 'API Surface', icon: Webhook },
-      { key: 'osint', label: 'OSINT', icon: Eye },
-      { key: 'social', label: 'Social Forensics', icon: Fingerprint },
-      { key: 'leaks', label: 'Data Leaks', icon: DatabaseZap },
-      { key: 'whois', label: 'WHOIS', icon: FileText },
-      { key: 'checkhost', label: 'Check Host', icon: Activity },
-    ],
-  },
-  {
-    title: 'Testing',
-    items: [
-      { key: 'scans', label: 'Scans', icon: ScanSearch },
-      { key: 'fuzzing', label: 'Fuzzing', icon: Crosshair },
-      { key: 'tools', label: 'Tools', icon: Wrench },
-      { key: 'owasp', label: 'OWASP', icon: ShieldCheck },
-      { key: 'origin', label: 'WAF / Origin', icon: ShieldAlert },
-      { key: 'llm', label: 'LLM Security', icon: Bot },
-    ],
-  },
-  {
-    title: 'HTTP Lab',
-    items: [
-      { key: 'traffic', label: 'Traffic', icon: Radio },
-      { key: 'replay', label: 'Replay', icon: Repeat },
-    ],
-  },
-  {
-    title: 'Assessment',
-    items: [
-      { key: 'intel', label: 'Attack Paths', icon: Brain },
-      { key: 'findings', label: 'Findings', icon: Flag },
-      { key: 'reports', label: 'Reports', icon: FileCheck2 },
-      { key: 'changes', label: 'Change History', icon: History },
-      { key: 'notes', label: 'Notes', icon: StickyNote },
-      { key: 'canvas', label: 'Canvas', icon: PenTool },
-    ],
-  },
-  {
-    title: 'System',
-    items: [
-      { key: 'jobs', label: 'Logs', icon: ScrollText },
-      { key: 'audit', label: 'Audit', icon: History },
-      { key: 'settings', label: 'Settings', icon: SettingsIcon },
-    ],
-  },
-]
-
-// Secondary reference pages remain routable and retain their header/refresh
-// state without competing for permanent sidebar space.
-const HIDDEN_MODULES = [{ key: 'methodology', label: 'Methodology', icon: ListChecks }]
-const MODULES = [...NAV_SECTIONS.flatMap((s) => s.items), ...HIDDEN_MODULES]
-
-// Flat index (with section) for the command palette's fuzzy search.
-const MODULE_INDEX = NAV_SECTIONS.flatMap((s) => s.items.map((it) => ({ key: it.key, label: it.label, section: s.title })))
-
-type ModuleKey = (typeof MODULES)[number]['key']
-
-// Modules that operate on a selected domain show the domain picker.
-const DOMAIN_SCOPED: ModuleKey[] = ['command', 'actions', 'assets', 'profiles', 'runs', 'reports', 'changes', 'intel', 'methodology', 'subdomains', 'screenshots', 'fuzzing', 'replay', 'traffic', 'exposure', 'ports', 'api', 'osint', 'leaks', 'origin', 'scans', 'tools', 'owasp', 'notes']
+import { DOMAIN_SCOPED, MODULE_INDEX, MODULES, NAV_SECTIONS, readExpandedSections, sectionForModule, type ModuleKey } from './navigation'
 
 // Map a job type to the nav module whose page shows its results, so a running /
 // just-finished job can flag that item in the sidebar.
@@ -184,6 +101,25 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
       /* storage unavailable — collapse just won't persist */
     }
   }, [collapsed])
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
+    try {
+      return readExpandedSections(localStorage.getItem('expandedNavSections'))
+    } catch {
+      return new Set()
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('expandedNavSections', JSON.stringify([...expandedSections]))
+    } catch {
+      /* storage unavailable - expansion remains valid for this session */
+    }
+  }, [expandedSections])
+  useEffect(() => {
+    const section = sectionForModule(active)
+    if (!section || section.primary) return
+    setExpandedSections((current) => current.has(section.title) ? current : new Set([...current, section.title]))
+  }, [active])
   const activeLabel = MODULES.find((m) => m.key === active)?.label ?? 'Recon Dashboard'
 
   // Sidebar job status dots: yellow while a module's job runs, green once it
@@ -329,12 +265,33 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <kbd className={`rounded bg-ink-800 px-1.5 py-0.5 text-[10px] ${collapsed ? 'md:hidden' : ''}`}>⌘K</kbd>
         </button>
         <nav className="flex-1 overflow-y-auto px-2 pb-2">
-          {NAV_SECTIONS.map((section) => (
+          {NAV_SECTIONS.map((section) => {
+            const expanded = section.primary || expandedSections.has(section.title)
+            const SectionIcon = section.icon
+            const sectionStatus = section.items.some((item) => navStatus[item.key] === 'running')
+              ? 'running'
+              : section.items.some((item) => navStatus[item.key] === 'ready') ? 'ready' : null
+            return (
             <div key={section.title} className={collapsed ? 'md:border-t md:border-hair/40 md:pt-1 md:first:border-t-0' : ''}>
-              <div className={`px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 ${collapsed ? 'md:hidden' : ''}`}>
-                {section.title}
-              </div>
-              {section.items.map((m) => {
+              {section.primary ? <div className={`px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 ${collapsed ? 'md:hidden' : ''}`}>{section.title}</div> : (
+                <button
+                  onClick={() => setExpandedSections((current) => {
+                    const next = new Set(current)
+                    if (next.has(section.title)) next.delete(section.title)
+                    else next.add(section.title)
+                    return next
+                  })}
+                  aria-expanded={expanded}
+                  title={`${expanded ? 'Collapse' : 'Expand'} ${section.title}`}
+                  className={`relative mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-500 transition hover:bg-ink-800 hover:text-zinc-300 ${collapsed ? 'md:justify-center md:px-0' : ''}`}
+                >
+                  <SectionIcon size={15} className={`hidden shrink-0 ${collapsed ? 'md:block' : ''}`} />
+                  <span className={collapsed ? 'md:hidden' : ''}>{section.title}</span>
+                  {sectionStatus && <span aria-label={sectionStatus === 'running' ? 'Contains running work' : 'Contains new results'} className={`h-2 w-2 rounded-full ${sectionStatus === 'running' ? 'animate-pulse bg-amber-400' : 'bg-emerald-400'} ${collapsed ? 'md:absolute md:right-1 md:top-1' : 'ml-auto'}`} />}
+                  <ChevronDown size={14} className={`ml-auto transition-transform ${expanded ? 'rotate-180' : ''} ${collapsed ? 'md:hidden' : ''}`} />
+                </button>
+              )}
+              {expanded && section.items.map((m) => {
                 const Icon = m.icon
                 const isActive = active === m.key
                 const status = navStatus[m.key]
@@ -368,7 +325,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
                 )
               })}
             </div>
-          ))}
+          )})}
           {/* Log out lives at the end of the scrolling nav — no fixed bottom bar. */}
           <div className="mt-1 border-t border-hair/40 pt-1">
             <button

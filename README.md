@@ -54,7 +54,7 @@
 
 ## 🧩 Modules
 
-The sidebar is grouped into **Engagement · Intelligence · Testing · HTTP Lab · Assessment · System**.
+The sidebar keeps the primary **Workflow** visible and places specialist modules in remembered, collapsible **Intelligence · Testing · HTTP Lab · Workspace · System** groups. Every module remains available through **Ctrl-K** search.
 
 | Module | What it does | Mode |
 | --- | --- | :---: |
