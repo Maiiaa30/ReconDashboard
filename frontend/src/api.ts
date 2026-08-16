@@ -417,6 +417,55 @@ export interface Methodology {
   skills: MethodologySkill[]
 }
 
+export type AssessmentProfile = 'passive' | 'monitor' | 'web' | 'full' | 'custom'
+export type AssessmentAction = 'discover' | 'exposure' | 'osint' | 'screenshots' | 'api' | 'nmap' | 'nuclei' | 'ffuf' | 'owasp' | 'params'
+export type AssessmentRunStatus = 'queued' | 'running' | 'completed' | 'partial' | 'cancelled'
+export type AssessmentStepStatus = 'pending' | 'queued' | 'running' | 'done' | 'failed' | 'skipped' | 'cancelled'
+export interface AssessmentStepJob {
+  id: number
+  target: string | null
+  status: string
+  progress: string | null
+  error: string | null
+}
+export interface AssessmentStep {
+  id: number
+  runId: number
+  key: string
+  label: string
+  phase: number
+  position: number
+  action: AssessmentAction
+  targetStrategy: 'domain' | 'live_web' | 'live_hosts'
+  status: AssessmentStepStatus
+  jobs: AssessmentStepJob[]
+  error: string | null
+  startedAt: string | null
+  completedAt: string | null
+}
+export interface AssessmentRun {
+  id: number
+  domainId: number
+  profile: AssessmentProfile
+  name: string
+  status: AssessmentRunStatus
+  createdBy: string
+  confirmActive: boolean
+  currentPhase: number
+  totalPhases: number
+  coverage: number
+  completedSteps: number
+  totalSteps: number
+  targetCoverage: number
+  completedTargetJobs: number
+  totalTargetJobs: number
+  steps: AssessmentStep[]
+  startedAt: string | null
+  completedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface MetaStatus {
   scorer: string
   aiProvider: string
@@ -618,6 +667,14 @@ export const api = {
   methodology: (id: number) => get<Methodology>(`/domains/${id}/methodology`),
   setMethodologyStep: (id: number, skillId: string, stepKey: string, state: 'done' | 'skipped' | 'clear') =>
     patch<Methodology>(`/domains/${id}/methodology/step`, { skillId, stepKey, state }),
+
+  // Persistent, dependency-aware assessment workflows.
+  assessmentRuns: (id: number) => get<{ runs: AssessmentRun[] }>(`/domains/${id}/assessment-runs`),
+  assessmentRun: (id: number) => get<{ run: AssessmentRun }>(`/assessment-runs/${id}`),
+  createAssessmentRun: (id: number, body: { profile: AssessmentProfile; name?: string; steps?: AssessmentAction[]; confirm?: boolean }) =>
+    post<{ run: AssessmentRun }>(`/domains/${id}/assessment-runs`, body),
+  retryAssessmentRun: (id: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${id}/retry`),
+  cancelAssessmentRun: (id: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${id}/cancel`),
 
   // AI-drafted report narrative (optional; only when llm.enabled)
   generateNarrative: (id: number) => post<{ narrative: string; model: string; note: string }>(`/domains/${id}/report/narrative`),

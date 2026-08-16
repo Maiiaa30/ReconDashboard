@@ -1,9 +1,10 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Activity, ArrowRight, CheckCircle2, Circle, Clock, FileCheck2, Flag, ListChecks, Radar, ShieldCheck, Sparkles, type LucideIcon } from 'lucide-react'
-import { api, type Asset, type Finding, type Job, type Methodology, type ReportSnapshot } from '../api'
+import { Activity, AlertTriangle, ArrowRight, CheckCircle2, Circle, Clock, FileCheck2, Flag, ListChecks, Loader, Radar, RotateCcw, ShieldCheck, Sparkles, Square, type LucideIcon } from 'lucide-react'
+import { api, type AssessmentRun, type Asset, type Finding, type Job, type Methodology, type ReportSnapshot } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader, ScoreBadge, SkeletonList } from '../components/ui'
 import { summarizeFinding, timeAgo } from '../lib/format'
+import { useToast } from '../components/Toast'
 
 export function CommandCenter({ navigate }: { navigate: (page: string, domainId?: number) => void }) {
   const { selected } = useApp()
@@ -13,6 +14,8 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
   const [jobs, setJobs] = useState<Job[]>([])
   const [methodology, setMethodology] = useState<Methodology | null>(null)
   const [snapshots, setSnapshots] = useState<ReportSnapshot[]>([])
+  const [run, setRun] = useState<AssessmentRun | null>(null)
+  const toast = useToast()
 
   const load = useCallback(() => {
     if (!selected) return
@@ -22,12 +25,14 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
       api.jobs(),
       api.methodology(selected.id),
       api.snapshots(selected.id),
-    ]).then(([findingResult, assetResult, jobResult, methodologyResult, snapshotResult]) => {
+      api.assessmentRuns(selected.id),
+    ]).then(([findingResult, assetResult, jobResult, methodologyResult, snapshotResult, runResult]) => {
       setFindings(findingResult.findings)
       setAssets(assetResult.assets)
       setJobs(jobResult.jobs.filter((job) => job.domainId === selected.id))
       setMethodology(methodologyResult)
       setSnapshots(snapshotResult.snapshots)
+      setRun(runResult.runs[0] ?? null)
     }).catch(() => {}).finally(() => setLoaded(true))
   }, [selected])
   usePoll(load, 6000, !!selected, selected?.id)
@@ -39,10 +44,11 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
     const running = jobs.filter((job) => job.status === 'queued' || job.status === 'running')
     const changes = findings.filter((finding) => ['asset_change', 'cve_new', 'new_subdomain'].includes(finding.type)).slice(0, 8)
     const applicable = methodology?.skills.filter((skill) => skill.applicable) ?? []
-    const coverage = applicable.length ? Math.round(applicable.reduce((sum, skill) => sum + skill.coverage, 0) / applicable.length) : 0
+    const methodologyCoverage = applicable.length ? Math.round(applicable.reduce((sum, skill) => sum + skill.coverage, 0) / applicable.length) : 0
+    const coverage = run?.coverage ?? methodologyCoverage
     const nextSteps = applicable.flatMap((skill) => skill.steps.filter((step) => step.status === 'todo').map((step) => ({ ...step, skill: skill.name }))).slice(0, 6)
-    return { active, confirmed, high, running, changes, coverage, nextSteps }
-  }, [assets, findings, jobs, methodology])
+    return { active, confirmed, high, running, changes, coverage, methodologyCoverage, nextSteps }
+  }, [assets, findings, jobs, methodology, run])
 
   if (!selected) return <Empty>Select an engagement to open its command center.</Empty>
   if (!loaded) return <><PageHeader title="Command center" subtitle={selected.host} /><SkeletonList rows={7} /></>
@@ -51,7 +57,7 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
     { label: 'Scope', done: true, page: 'domains' },
     { label: 'Discover', done: assets.some((asset) => asset.kind === 'host'), page: 'profiles' },
     { label: 'Map', done: assets.length > 0, page: 'assets' },
-    { label: 'Test', done: data.coverage > 20, page: 'methodology' },
+    { label: 'Test', done: run?.status === 'completed' || data.methodologyCoverage > 20, page: run ? 'profiles' : 'methodology' },
     { label: 'Triage', done: data.confirmed.length > 0 || findings.some((finding) => finding.status !== 'open'), page: 'findings' },
     { label: 'Report', done: snapshots.length > 0, page: 'reports' },
   ]
@@ -75,6 +81,15 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
           ))}
         </div>
       </Card>
+
+      {run && <Card className={`mb-5 ${run.status === 'partial' ? 'border-amber-800/60' : 'border-accent-500/25'}`}>
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="min-w-0 flex-1"><div className="flex items-center gap-2">{run.status === 'running' ? <Loader size={16} className="animate-spin text-amber-400" /> : run.status === 'completed' ? <CheckCircle2 size={16} className="text-emerald-400" /> : <AlertTriangle size={16} className="text-amber-400" />}<h2 className="text-sm font-semibold">Current assessment · {run.name}</h2><Badge tone={run.status === 'completed' ? 'green' : run.status === 'partial' ? 'amber' : 'indigo'}>{run.status}</Badge></div><p className="mt-1 text-xs text-zinc-500">Run #{run.id} · phase {Math.min(run.currentPhase + 1, run.totalPhases)}/{run.totalPhases} · {run.completedSteps}/{run.totalSteps} steps · {run.completedTargetJobs}/{run.totalTargetJobs} target jobs complete</p></div>
+          <div className="flex gap-2">{run.status === 'partial' && <Button variant="ghost" onClick={async () => { try { setRun((await api.retryAssessmentRun(run.id)).run); toast.success('Failed steps queued for retry.') } catch (error) { toast.error(error instanceof Error ? error.message : 'Retry failed.') } }}><RotateCcw size={14} /> Retry</Button>}{(run.status === 'queued' || run.status === 'running') && <Button variant="ghost" onClick={async () => { try { setRun((await api.cancelAssessmentRun(run.id)).run); toast.success('Assessment cancelled.') } catch (error) { toast.error(error instanceof Error ? error.message : 'Cancel failed.') } }}><Square size={13} /> Cancel</Button>}<Button variant="ghost" onClick={() => navigate('profiles', selected.id)}>View run</Button></div>
+        </div>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink-950"><div className="h-full bg-accent-500 transition-all" style={{ width: `${run.coverage}%` }} /></div>
+        <div className="mt-3 flex flex-wrap gap-1.5">{run.steps.map((step) => <Badge key={step.id} tone={step.status === 'done' ? 'green' : step.status === 'failed' || step.status === 'skipped' ? 'red' : step.status === 'running' ? 'amber' : 'zinc'}>{step.label}: {step.status}{step.jobs.length > 1 ? ` (${step.jobs.length} targets)` : ''}</Badge>)}</div>
+      </Card>}
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Metric label="Assets" value={assets.length} icon={Sparkles} tone="text-blue-400" onClick={() => navigate('assets', selected.id)} />
@@ -106,7 +121,7 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
         <div className="space-y-5">
           <Card>
             <div className="mb-3 flex items-center gap-2"><ListChecks size={15} className="text-violet-400" /><h2 className="text-sm font-semibold">Recommended next actions</h2><Badge tone="indigo">{data.coverage}% covered</Badge></div>
-            {data.nextSteps.length === 0 ? <p className="text-sm text-zinc-500">No outstanding methodology steps.</p> : <div className="space-y-2">{data.nextSteps.map((step) => <button key={`${step.skill}:${step.key}`} onClick={() => navigate('methodology', selected.id)} className="group flex w-full items-center gap-3 rounded-lg border border-hair/60 px-3 py-2 text-left hover:border-accent-500/40"><Circle size={13} className="shrink-0 text-zinc-600" /><span className="min-w-0 flex-1"><span className="block truncate text-sm text-zinc-200">{step.label}</span><span className="block truncate text-xs text-zinc-600">{step.skill}</span></span><ArrowRight size={13} className="text-zinc-600 group-hover:text-accent-fg" /></button>)}</div>}
+            {data.nextSteps.length === 0 ? <p className="text-sm text-zinc-500">No outstanding methodology steps.</p> : <div className="space-y-2">{data.nextSteps.map((step) => <button key={`${step.skill}:${step.key}`} onClick={() => navigate('methodology', selected.id)} className="group flex w-full items-center gap-3 rounded-lg border border-hair/60 px-3 py-2 text-left hover:border-accent-500/40"><Circle size={13} className="shrink-0 text-zinc-600" /><span className="min-w-0 flex-1"><span className="block truncate text-sm text-zinc-200">{step.label}</span><span className="block truncate text-xs text-zinc-600">{step.skill}</span></span><span className="text-[11px] text-accent-fg">Review & run</span><ArrowRight size={13} className="text-zinc-600 group-hover:text-accent-fg" /></button>)}</div>}
           </Card>
 
           <Card>

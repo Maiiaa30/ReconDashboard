@@ -19,6 +19,7 @@ let assets: any
 let assetSnapshots: any
 let urlCorpus: any
 let findingsTable: any
+let jobsTable: any
 
 beforeAll(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), 'recon-itest-'))
@@ -41,6 +42,7 @@ beforeAll(async () => {
   assetSnapshots = schema.assetSnapshots
   urlCorpus = schema.urlCorpus
   findingsTable = schema.findings
+  jobsTable = schema.jobs
 }, 30_000)
 
 afterAll(async () => {
@@ -158,6 +160,43 @@ describe('Today acknowledgement', () => {
     const ack = await app.inject({ method: 'POST', url: '/api/home/today/ack', headers: { cookie } })
     expect(ack.statusCode).toBe(200)
     expect(db.select().from(users).all()[0].lastDashboardViewedAt).toBeInstanceOf(Date)
+  })
+})
+
+describe('persistent assessment orchestration', () => {
+  it('queues only the first phase and advances after its dependency completes', async () => {
+    const id = newDomain({ host: 'workflow.example.com', mode: 'passive_only' })
+    const created = await app.inject({
+      method: 'POST',
+      url: `/api/domains/${id}/assessment-runs`,
+      headers: { cookie },
+      payload: { profile: 'passive' },
+    })
+    expect(created.statusCode).toBe(202)
+    const run = created.json().run
+    expect(run.status).toBe('running')
+    expect(run.steps.find((step: any) => step.key === 'discover').status).toBe('queued')
+    expect(run.steps.find((step: any) => step.key === 'exposure').status).toBe('pending')
+    expect(run.steps.filter((step: any) => step.jobs.length > 0)).toHaveLength(1)
+
+    const discoveryJob = run.steps.find((step: any) => step.key === 'discover').jobs[0]
+    db.update(jobsTable).set({ status: 'done', finishedAt: new Date(), updatedAt: new Date() }).where((await import('drizzle-orm')).eq(jobsTable.id, discoveryJob.id)).run()
+    const { advanceAssessmentRun } = await import('./assessments/runs')
+    await advanceAssessmentRun(run.id)
+
+    const advanced = await app.inject({ method: 'GET', url: `/api/assessment-runs/${run.id}`, headers: { cookie } })
+    expect(advanced.statusCode).toBe(200)
+    expect(advanced.json().run.steps.find((step: any) => step.key === 'discover').status).toBe('done')
+    expect(advanced.json().run.steps.find((step: any) => step.key === 'exposure').status).toBe('queued')
+    expect(advanced.json().run.steps.find((step: any) => step.key === 'screenshots').status).toBe('queued')
+    expect(advanced.json().run.steps.find((step: any) => step.key === 'osint').status).toBe('pending')
+  })
+
+  it('keeps active profiles behind the authorization confirmation gate', async () => {
+    const id = newDomain({ host: 'workflow-gate.example.com', mode: 'passive_only' })
+    const blocked = await app.inject({ method: 'POST', url: `/api/domains/${id}/assessment-runs`, headers: { cookie }, payload: { profile: 'full' } })
+    expect(blocked.statusCode).toBe(400)
+    expect(blocked.json().code).toBe('confirm_required')
   })
 })
 

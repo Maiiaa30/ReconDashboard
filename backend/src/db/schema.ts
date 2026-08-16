@@ -124,6 +124,32 @@ export const subdomains = sqliteTable(
   ],
 )
 
+// --- Assessment runs ---------------------------------------------------------
+
+// A persistent, server-owned assessment workflow. Profiles used to live only
+// in the browser and enqueue every job at once; a run now advances through
+// ordered phases so later testing consumes the assets discovered by earlier
+// phases and remains inspectable after a refresh/restart.
+export const assessmentRuns = sqliteTable(
+  'assessment_runs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    domainId: integer('domain_id').notNull().references(() => domains.id, { onDelete: 'cascade' }),
+    profile: text('profile').notNull(),
+    name: text('name').notNull(),
+    status: text('status').notNull().default('queued'), // queued | running | completed | partial | cancelled
+    createdBy: text('created_by').notNull(),
+    confirmActive: integer('confirm_active', { mode: 'boolean' }).notNull().default(false),
+    currentPhase: integer('current_phase').notNull().default(0),
+    totalPhases: integer('total_phases').notNull().default(1),
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }),
+    completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [index('assessment_runs_domain_idx').on(t.domainId, t.createdAt), index('assessment_runs_status_idx').on(t.status)],
+)
+
 // --- Jobs --------------------------------------------------------------------
 
 export const jobs = sqliteTable(
@@ -165,6 +191,31 @@ export const jobs = sqliteTable(
     // Supports hasPendingJob(type, domainId) and per-target scan cooldown.
     index('jobs_domain_type_idx').on(t.domainId, t.type, t.status),
   ],
+)
+
+// One logical workflow step. `jobs` records the concrete per-target jobs as a
+// JSON array of { id, target }, preserving asset-level coverage without making
+// the general-purpose job queue depend on the assessment feature.
+export const assessmentSteps = sqliteTable(
+  'assessment_steps',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    runId: integer('run_id').notNull().references(() => assessmentRuns.id, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    label: text('label').notNull(),
+    phase: integer('phase').notNull(),
+    position: integer('position').notNull(),
+    action: text('action').notNull(), // discover | exposure | ...
+    targetStrategy: text('target_strategy').notNull().default('domain'), // domain | live_web | live_hosts
+    status: text('status').notNull().default('pending'), // pending | queued | running | done | failed | skipped | cancelled
+    jobs: text('jobs').notNull().default('[]'), // JSON { id:number, target:string|null }[]
+    error: text('error'),
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }),
+    completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(now),
+  },
+  (t) => [unique('assessment_steps_run_key_uq').on(t.runId, t.key), index('assessment_steps_run_phase_idx').on(t.runId, t.phase, t.position)],
 )
 
 // --- Findings / notes / drawings --------------------------------------------
@@ -492,4 +543,6 @@ export type CapturedRequest = typeof capturedRequests.$inferSelect
 export type ReplayHistoryRow = typeof replayHistory.$inferSelect
 export type Subdomain = typeof subdomains.$inferSelect
 export type Job = typeof jobs.$inferSelect
+export type AssessmentRunRow = typeof assessmentRuns.$inferSelect
+export type AssessmentStepRow = typeof assessmentSteps.$inferSelect
 export type AuditEntry = typeof auditLog.$inferSelect

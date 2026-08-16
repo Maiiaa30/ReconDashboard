@@ -14,6 +14,7 @@ import {
   urlCorpus,
   assets,
   assetSnapshots,
+  assessmentRuns,
 } from '../db/schema'
 import { isValidDomain, normalizeDomain } from '../util/validate'
 import { screenshotDirFor } from '../util/screenshotPaths'
@@ -117,6 +118,9 @@ export function markMonitored(id: number, when: Date = new Date()): void {
 // skill_step_state — are cleared too.
 export async function purgeDomainData(id: number): Promise<void> {
   db.transaction((tx) => {
+    // Steps cascade from runs. Remove workflow history before its referenced
+    // jobs so a reset cannot leave a misleading half-run behind.
+    tx.delete(assessmentRuns).where(eq(assessmentRuns.domainId, id)).run()
     tx.delete(findings).where(eq(findings.domainId, id)).run()
     tx.delete(subdomains).where(eq(subdomains.domainId, id)).run()
     tx.delete(jobs).where(eq(jobs.domainId, id)).run()

@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify'
 import type { Job } from '../db/schema'
 import { enqueueJob, hasPendingJob } from './queue'
+import { safeJsonParse } from '../util/json'
 
 // Post-completion chaining: when a job finishes, conditionally enqueue the next
 // step of the natural recon kill-chain so a one-person team doesn't drive every
@@ -9,6 +10,10 @@ import { enqueueJob, hasPendingJob } from './queue'
 // can't pile up. Loud/active scans stay operator-initiated.
 export function chainAfter(job: Job, _result: unknown, log: FastifyBaseLogger): void {
   try {
+    // Assessment runs own their phase dependencies. Letting the legacy passive
+    // chain also fire would create untracked duplicate jobs and break run-level
+    // coverage.
+    if (safeJsonParse<{ assessmentRunId?: number }>(job.params, {}).assessmentRunId) return
     const domainId = job.domainId
     if (domainId == null) return
 
