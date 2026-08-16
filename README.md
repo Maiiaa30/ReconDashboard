@@ -40,6 +40,8 @@
 
 - 🔎 **Passive-first recon** - certificate transparency, DNS, WHOIS, tech fingerprinting, archived-URL sources, cloud-bucket enumeration and "Shodan-of-each-domain" exposure (ASN, TLS-cert SANs, CVEs), all keyless where possible - plus an optional **public-code leak search** (GitHub) for the target's leaked keys and internal URLs.
 - 🚨 **Continuous monitoring** - per-domain auto-recon on a schedule, subdomain diffing, a new-CVE-on-known-asset watch, and instant **Discord alerts** the moment a new subdomain appears. A **"Today" panel** on the home page surfaces what changed or got riskier *since you last looked* - new high-risk findings, new CVEs, new login-page subdomains, and authorization windows about to expire.
+- 🧭 **Engagement-centered workflows** - persistent assessment runs execute in dependency order instead of launching every scanner at once: discovery → enrichment → URL/API mapping → network and parameter testing → active web checks. Runs survive refreshes and restarts, expand onto newly discovered in-scope assets, and can be cancelled or retried from **Command Center** or **Scan Profiles**.
+- 📐 **Evidence-based coverage** - coverage reflects what actually executed, not just whether a queue item ended. Clean completion, degraded execution, unavailable tooling, failures and cancellations are tracked separately, with per-step target counts, findings produced, high-risk findings and concrete failure/degradation reasons.
 - 🎯 **Gated active scanning & confirmation** - `nmap`, `nuclei`, `ffuf` (recursion · vhost · fingerprint-aware wordlists), `sqlmap` and friends, locked behind `active_authorized`, an engagement scope (allow/deny) and an authorization window. It also confirms what it finds: **nuclei-driven CVE verification** promotes a passive "CVE present" signal to *confirmed-exploitable* with the PoC attached, an **IDOR / broken-authorization** helper replays one object request under three identities to flag access-control gaps, **parameter discovery** finds honored-but-undocumented params, and the OWASP engine confirms **SSTI**, open-redirect and CORS with false-positive-killing differentials - never fired at an unauthorized target.
 - 🧠 **Intelligence & triage** - deterministic rules-based scoring, **attack-path correlation** rendered as a network graph, an optional AI advisor, **suggest-only AI triage** (the LLM proposes a disposition per finding; you apply with one click - it never changes anything itself), and **immutable engagement report snapshots** you can **export to PDF**.
 - 🧰 **Request workbench** - a server-side **Repeater** (compose/replay any request, decoded body + sandboxed rendered preview + per-target history), a real **Intruder** (four attack modes - sniper / battering-ram / pitchfork / cluster-bomb - over numbered `{{P1}}...{{Pn}}` positions, with grep-extract/match columns, median + MAD anomaly detection and a bounded concurrency pool), a curated **payload library + encoder chain**, session-wide **match/replace rules** (inject an auth header, swap a CSRF token - applied *inside* the SSRF-guarded sender), an **Authz** diff mode for IDOR hunting, and a **Sitemap** that assembles the target's endpoint tree from captured + discovered data for one-click loading - fed by an optional **browser capture extension** that streams your in-scope traffic into a **Traffic** view. Findings can carry **attached request/response evidence** that flows straight into the report.
@@ -51,14 +53,17 @@
 
 ## 🧩 Modules
 
-The sidebar is grouped into **Overview · Recon · OSINT & Leaks · Offensive · Capture & Replay · Workspace · System**.
+The sidebar is grouped into **Engagement · Intelligence · Testing · HTTP Lab · Assessment · System**.
 
 | Module | What it does | Mode |
 | --- | --- | :---: |
-| **Home** | Engagement dashboard - a **"Today" panel** ranking what changed / got riskier since your last visit (new high-risk findings, new CVEs, new login-page subdomains, expiring authorization windows), plus KPI vitals, attention buckets (never-scanned / new subs / high-risk), top open findings and recent-CVE changes | - |
-| **Domains** | Track targets; per-domain `passive_only` / `active_authorized` mode; engagement scope (allow/deny hosts + CIDRs) + authorization window; scheduled auto-monitoring; **one-click Run recon** (discovery → exposure → screenshots + OSINT + origin discovery, plus nmap on active targets) | - |
-| **Intel** | Rules-based triage + **attack-path correlation** as a force-directed **network graph**; optional **AI advisor** (prioritized, gated testing plan) | - |
-| **Methodology** | Recon-skills coverage per target - which methodologies apply, per-step found / done / todo, one-click run, manual overrides | - |
+| **Portfolio** | Cross-engagement dashboard - a **"Today" panel** ranking what changed / got riskier since your last visit (new high-risk findings, new CVEs, new login-page subdomains, expiring authorization windows), plus KPI vitals, attention buckets, top open findings and recent asset changes | - |
+| **Command Center** | Per-engagement control surface for the assessment lifecycle: current persistent run, ordered phase progress, evidence-backed coverage, concrete target-job counts, priority findings, recent changes, recommended actions, activity and deliverables. Supports cancelling active runs and retrying degraded/unavailable/failed steps | - |
+| **Scope & Targets** | Track targets; per-domain `passive_only` / `active_authorized` mode; engagement scope (allow/deny hosts + CIDRs), authorization window, scheduled monitoring, labels, data reset and destructive-action safeguards | - |
+| **Asset Inventory** | Durable host, IP and service inventory enriched with ports, technologies, ASN/CDN data, response baselines and linked findings | - |
+| **Methodology** | Target-aware recon methodology: applicable skills, per-step found / done / running / todo / skipped state, one-click gated execution and manual overrides | - |
+| **Scan Profiles** | Persistent server-managed assessment workflows: Passive foundation, Continuous surface refresh, Web assessment, Full authorized assessment and a reusable custom profile. Profiles execute dependency-aware phases, expand to discovered live assets and retain progress across refreshes/restarts | - |
+| **Attack Paths** | Rules-based triage + **attack-path correlation** as a force-directed **network graph**; deterministic chain suggestions and an optional advisor with prioritized, gated testing actions | - |
 | **Subdomains** | Passive discovery (crt.sh · certspotter · subfinder), HTTP-probe enrichment, **sortable by status / host / IP / last-seen**, diff & flag new, Discord alerts, exports | 🟢 passive |
 | **Screenshots** | Headless-Chromium gallery with lightbox | 🟢 passive |
 | **Exposure** | "Shodan of each domain" via InternetDB + cvedb - ports, CVEs, CPEs - plus **ASN / reverse-IP** and **TLS-cert SAN** harvest; interesting ports flagged | 🟢 passive |
@@ -77,10 +82,44 @@ The sidebar is grouped into **Overview · Recon · OSINT & Leaks · Offensive ·
 | **Replay** | A server-side **Repeater** - compose/edit and re-send any request (gzip/br/zstd-decoded, inert **Body** view + **sandboxed rendered Preview**), with per-target **history** you can re-open; a real **Intruder** - four attack modes (**sniper / battering-ram / pitchfork / cluster-bomb**) over numbered `{{P1}}...{{Pn}}` positions (`{{PAYLOAD}}` still works), fed by **lists / number ranges / curated wordlists / a saved payload library**, with **grep-extract & grep-match** result columns, **median + MAD** anomaly flagging and a bounded **concurrency** pool; an **Authz** mode that replays one `{{ID}}` object request under **three identities** (yours / a second account / anonymous) to surface **IDOR & broken access control** (every hit is *needs-review*, never auto-confirmed); session-wide **match/replace rules**; and a **Sitemap** tab that assembles the target's endpoint tree from captured requests + fuzz hits + discovery, one click loading any endpoint into the Repeater | 🔴 active |
 | **LLM Security** | Reference - **OWASP Top 10 for LLMs**, a searchable red-team **payload library**, and per-model testing methodology (Gemini / Llama / GPT / Claude / ...) | 📖 reference |
 | **Findings** | Scored & deduped with "why this score" + CVE detail, **one-click nuclei CVE verification** (promotes a passively-observed CVE to *confirmed-exploitable* with the PoC attached), triage lifecycle, bulk triage, **suggest-only AI triage** (LLM proposes a disposition per finding - apply with one click, nothing auto-changes), **attached request/response evidence**, CSV/JSON + Markdown/HTML reports, and **immutable report snapshots** you can **export to PDF** | - |
+| **Reports / Change History** | Live engagement report, immutable report snapshots and PDF export; chronological material changes across known assets and findings | - |
 | **Notes / Canvas** | Markdown notes (push to Discord) · Excalidraw board auto-saved to the DB | - |
 | **Logs / Audit / Settings** | Live activity log with job control · append-only **audit ledger** · 2FA enrollment · system status · encrypted backup & restore | - |
 
-Each tracked target can also be **reset** - a per-domain *Clear data* wipes its recon records (findings, subdomains, jobs, captures, history, screenshots) while keeping the target and your notes.
+Each tracked target can also be **reset** - a per-domain *Clear data* wipes its recon records (assessment runs, findings, assets, subdomains, jobs, captures, history and screenshots) while keeping the target and your notes.
+
+---
+
+## 🧭 Assessment workflow
+
+Assessment profiles are persistent backend workflows, not browser-side batches. The orchestrator queues one phase at a time and advances only after every job in the current phase reaches a terminal execution outcome.
+
+| Phase | Purpose | Typical actions |
+| --- | --- | --- |
+| **1. Discover** | Establish the current attack surface | Subdomain discovery and HTTP/DNS validation |
+| **2. Enrich** | Resolve infrastructure and visual baselines | Exposure intelligence and screenshots |
+| **3. Map** | Build the URL, JavaScript and API corpus | OSINT and API-surface discovery |
+| **4. Network** | Test the discovered live host estate | Per-host nmap sweep |
+| **5. Parameters** | Feed real parameters into later testing | Query, body, form and header parameter discovery |
+| **6. Web testing** | Run active checks against mapped live web assets | Nuclei, ffuf and the OWASP engine |
+
+Passive profiles stop after mapping. Active phases remain operator-initiated and continue to enforce the domain mode, authorization window, allow/deny scope and per-target validation before anything is queued.
+
+### Execution outcomes and coverage
+
+The queue status and the execution outcome are deliberately separate. A job can exit normally while reporting that its required binary is missing or its target was unreachable; that work must not count as successful coverage.
+
+| Outcome | Meaning | Counts as clean coverage |
+| --- | --- | :---: |
+| **completed** | The scanner/check executed successfully, including a valid zero-finding result | ✅ |
+| **degraded** | Execution was partial, aborted, unreachable or one/more providers failed | ❌ |
+| **unavailable** | A required binary, provider or configuration was unavailable | ❌ |
+| **failed / missing** | The job errored, dead-lettered or its record is missing | ❌ |
+| **cancelled** | The operator cancelled the job/run | ❌ |
+
+For every step, the UI reports concrete targets planned and completed, findings produced, high-risk findings, safe result summaries, omissions and failure/degradation reasons. A run with any unavailable, degraded, skipped or failed work finishes as **partial** and exposes **Retry problems** instead of presenting a misleading 100% result.
+
+Dynamic fan-out is bounded for safety: active web steps consider up to **20 live web targets**, while network sweeps consider up to **50 live hosts**. If a run reaches either limit, the omitted count is recorded and the run remains partial.
 
 ---
 
@@ -108,6 +147,7 @@ flowchart LR
         direction TB
         AUTH["Auth<br/>argon2 · TOTP · sessions"]
         ROUTES["REST routes<br/>default-deny guard"]
+        ORCH["Assessment orchestrator<br/>persistent phased runs"]
         WORKER["Job worker<br/>passive + loud lanes"]
         NET["SSRF-guarded HTTP<br/>recon CLIs · execFile"]
     end
@@ -119,6 +159,9 @@ flowchart LR
     EXT -- "CAPTURE_TOKEN" --> ROUTES
     AUTH -.- ROUTES
     ROUTES --> WORKER
+    ROUTES --> ORCH
+    ORCH --> WORKER
+    ORCH <--> DB
     ROUTES <--> DB
     WORKER <--> DB
     WORKER --> NET
@@ -127,7 +170,8 @@ flowchart LR
 
 - **Frontend** - React + Vite + TypeScript + Tailwind (single SPA, PWA-friendly)
 - **Backend** - Node.js + Fastify + TypeScript (REST API)
-- **Database** - SQLite via Drizzle ORM (`better-sqlite3`), versioned migrations applied on boot
+- **Database** - SQLite via Drizzle ORM (`better-sqlite3`), with versioned migrations applied on boot and persistent assessment-run/step state alongside jobs, assets and findings
+- **Assessment orchestration** - server-owned profiles advance through ordered phases, reconcile safely after restarts, dynamically expand to discovered assets, classify result payloads and expose retry/cancel controls
 - **Jobs** - a `jobs` table polled by an in-process worker with **two concurrent lanes** (passive + loud), so a long loud scan never blocks passive monitoring while loud scans still run one-at-a-time per target - **no Redis**
 - **Outbound APIs** - every third-party call (crt.sh, Shodan InternetDB/cvedb, breach providers, ...) shares one client with a **per-provider concurrency governor**, transient-error **retry/backoff**, response-size caps, and **TTL caching**, so parallel scans stay resilient and a good API citizen
 - **Quality** - **GitHub Actions CI** on every push: **lint** + typecheck + unit **and route-level (`fastify.inject`) integration** tests (backend) and typecheck + build (frontend). A custom ESLint rule **bans un-guarded outbound `fetch()`** in the recon code, so every target-facing request must go through the SSRF-guarded client - the safety convention is enforced, not just documented
@@ -149,7 +193,21 @@ docker compose up --build
 
 Set a real `ADMIN_PASSWORD` and a 32+ char `SESSION_SECRET` before any real use - the server refuses to boot without them. On first run it seeds the operator account, applies migrations, and logs a one-time `otpauth://` URL so you can enable 2FA later from **Settings**. The SQLite DB lives in the `app-data` volume and survives rebuilds.
 
-> Prefer no Docker? Run `npm install && npm run dev` in both `backend/` and `frontend/` - passive recon and the in-process OWASP/WordPress checks still work even if the CLI tools aren't installed; anything binary-backed degrades gracefully and reports itself as unavailable under **Settings → System status**.
+> Prefer no Docker? Use **Node.js 24**, then run `npm install && npm run dev` in both `backend/` and `frontend/`. Passive recon and the in-process checks still work if optional CLI tools are absent; binary-backed assessment steps are explicitly reported as **unavailable** and excluded from clean coverage.
+
+### Verify a development checkout
+
+```bash
+cd backend
+npm run typecheck
+npm run lint
+npm test
+
+cd ../frontend
+npm run build
+```
+
+The backend suite includes unit and route-level integration coverage for authentication, scope/authorization gates, job orchestration, persistent assessment phase ordering and execution-outcome classification.
 
 ---
 
