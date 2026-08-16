@@ -68,7 +68,7 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
     const methodologyCoverage = applicable.length ? Math.round(applicable.reduce((sum, skill) => sum + skill.coverage, 0) / applicable.length) : 0
     const coverage = run?.coverage ?? methodologyCoverage
     return { active, confirmed, high, running, changes, coverage, methodologyCoverage }
-  }, [assets, findings, jobs, methodology, run])
+  }, [findings, jobs, methodology, run])
 
   if (!selected) return <Empty>Select an engagement to open its command center.</Empty>
   if (!loaded) return <><PageHeader title="Command center" subtitle={selected.host} /><SkeletonList rows={7} /></>

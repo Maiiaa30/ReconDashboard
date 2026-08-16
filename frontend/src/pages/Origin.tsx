@@ -37,7 +37,7 @@ export function Origin() {
         }
       }).catch(() => {})
     }
-  }, [selected, lastJob])
+  }, [selected, lastJob, toast])
   usePoll(load, 4000, !!selected)
 
   if (!selected) return <Empty>Select a domain to discover its origin server.</Empty>

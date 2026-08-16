@@ -111,7 +111,7 @@ export function Replay() {
     // under React StrictMode's double-invoked effects).
     setUrl((cur) => (!cur || cur === prevDefault ? `https://${selected.host}/` : cur))
     lastHost.current = selected.host
-  }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected])
 
   // Consume a request handed over from Traffic / Findings / the attack graph.
   useEffect(() => {

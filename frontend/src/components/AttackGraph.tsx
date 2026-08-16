@@ -97,7 +97,6 @@ export function AttackGraph({ paths, host, navigate }: { paths: AttackPath[]; ho
     () => paths.map((p) => `${p.ip}|${p.hosts.join(',')}|${p.cveCount}|${p.worstCvss}|${p.kev}|${p.ports.join(',')}`).join(';'),
     [paths],
   )
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const { nodes, links, neighbors } = useMemo(() => {
     const g = buildGraph(paths, host)
     // Adjacency (built from string endpoints, before the sim swaps them for

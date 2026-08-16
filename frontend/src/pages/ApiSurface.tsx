@@ -125,7 +125,7 @@ export function ApiSurface({ navigate }: { navigate: (page: string, domainId?: n
       .subdomains(selected.id)
       .then((r) => setSubs(r.subdomains))
       .catch(() => {})
-  }, [selected?.id])
+  }, [selected])
   const [findings, setFindings] = useState<Finding[]>([])
   const [crawlFindings, setCrawlFindings] = useState<Finding[]>([])
   const [ffufFindings, setFfufFindings] = useState<Finding[]>([])
@@ -530,7 +530,8 @@ function SpecCard({
   const toggleOp = (i: number) =>
     setOpenOps((cur) => {
       const next = new Set(cur)
-      next.has(i) ? next.delete(i) : next.add(i)
+      if (next.has(i)) next.delete(i)
+      else next.add(i)
       return next
     })
   // Defend against any legacy/partial finding missing these arrays.
