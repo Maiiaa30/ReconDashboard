@@ -54,6 +54,9 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             autoComplete="username"
+            required
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? 'login-error' : undefined}
             autoFocus
           />
         </label>
@@ -66,6 +69,9 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
+            required
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? 'login-error' : undefined}
           />
         </label>
 
@@ -91,7 +97,7 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
           </button>
         )}
 
-        {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+        {error && <p id="login-error" role="alert" className="mt-4 text-sm text-red-400">{error}</p>}
 
         <button
           type="submit"
