@@ -1,3 +1,5 @@
+import { markOffline, markOnline, markSessionExpired } from './connection'
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -27,15 +29,34 @@ export function apiError(response: Response, body: unknown): ApiError {
   return new ApiError(response.status, message)
 }
 
+function isAbort(err: unknown): boolean {
+  // A caller-initiated cancellation (unmount, obsolete poll, job cancel) rejects
+  // with an AbortError — that is not a connectivity problem.
+  return err instanceof DOMException ? err.name === 'AbortError' : (err as { name?: string })?.name === 'AbortError'
+}
+
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`/api${path}`, {
-    // Only send a JSON content-type when there is a body. GET/DELETE requests
-    // stay simple and do not trigger needless preflights or strict rejections.
-    headers: options.body ? { 'Content-Type': 'application/json' } : {},
-    ...options,
-  })
+  let response: Response
+  try {
+    response = await fetch(`/api${path}`, {
+      // Only send a JSON content-type when there is a body. GET/DELETE requests
+      // stay simple and do not trigger needless preflights or strict rejections.
+      headers: options.body ? { 'Content-Type': 'application/json' } : {},
+      ...options,
+    })
+  } catch (err) {
+    // fetch only rejects on a network-level failure (backend/tailnet down),
+    // never on an HTTP error status. Ignore intentional cancellations.
+    if (!isAbort(err)) markOffline()
+    throw err
+  }
+  // A response of any status means the backend is reachable again.
+  markOnline()
   const body = await readResponseBody(response)
-  if (!response.ok) throw apiError(response, body)
+  if (!response.ok) {
+    if (response.status === 401) markSessionExpired()
+    throw apiError(response, body)
+  }
   return body as T
 }
 

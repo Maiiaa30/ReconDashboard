@@ -3,7 +3,7 @@ import { Radar } from 'lucide-react'
 import { api, ApiError } from '../api'
 import { useToast } from './Toast'
 
-export function Login({ onSuccess }: { onSuccess: () => void }) {
+export function Login({ onSuccess, sessionExpired = false }: { onSuccess: () => void; sessionExpired?: boolean }) {
   const toast = useToast()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -46,6 +46,12 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
             <p className="text-sm text-zinc-400">Operator login</p>
           </div>
         </div>
+
+        {sessionExpired && (
+          <p role="status" className="mt-6 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
+            Your session expired. Please sign in again.
+          </p>
+        )}
 
         <label className="mt-6 block text-sm">
           <span className="text-zinc-400">Username</span>
