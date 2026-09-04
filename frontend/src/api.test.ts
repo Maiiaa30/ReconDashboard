@@ -34,4 +34,38 @@ describe('API request lifecycle', () => {
       expect.objectContaining({ signal: controller.signal }),
     )
   })
+
+  it('serializes every findings facet plus the pagination cursor', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ findings: [], nextCursor: null }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.findings({
+      domainId: 3,
+      type: 'owasp',
+      status: 'active',
+      severity: 'high',
+      asset: 'a.example.com',
+      tag: 'kev',
+      since: 1000,
+      limit: 50,
+      cursor: 'abc',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/findings?domainId=3&type=owasp&asset=a.example.com&tag=kev&since=1000&status=active&severity=high&limit=50&cursor=abc',
+      expect.anything(),
+    )
+  })
+
+  it('summary omits the status/severity facets and pagination', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ total: 0, byStatus: {}, bySeverity: {} }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.findingsSummary({ domainId: 3, type: 'owasp', asset: 'a', tag: 'kev', since: 1000 })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/findings/summary?domainId=3&type=owasp&asset=a&tag=kev&since=1000',
+      expect.anything(),
+    )
+  })
 })

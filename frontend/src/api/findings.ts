@@ -50,15 +50,64 @@ export interface ReportSnapshot {
   createdAt: string
 }
 
+// 'active' hides triaged-away statuses; 'all' shows every status.
+export type FindingStatusFilter = FindingStatus | 'active' | 'all'
+
+export interface FindingQuery {
+  domainId?: number
+  type?: string
+  status?: FindingStatusFilter
+  severity?: string
+  asset?: string
+  tag?: string
+  since?: number
+  limit?: number
+  cursor?: string
+}
+
+// One page of findings plus the cursor for the next page (null on the last page).
+export interface FindingPage {
+  findings: Finding[]
+  nextCursor: string | null
+}
+
+// Counts for a filter set: total plus per-status and per-severity breakdowns.
+export interface FindingSummary {
+  total: number
+  byStatus: Record<string, number>
+  bySeverity: Record<string, number>
+}
+
+// Facets shared by the list and summary endpoints (everything except pagination
+// and the status/severity facets the summary intentionally ignores).
+function findingFilterParams(q: FindingQuery): URLSearchParams {
+  const params = new URLSearchParams()
+  if (q.domainId != null) params.set('domainId', String(q.domainId))
+  if (q.type) params.set('type', q.type)
+  if (q.asset) params.set('asset', q.asset)
+  if (q.tag) params.set('tag', q.tag)
+  if (q.since) params.set('since', String(q.since))
+  return params
+}
+
 export const findingsApi = {
-  findings: (q: { domainId?: number; type?: string; limit?: number; since?: number } = {}, options?: RequestOptions) => {
-    const params = new URLSearchParams()
-    if (q.domainId != null) params.set('domainId', String(q.domainId))
-    if (q.type) params.set('type', q.type)
+  findings: (q: FindingQuery = {}, options?: RequestOptions) => {
+    const params = findingFilterParams(q)
+    if (q.status) params.set('status', q.status)
+    if (q.severity) params.set('severity', q.severity)
     if (q.limit) params.set('limit', String(q.limit))
-    if (q.since) params.set('since', String(q.since))
+    if (q.cursor) params.set('cursor', q.cursor)
     const qs = params.toString()
-    return get<{ findings: Finding[] }>(`/findings${qs ? `?${qs}` : ''}`, options)
+    return get<FindingPage>(`/findings${qs ? `?${qs}` : ''}`, options)
+  },
+  // Total plus per-status/per-severity counts for a filter set (status/severity
+  // facets excluded server-side), for header stats without loading every row.
+  findingsSummary: (
+    q: Pick<FindingQuery, 'domainId' | 'type' | 'asset' | 'tag' | 'since'> = {},
+    options?: RequestOptions,
+  ) => {
+    const qs = findingFilterParams(q).toString()
+    return get<FindingSummary>(`/findings/summary${qs ? `?${qs}` : ''}`, options)
   },
   updateFinding: (id: number, patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ finding: Finding }>(`/findings/${id}`, patchBody),

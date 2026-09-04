@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, or } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNull, notInArray, or, sql, type AnyColumn, type SQL } from 'drizzle-orm'
 import { db } from '../db/index'
 import { findingLinks, findings } from '../db/schema'
 import { safeJsonParse } from '../util/json'
@@ -280,6 +280,165 @@ export function listFindings(
 
 function mapRow(r: typeof findings.$inferSelect, data: unknown) {
   return { ...r, type: r.type as FindingType, data: asFindingData(data), tags: safeJsonParse<string[]>(r.tags, []) }
+}
+
+// --- server-side query: filtering + keyset pagination + summary counts --------
+// The Findings page used to pull up to 500 rows and filter/sort in the browser,
+// which truncates on a busy engagement and re-ships the whole set on every load.
+// queryFindings pushes every filter into SQL and pages with a keyset cursor over
+// the (score, createdAt, id) sort, so a page is O(page) regardless of table size.
+// It deliberately does NOT read-time dedup like listFindings: the table is kept
+// deduped by the write-time upsert plus the boot-time dedupeExistingFindings pass,
+// so a keyset window stays stable and no page silently shrinks.
+
+// Statuses that are "dealt with" — excluded by the default `active` view. Keep in
+// sync with TRIAGED_AWAY in the frontend Findings page.
+const TRIAGED_AWAY_STATUSES: FindingStatus[] = ['false_positive', 'resolved', 'retest_passed', 'ignored']
+
+export type FindingStatusFilter = FindingStatus | 'active' | 'all'
+
+export interface FindingFilter {
+  domainId?: number
+  type?: FindingType
+  status?: FindingStatusFilter
+  severity?: string
+  // Substring match (case-insensitive) against the promoted host/ip/url columns.
+  asset?: string
+  // Substring match against the finding's tags.
+  tag?: string
+  since?: Date
+}
+
+export interface FindingQuery extends FindingFilter {
+  // Page size (default 100, capped). limit+1 rows are fetched to detect a next page.
+  limit?: number
+  // Opaque keyset cursor from a prior page's `nextCursor`.
+  cursor?: string
+}
+
+export interface FindingPage {
+  findings: ReturnType<typeof mapRow>[]
+  nextCursor: string | null
+}
+
+const MAX_PAGE = 500
+const DEFAULT_PAGE = 100
+
+// LIKE with an explicit escape so a user-supplied % or _ matches literally rather
+// than acting as a wildcard.
+function likeContains(col: AnyColumn, term: string): SQL {
+  const esc = term.replace(/[\\%_]/g, (c) => `\\${c}`)
+  return sql`${col} like ${`%${esc}%`} escape '\\'`
+}
+
+function findingConds(f: FindingFilter): SQL[] {
+  const conds: SQL[] = []
+  if (f.domainId != null) conds.push(eq(findings.domainId, f.domainId))
+  if (f.type) conds.push(eq(findings.type, f.type))
+  if (f.severity) conds.push(eq(findings.severity, f.severity))
+  // createdAt is the frozen first-seen timestamp (see addFinding) so "new since"
+  // matches genuine discoveries, not rows merely re-touched by a later re-scan.
+  if (f.since) conds.push(gt(findings.createdAt, f.since))
+  if (f.status && f.status !== 'all') {
+    conds.push(f.status === 'active' ? notInArray(findings.status, TRIAGED_AWAY_STATUSES) : eq(findings.status, f.status))
+  }
+  if (f.asset && f.asset.trim()) {
+    const t = f.asset.trim()
+    conds.push(or(likeContains(findings.host, t), likeContains(findings.ip, t), likeContains(findings.url, t))!)
+  }
+  if (f.tag && f.tag.trim()) conds.push(likeContains(findings.tags, f.tag.trim()))
+  return conds
+}
+
+// Cursor packs the keyset tuple (coalesced score, createdAt ms, id). Base64url so
+// it rides in a query string untouched.
+function encodeCursor(score: number, createdMs: number, id: number): string {
+  return Buffer.from(`${score}:${createdMs}:${id}`, 'utf8').toString('base64url')
+}
+function decodeCursor(cursor: string): { score: number; createdMs: number; id: number } | null {
+  try {
+    const [score, createdMs, id] = Buffer.from(cursor, 'base64url').toString('utf8').split(':').map(Number)
+    if (![score, createdMs, id].every(Number.isFinite)) return null
+    return { score, createdMs, id }
+  } catch {
+    return null
+  }
+}
+
+// A page of findings for the given filter set, newest-highest-score first, with a
+// keyset cursor to fetch the next page. An invalid/garbled cursor is ignored (the
+// query restarts from the top) rather than throwing.
+export function queryFindings(q: FindingQuery = {}): FindingPage {
+  const limit = Math.min(MAX_PAGE, Math.max(1, q.limit ?? DEFAULT_PAGE))
+  const conds = findingConds(q)
+
+  // Keyset: continue strictly after the cursor tuple in the (score desc,
+  // createdAt desc, id desc) order. NULL scores are coalesced to -1 so they sort
+  // last consistently in both the ORDER BY and the row-value comparison.
+  if (q.cursor) {
+    const c = decodeCursor(q.cursor)
+    if (c) {
+      conds.push(
+        sql`(coalesce(${findings.score}, -1), ${findings.createdAt}, ${findings.id}) < (${c.score}, ${c.createdMs}, ${c.id})`,
+      )
+    }
+  }
+
+  const rows = db
+    .select()
+    .from(findings)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(sql`coalesce(${findings.score}, -1) desc`, desc(findings.createdAt), desc(findings.id))
+    .limit(limit + 1)
+    .all()
+
+  const hasMore = rows.length > limit
+  const page = hasMore ? rows.slice(0, limit) : rows
+  const out = page.map((r) => mapRow(r, safeJsonParse<unknown>(r.data, null)))
+  let nextCursor: string | null = null
+  if (hasMore) {
+    const last = page[page.length - 1]
+    nextCursor = encodeCursor(last.score ?? -1, last.createdAt.getTime(), last.id)
+  }
+  return { findings: out, nextCursor }
+}
+
+export interface FindingSummary {
+  total: number
+  byStatus: Record<string, number>
+  bySeverity: Record<string, number>
+}
+
+// Counts for the current filter set WITHOUT the status/severity facets applied,
+// so the UI can show how many findings sit in each status and severity bucket
+// without pulling every row. Reflects the deduped table (write-time upsert + boot
+// dedupe), matching the overview counts used elsewhere.
+export function summarizeFindings(f: Omit<FindingFilter, 'status' | 'severity'> = {}): FindingSummary {
+  const conds = findingConds(f)
+  const where = conds.length ? and(...conds) : undefined
+
+  const statusRows = db
+    .select({ k: findings.status, n: sql<number>`count(*)` })
+    .from(findings)
+    .where(where)
+    .groupBy(findings.status)
+    .all()
+  const sevRows = db
+    .select({ k: findings.severity, n: sql<number>`count(*)` })
+    .from(findings)
+    .where(where)
+    .groupBy(findings.severity)
+    .all()
+
+  const byStatus: Record<string, number> = {}
+  let total = 0
+  for (const r of statusRows) {
+    byStatus[r.k ?? 'open'] = Number(r.n)
+    total += Number(r.n)
+  }
+  const bySeverity: Record<string, number> = {}
+  for (const r of sevRows) bySeverity[r.k ?? 'info'] = Number(r.n)
+  return { total, byStatus, bySeverity }
 }
 
 export function updateFindingScore(id: number, score: number, tags: string[]): void {

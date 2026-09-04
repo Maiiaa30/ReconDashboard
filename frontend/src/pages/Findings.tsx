@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, Camera, Sparkles, AlertTriangle } from 'lucide-react'
-import { api, ApiError, type Finding, type FindingLink, type FindingStatus, type ReportSnapshot, type TriageSuggestion } from '../api'
+import { api, ApiError, type Finding, type FindingLink, type FindingStatus, type FindingSummary, type ReportSnapshot, type TriageSuggestion } from '../api'
 import { useApp } from '../state'
 import { Badge, Button, Card, Empty, ExportLinks, PageHeader, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
@@ -56,6 +56,11 @@ const SINCE_MS: Record<Exclude<SincePreset, ''>, number> = {
   '30d': 30 * 24 * 60 * 60 * 1000,
 }
 
+// Server-side page size for keyset pagination; "Load more" fetches the next page.
+const PAGE_SIZE = 100
+
+const SEVERITY_OPTIONS = ['', 'critical', 'high', 'medium', 'low', 'info'] as const
+
 const TYPE_LABEL: Record<string, string> = {
   new_subdomain: 'subdomain',
   exposure: 'exposure',
@@ -98,12 +103,19 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
   const [tagFilter, setTagFilter] = useState('')
   const [assetFilter, setAssetFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
+  const [severityFilter, setSeverityFilter] = useState('')
   const [findings, setFindings] = useState<Finding[]>([])
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [summary, setSummary] = useState<FindingSummary | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const lastIdxRef = useRef<number | null>(null)
   const filteredRef = useRef<Finding[]>([])
   const selectedIdsRef = useRef<Set<number>>(selectedIds)
   selectedIdsRef.current = selectedIds
+  // Latest cursor, read by "load more" without re-creating the loader on paging.
+  const cursorRef = useRef<string | null>(null)
+  cursorRef.current = nextCursor
   const [llmOn, setLlmOn] = useState(false)
   const [narrative, setNarrative] = useState<{ text: string; note: string } | null>(null)
   const [narrBusy, setNarrBusy] = useState(false)
@@ -207,18 +219,69 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
   const hostOf = (id: number | null) =>
     id == null ? 'global' : domains.find((d) => d.id === id)?.host ?? `#${id}`
 
+  // Server-side query params for the current filter set. Every facet is pushed to
+  // the backend so the page fetches one bounded page instead of the whole table.
+  const query = useMemo(
+    () => ({
+      domainId: domainId === '' ? undefined : domainId,
+      type: type || undefined,
+      status: statusFilter,
+      severity: severityFilter || undefined,
+      asset: assetFilter.trim() || undefined,
+      tag: tagFilter.trim() || undefined,
+      since: sincePreset ? Date.now() - SINCE_MS[sincePreset] : undefined,
+    }),
+    [domainId, type, statusFilter, severityFilter, assetFilter, tagFilter, sincePreset],
+  )
+
+  // Reload the first page for the current filter set. `since` is recomputed here
+  // so a stale relative window isn't captured in the memo above.
   const load = useCallback(() => {
-    const since = sincePreset ? Date.now() - SINCE_MS[sincePreset] : undefined
+    const q = { ...query, since: sincePreset ? Date.now() - SINCE_MS[sincePreset] : undefined, limit: PAGE_SIZE }
     api
-      .findings({ domainId: domainId === '' ? undefined : domainId, type: type || undefined, since, limit: 500 })
-      .then((r) => setFindings(r.findings))
+      .findings(q)
+      .then((r) => {
+        setFindings(r.findings)
+        setNextCursor(r.nextCursor)
+      })
       .catch(() => toast.error('Failed to load findings.'))
       .finally(() => setLoaded(true))
-  }, [domainId, type, sincePreset, toast])
+  }, [query, sincePreset, toast])
+
+  // Append the next page using the cursor from the last response.
+  const loadMore = useCallback(() => {
+    const cursor = cursorRef.current
+    if (!cursor || loadingMore) return
+    setLoadingMore(true)
+    api
+      .findings({ ...query, limit: PAGE_SIZE, cursor })
+      .then((r) => {
+        setFindings((prev) => [...prev, ...r.findings])
+        setNextCursor(r.nextCursor)
+      })
+      .catch(() => toast.error('Failed to load more findings.'))
+      .finally(() => setLoadingMore(false))
+  }, [query, loadingMore, toast])
+
+  // Facet counts (total + per-status/per-severity), independent of the status and
+  // severity filters so the chips show how much sits behind each option.
+  const loadSummary = useCallback(() => {
+    api
+      .findingsSummary({ domainId: query.domainId, type: query.type, asset: query.asset, tag: query.tag, since: query.since })
+      .then(setSummary)
+      .catch(() => setSummary(null))
+  }, [query])
+
+  // Debounced so typing in the tag/asset inputs doesn't fire a request per key.
+  useEffect(() => {
+    const t = setTimeout(() => void load(), 200)
+    return () => clearTimeout(t)
+  }, [load])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    const t = setTimeout(() => void loadSummary(), 200)
+    return () => clearTimeout(t)
+  }, [loadSummary])
 
   // Optimistically apply a triage change, then persist; revert via reload on error.
   const update = useCallback(
@@ -238,7 +301,7 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
   useEffect(() => {
     setSelectedIds(new Set())
     lastIdxRef.current = null
-  }, [domainId, type, statusFilter, tagFilter, sincePreset])
+  }, [domainId, type, statusFilter, severityFilter, tagFilter, assetFilter, sincePreset])
 
   const toggleSelect = useCallback((id: number, idx: number, range: boolean) => {
     setSelectedIds((prev) => {
@@ -302,27 +365,12 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
     return () => window.removeEventListener('keydown', onKey)
   }, [bulkApply, clearSelection, selectAllFiltered])
 
-  const tagQuery = tagFilter.trim().toLowerCase()
-  // Memoized so the O(n) filter (with per-item tag scan, up to 500 findings)
-  // doesn't re-run on every keystroke / row expand / selection change.
-  const filtered = useMemo(() => {
-    const matchesStatus = (f: Finding) =>
-      statusFilter === 'all'
-        ? true
-        : statusFilter === 'active'
-          ? !TRIAGED_AWAY.includes(f.status)
-          : f.status === statusFilter
-    const assetQuery = assetFilter.trim().toLowerCase()
-    return findings.filter((f) => {
-      const d = (f.data ?? {}) as Record<string, unknown>
-      const assetText = [f.host, f.ip, f.url, d.host, d.ip, d.url, d.target, ...(Array.isArray(d.hostnames) ? d.hostnames : [])]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-      return matchesStatus(f) && (!tagQuery || f.tags.some((t) => t.toLowerCase().includes(tagQuery))) && (!assetQuery || assetText.includes(assetQuery))
-    })
-  }, [findings, statusFilter, tagQuery, assetFilter])
+  // Filtering now happens server-side; `findings` is already the filtered page(s).
+  // The alias keeps the rest of the render + selection code unchanged.
+  const filtered = findings
   filteredRef.current = filtered
+  const anyFilterActive =
+    tagFilter !== '' || assetFilter !== '' || type !== '' || severityFilter !== '' || domainId !== '' || statusFilter !== 'active' || sincePreset !== ''
 
   const selectCls =
     'mt-1 block rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm outline-none focus:border-accent-500'
@@ -412,6 +460,17 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
           </select>
         </label>
         <label className="text-sm">
+          <span className="text-zinc-400">Severity</span>
+          <select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)} className={selectCls}>
+            {SEVERITY_OPTIONS.map((s) => (
+              <option key={s || 'all'} value={s}>
+                {s === '' ? 'All' : `${s[0].toUpperCase()}${s.slice(1)}`}
+                {s !== '' && summary ? ` (${summary.bySeverity[s] ?? 0})` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-sm">
           <span className="text-zinc-400">New since</span>
           <select value={sincePreset} onChange={(e) => setSincePreset(e.target.value as SincePreset)} className={selectCls}>
             {SINCE_PRESETS.map((s) => (
@@ -439,13 +498,17 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
             className="mt-1 block w-44 rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm outline-none focus:border-accent-500"
           />
         </label>
-        <span className="pb-1.5 text-xs text-zinc-600">{filtered.length} shown</span>
-        {(tagFilter || assetFilter || type || domainId !== '' || statusFilter !== 'active' || sincePreset !== '') && (
+        <span className="pb-1.5 text-xs text-zinc-600">
+          {findings.length}
+          {summary && summary.total > findings.length ? ` of ${summary.total}` : ''} shown
+        </span>
+        {anyFilterActive && (
           <button
             onClick={() => {
               setTagFilter('')
               setAssetFilter('')
               setType('')
+              setSeverityFilter('')
               setDomainId('')
               setStatusFilter('active')
               setSincePreset('')
@@ -569,21 +632,34 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
       ) : filtered.length === 0 ? (
         <Empty>No findings match these filters.</Empty>
       ) : (
-        <div className="space-y-2">
-          {filtered.map((f, idx) => (
-            <FindingRow
-              key={f.id}
-              f={f}
-              idx={idx}
-              host={hostOf(f.domainId)}
-              selected={selectedIds.has(f.id)}
-              onToggleSelect={toggleSelect}
-              onTag={setTagFilter}
-              onUpdate={update}
-              navigate={navigate}
-            />
-          ))}
-        </div>
+        <>
+          <div className="space-y-2">
+            {filtered.map((f, idx) => (
+              <FindingRow
+                key={f.id}
+                f={f}
+                idx={idx}
+                host={hostOf(f.domainId)}
+                selected={selectedIds.has(f.id)}
+                onToggleSelect={toggleSelect}
+                onTag={setTagFilter}
+                onUpdate={update}
+                navigate={navigate}
+              />
+            ))}
+          </div>
+          {nextCursor && (
+            <div className="mt-3 flex justify-center">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="rounded-lg border border-hair px-4 py-1.5 text-sm text-zinc-300 transition hover:border-hair-strong hover:bg-ink-800 disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading…' : `Load more${summary ? ` (${summary.total - findings.length} more)` : ''}`}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

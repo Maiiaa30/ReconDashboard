@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
 
 // Characterization guard for the split of the monolithic `api.ts` into
-// per-domain clients. This is the exact public method surface as it stood
-// before the split; if a method is dropped, renamed, or duplicated while the
-// clients are refactored further, this snapshot fails loudly.
+// per-domain clients. This is the public method surface (the pre-split set plus
+// any deliberate additions since); if a method is dropped, renamed, or
+// duplicated while the clients are refactored further, this snapshot fails
+// loudly. Add a new method here in the same commit that introduces it.
 const EXPECTED_METHODS = [
   'acknowledgeNew',
   'acknowledgeToday',
@@ -69,6 +70,7 @@ const EXPECTED_METHODS = [
   'ffuf',
   'findingLinks',
   'findings',
+  'findingsSummary',
   'findOrigin',
   'generateNarrative',
   'home',

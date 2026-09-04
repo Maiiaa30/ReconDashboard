@@ -23,7 +23,18 @@ export type { Me } from './api/auth'
 export type { Capture } from './api/captures'
 export type { AuditEntry, Drawing, DrawingMeta, Note } from './api/content'
 export type { Domain, DomainMode, DomainOverview, DomainProfile, OwaspConfig, ScopeConfig } from './api/domains'
-export type { Finding, FindingLink, FindingStatus, ReportSnapshot, SnapshotMeta, TriageSuggestion } from './api/findings'
+export type {
+  Finding,
+  FindingLink,
+  FindingPage,
+  FindingQuery,
+  FindingStatus,
+  FindingStatusFilter,
+  FindingSummary,
+  ReportSnapshot,
+  SnapshotMeta,
+  TriageSuggestion,
+} from './api/findings'
 export type { HomeFinding, RecentChange, TodayData } from './api/home'
 export type {
   AdviceAction,

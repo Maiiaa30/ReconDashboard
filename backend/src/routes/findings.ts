@@ -5,9 +5,11 @@ import {
   FINDING_STATUSES,
   getFinding,
   getFindingLinks,
-  listFindings,
+  queryFindings,
+  summarizeFindings,
   updateFindingTriage,
   type FindingStatus,
+  type FindingStatusFilter,
   type FindingType,
 } from '../findings/store'
 import { suggestTriage } from '../findings/triageSuggest'
@@ -35,20 +37,66 @@ const VALID_TYPES: FindingType[] = [
   'asset_change',
 ]
 const MAX_NOTE = 2000
+const VALID_SEVERITIES = ['critical', 'high', 'medium', 'low', 'info']
+const VALID_STATUS_FILTERS: FindingStatusFilter[] = ['active', 'all', ...FINDING_STATUSES]
+// Cap asset/tag substrings so a pathological query can't build a huge LIKE.
+const MAX_TERM = 200
+
+// Shared parse of the filter facets common to the list and summary endpoints.
+function parseFindingFilters(query: {
+  domainId?: string
+  type?: string
+  severity?: string
+  asset?: string
+  tag?: string
+  since?: string
+}) {
+  const { domainId, type, severity, asset, tag, since } = query
+  return {
+    domainId: domainId != null && Number.isFinite(Number(domainId)) ? Number(domainId) : undefined,
+    type: type && VALID_TYPES.includes(type as FindingType) ? (type as FindingType) : undefined,
+    severity: severity && VALID_SEVERITIES.includes(severity) ? severity : undefined,
+    asset: typeof asset === 'string' && asset.trim() ? asset.trim().slice(0, MAX_TERM) : undefined,
+    tag: typeof tag === 'string' && tag.trim() ? tag.trim().slice(0, MAX_TERM) : undefined,
+    since: since != null && Number.isFinite(Number(since)) ? new Date(Number(since)) : undefined,
+  }
+}
 
 export const findingRoutes: FastifyPluginAsync = async (app) => {
-  app.get<{ Querystring: { domainId?: string; type?: string; limit?: string; since?: string } }>(
-    '/api/findings',
-    async (request) => {
-      const { domainId, type, limit, since } = request.query
-      const t = type && VALID_TYPES.includes(type as FindingType) ? (type as FindingType) : undefined
-      const domainNum = domainId != null && Number.isFinite(Number(domainId)) ? Number(domainId) : undefined
-      const limitNum = limit != null && Number.isFinite(Number(limit)) ? Math.min(Number(limit), 2000) : undefined
-      const sinceDate = since != null && Number.isFinite(Number(since)) ? new Date(Number(since)) : undefined
-      return {
-        findings: listFindings({ domainId: domainNum, type: t, limit: limitNum, since: sinceDate }),
-      }
-    },
+  // Paged, server-side-filtered list. `cursor` continues from a prior page's
+  // `nextCursor`; `nextCursor` is null on the last page.
+  app.get<{
+    Querystring: {
+      domainId?: string
+      type?: string
+      status?: string
+      severity?: string
+      asset?: string
+      tag?: string
+      limit?: string
+      since?: string
+      cursor?: string
+    }
+  }>('/api/findings', async (request) => {
+    const { status, limit, cursor } = request.query
+    const filters = parseFindingFilters(request.query)
+    const statusFilter =
+      status && VALID_STATUS_FILTERS.includes(status as FindingStatusFilter) ? (status as FindingStatusFilter) : undefined
+    const limitNum = limit != null && Number.isFinite(Number(limit)) ? Number(limit) : undefined
+    return queryFindings({
+      ...filters,
+      status: statusFilter,
+      limit: limitNum,
+      cursor: typeof cursor === 'string' && cursor ? cursor : undefined,
+    })
+  })
+
+  // Counts by status and severity for the current filter set (status/severity
+  // facets excluded), so the UI can render totals and facet counts without
+  // pulling every row.
+  app.get<{ Querystring: { domainId?: string; type?: string; asset?: string; tag?: string; since?: string } }>(
+    '/api/findings/summary',
+    async (request) => summarizeFindings(parseFindingFilters(request.query)),
   )
 
   // Bulk-triage many findings in one transaction. Registered before :id so the
