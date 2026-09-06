@@ -6,6 +6,7 @@ import {
   getFinding,
   getFindingLinks,
   queryFindings,
+  requestRetest,
   summarizeFindings,
   updateFindingTriage,
   type FindingStatus,
@@ -147,6 +148,16 @@ export const findingRoutes: FastifyPluginAsync = async (app) => {
       return { finding: getFinding(id) }
     },
   )
+
+  // Mark a finding for retest: sets it to retest_pending and stamps when. A later
+  // scan that re-detects it flips it back to confirmed automatically; the operator
+  // marks it retest_passed once verified fixed.
+  app.post<{ Params: { id: string } }>('/api/findings/:id/retest', async (request, reply) => {
+    const id = Number(request.params.id)
+    if (!Number.isFinite(id)) return reply.code(400).send({ error: 'invalid id' })
+    if (!requestRetest(id)) return reply.code(404).send({ error: 'finding not found' })
+    return { finding: getFinding(id) }
+  })
 
   // Attach evidence (a request/response, screenshot path, or note) to a finding.
   // Merged into data.evidence (never clobbered) and rendered in the report.

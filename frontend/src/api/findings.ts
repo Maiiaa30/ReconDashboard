@@ -18,6 +18,8 @@ export interface Finding {
   note: string | null
   createdAt: string
   lastSeenAt: string | null
+  // When the operator marked this finding for retest (null unless retest_pending).
+  retestRequestedAt: string | null
 }
 
 export interface FindingLink {
@@ -111,6 +113,9 @@ export const findingsApi = {
   },
   updateFinding: (id: number, patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ finding: Finding }>(`/findings/${id}`, patchBody),
+  // Mark a finding for retest (→ retest_pending, stamped). It auto-reopens to
+  // confirmed if a later scan re-detects it.
+  retestFinding: (id: number) => post<{ finding: Finding }>(`/findings/${id}/retest`, {}),
   // Attach evidence (request/response/screenshot/note) to a finding (merged).
   attachEvidence: (id: number, body: { request?: string; response?: string; screenshotPath?: string; note?: string }) =>
     post<{ finding: Finding; evidenceCount: number }>(`/findings/${id}/evidence`, body),

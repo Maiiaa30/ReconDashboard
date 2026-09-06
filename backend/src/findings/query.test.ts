@@ -16,7 +16,7 @@ vi.mock('../db/index', async () => {
       domain_id integer, type text NOT NULL, data text, score integer, tags text,
       status text NOT NULL DEFAULT 'open', note text,
       severity text, host text, ip text, url text, job_id integer,
-      dedupe_key text, created_at integer NOT NULL DEFAULT 0, last_seen_at integer
+      dedupe_key text, created_at integer NOT NULL DEFAULT 0, last_seen_at integer, retest_requested_at integer
     );
   `)
   sqlite.exec(`

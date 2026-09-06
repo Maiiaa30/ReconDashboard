@@ -274,6 +274,10 @@ export const findings = sqliteTable(
     // which powers monitoring diffs, report timelines, and change alerts.
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(now),
     lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }),
+    // When the operator marked this finding for retest (status → retest_pending).
+    // Cleared when the finding leaves the pending state. With lastSeenAt it tells
+    // whether a later re-detection has happened since the retest was requested.
+    retestRequestedAt: integer('retest_requested_at', { mode: 'timestamp_ms' }),
   },
   // Supports listFindings() and the dedupe upsert lookup.
   (t) => [

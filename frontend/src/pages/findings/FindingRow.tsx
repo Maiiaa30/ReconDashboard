@@ -13,6 +13,7 @@ export function FindingRow({
   onToggleSelect,
   onTag,
   onUpdate,
+  onRetest,
   navigate,
 }: {
   f: Finding
@@ -22,6 +23,7 @@ export function FindingRow({
   onToggleSelect: (id: number, idx: number, range: boolean) => void
   onTag: (t: string) => void
   onUpdate: (id: number, patch: { status?: FindingStatus; note?: string | null }) => void
+  onRetest?: (id: number) => void
   navigate?: (page: string, domainId?: number) => void
 }) {
   const [showAllTags, setShowAllTags] = useState(false)
@@ -114,7 +116,7 @@ export function FindingRow({
         </div>
       </div>
 
-      {open && <FindingDetail f={f} onUpdate={onUpdate} navigate={navigate} />}
+      {open && <FindingDetail f={f} onUpdate={onUpdate} onRetest={onRetest} navigate={navigate} />}
     </div>
   )
 }

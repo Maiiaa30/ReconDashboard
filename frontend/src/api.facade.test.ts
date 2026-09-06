@@ -105,6 +105,7 @@ const EXPECTED_METHODS = [
   'replayHistoryDetail',
   'replaySend',
   'reportPdfUrl',
+  'retestFinding',
   'retryAssessmentRun',
   'retryAssessmentTarget',
   'runOwasp',

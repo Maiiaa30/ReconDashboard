@@ -230,6 +230,21 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
     [load, toast],
   )
 
+  // Mark a finding for retest: optimistic → retest_pending, then persist. The
+  // finding auto-reopens to confirmed if a later scan re-detects it.
+  const retest = useCallback(
+    async (id: number) => {
+      setFindings((prev) => prev.map((f) => (f.id === id ? { ...f, status: 'retest_pending', retestRequestedAt: new Date().toISOString() } : f)))
+      try {
+        await api.retestFinding(id)
+      } catch {
+        toast.error('Failed to mark for retest — reverting.')
+        load()
+      }
+    },
+    [load, toast],
+  )
+
   // Clear selection when the filter set changes (ids may no longer be shown).
   useEffect(() => {
     setSelectedIds(new Set())
@@ -577,6 +592,7 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
                 onToggleSelect={toggleSelect}
                 onTag={setTagFilter}
                 onUpdate={update}
+                onRetest={retest}
                 navigate={navigate}
               />
             ))}

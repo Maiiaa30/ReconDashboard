@@ -4,7 +4,7 @@ import { useApp } from '../../state'
 import { Badge, Button } from '../../components/ui'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/Confirm'
-import { summarizeFinding } from '../../lib/format'
+import { summarizeFinding, timeAgo } from '../../lib/format'
 import { safeHttpUrl } from '../../lib/url'
 import { setPendingReplay } from '../../lib/replayHandoff'
 import { TYPE_LABEL } from './constants'
@@ -249,7 +249,17 @@ function LinkedFindings({ id }: { id: number }) {
   )
 }
 
-export function FindingDetail({ f, onUpdate, navigate }: { f: Finding; onUpdate: (id: number, patch: { status?: FindingStatus; note?: string | null }) => void; navigate?: (page: string, domainId?: number) => void }) {
+export function FindingDetail({
+  f,
+  onUpdate,
+  onRetest,
+  navigate,
+}: {
+  f: Finding
+  onUpdate: (id: number, patch: { status?: FindingStatus; note?: string | null }) => void
+  onRetest?: (id: number) => void
+  navigate?: (page: string, domainId?: number) => void
+}) {
   const d = f.data ?? {}
   return (
     <div className="space-y-3 border-t border-hair/60 bg-ink-900/50 p-3 text-sm">
@@ -327,6 +337,22 @@ export function FindingDetail({ f, onUpdate, navigate }: { f: Finding; onUpdate:
       </div>
       <LinkedFindings id={f.id} />
       <FindingPivots f={f} navigate={navigate} />
+
+      {/* Retest / remediation: mark a confirmed finding for retest; it auto-reopens
+          to confirmed if a later scan re-detects it, and the operator marks it
+          "Retest passed" (via the status control) once verified fixed. */}
+      {f.status === 'retest_pending' && f.retestRequestedAt ? (
+        <div className="rounded-lg border border-amber-900/40 bg-amber-950/15 p-2 text-xs text-amber-200/90">
+          Awaiting retest — marked {timeAgo(new Date(f.retestRequestedAt).getTime())}. Re-run the scan that would
+          detect it: if it reappears this auto-flips back to <span className="font-medium">confirmed</span>; set the
+          status to <span className="font-medium">Retest passed</span> once you&apos;ve verified it&apos;s fixed.
+        </div>
+      ) : f.status === 'confirmed' && onRetest ? (
+        <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => onRetest(f.id)} title="Mark this finding for retest (awaiting re-scan)">
+          Mark for retest
+        </Button>
+      ) : null}
+
       <NoteEditor f={f} onUpdate={onUpdate} />
 
       <details>

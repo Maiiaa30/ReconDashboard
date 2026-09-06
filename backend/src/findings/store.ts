@@ -223,9 +223,18 @@ export function addFinding(f: NewFinding): number {
           url: values.url,
           jobId: values.jobId ?? undefined, // keep the prior producing job if this re-scan has no job context
           lastSeenAt: now,
-          // A finding observed again after being marked fixed has regressed.
-          // Reopen it so it cannot silently remain in a passed/resolved state.
-          status: ['retest_passed', 'resolved'].includes(existing.status) ? 'open' : undefined,
+          // Re-observing a finding drives the retest lifecycle:
+          //  - marked fixed (retest_passed) or resolved, yet seen again → regressed,
+          //    reopen so it can't silently stay in a passed/resolved state.
+          //  - awaiting retest (retest_pending) and seen again → the issue is still
+          //    present, so the retest failed: move it back to confirmed.
+          status: ['retest_passed', 'resolved'].includes(existing.status)
+            ? 'open'
+            : existing.status === 'retest_pending'
+              ? 'confirmed'
+              : undefined,
+          // Leaving the pending state clears the "awaiting since" stamp.
+          retestRequestedAt: existing.status === 'retest_pending' ? null : undefined,
         })
         .where(eq(findings.id, existing.id))
         .run()
@@ -568,10 +577,28 @@ export function appendEvidence(
 // status/note untouched).
 export function updateFindingTriage(id: number, patch: { status?: FindingStatus; note?: string | null }): boolean {
   const set: Record<string, unknown> = {}
-  if (patch.status !== undefined) set.status = patch.status
+  if (patch.status !== undefined) {
+    set.status = patch.status
+    // The "awaiting retest since" stamp is only meaningful while pending; any
+    // other status the operator sets clears it.
+    if (patch.status !== 'retest_pending') set.retestRequestedAt = null
+  }
   if (patch.note !== undefined) set.note = patch.note
   if (Object.keys(set).length === 0) return false
   const res = db.update(findings).set(set).where(eq(findings.id, id)).run()
+  return res.changes > 0
+}
+
+// Mark a finding for retest: move it to retest_pending and stamp when. The
+// upsert path then resolves it automatically — if a later scan re-detects the
+// finding it flips back to confirmed (still present); the operator marks it
+// retest_passed once verified fixed (and it auto-reopens if it ever returns).
+export function requestRetest(id: number): boolean {
+  const res = db
+    .update(findings)
+    .set({ status: 'retest_pending', retestRequestedAt: new Date() })
+    .where(eq(findings.id, id))
+    .run()
   return res.changes > 0
 }
 
@@ -579,7 +606,10 @@ export function updateFindingTriage(id: number, patch: { status?: FindingStatus;
 // long tail of low-value findings is where a solo operator burns the most time.
 export function bulkUpdateTriage(ids: number[], patch: { status?: FindingStatus; note?: string | null }): number {
   const set: Record<string, unknown> = {}
-  if (patch.status !== undefined) set.status = patch.status
+  if (patch.status !== undefined) {
+    set.status = patch.status
+    if (patch.status !== 'retest_pending') set.retestRequestedAt = null
+  }
   if (patch.note !== undefined) set.note = patch.note
   if (Object.keys(set).length === 0 || ids.length === 0) return 0
   let changed = 0
