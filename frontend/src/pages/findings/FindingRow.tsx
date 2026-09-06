@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { type Finding, type FindingStatus } from '../../api'
 import { Badge } from '../../components/ui'
-import { riskFromScore, summarizeFinding, timeAgo } from '../../lib/format'
+import { isStale, riskFromScore, summarizeFinding, timeAgo } from '../../lib/format'
 import { RISK_BORDER, RISK_SCORE, STATUS_LABEL, STATUS_SELECT, STATUSES, TRIAGED_AWAY, TYPE_LABEL, tagTone } from './constants'
 import { FindingDetail } from './FindingDetail'
 
@@ -112,7 +112,14 @@ export function FindingRow({
             ))}
           </select>
           <div className="font-mono text-zinc-400">{host}</div>
-          <div>{timeAgo(new Date(f.createdAt).getTime())}</div>
+          <div className="flex items-center gap-1.5">
+            {!dimmed && isStale(f.lastSeenAt) && (
+              <span title={`Not re-observed since ${f.lastSeenAt ? new Date(f.lastSeenAt).toLocaleString() : 'unknown'}`}>
+                <Badge tone="amber">stale</Badge>
+              </span>
+            )}
+            <span>{timeAgo(new Date(f.createdAt).getTime())}</span>
+          </div>
         </div>
       </div>
 

@@ -14,6 +14,15 @@ export function timeAgo(ms: number | null | undefined): string {
   return new Date(ms).toLocaleDateString()
 }
 
+// A finding not re-observed within this window is "stale": its evidence may be
+// out of date, so it is a natural retest candidate.
+export const STALE_AFTER_MS = 14 * 24 * 60 * 60 * 1000
+export function isStale(lastSeenAt: string | null | undefined): boolean {
+  if (!lastSeenAt) return false
+  const t = new Date(lastSeenAt).getTime()
+  return Number.isFinite(t) && Date.now() - t > STALE_AFTER_MS
+}
+
 // One-line human summary of a finding, by type.
 export function summarizeFinding(type: string, data: any): string {
   if (!data) return type

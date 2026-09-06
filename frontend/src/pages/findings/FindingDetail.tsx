@@ -4,7 +4,7 @@ import { useApp } from '../../state'
 import { Badge, Button } from '../../components/ui'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/Confirm'
-import { summarizeFinding, timeAgo } from '../../lib/format'
+import { isStale, summarizeFinding, timeAgo } from '../../lib/format'
 import { safeHttpUrl } from '../../lib/url'
 import { setPendingReplay } from '../../lib/replayHandoff'
 import { TYPE_LABEL } from './constants'
@@ -249,6 +249,56 @@ function LinkedFindings({ id }: { id: number }) {
   )
 }
 
+// Where the finding came from and how fresh it is: first/last seen, staleness,
+// its source, and the scan that produced it (looked up lazily by jobId).
+function Provenance({ f }: { f: Finding }) {
+  const [job, setJob] = useState<{ type: string; finishedAt: string | null } | null>(null)
+  useEffect(() => {
+    if (f.jobId == null) return
+    let live = true
+    api
+      .job(f.jobId)
+      .then((r) => live && setJob({ type: r.job.type, finishedAt: r.job.finishedAt }))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [f.jobId])
+  const d = (f.data ?? {}) as Record<string, any>
+  const source = typeof d.source === 'string' ? d.source : null
+  const stale = isStale(f.lastSeenAt)
+  return (
+    <div className="rounded-lg border border-hair/60 bg-ink-900/40 p-2.5">
+      <div className="mb-1.5 text-[10px] uppercase tracking-wide text-zinc-500">Provenance &amp; freshness</div>
+      <div className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
+        <span className="text-zinc-500">
+          First seen: <span className="text-zinc-300" title={new Date(f.createdAt).toLocaleString()}>{timeAgo(new Date(f.createdAt).getTime())}</span>
+        </span>
+        <span className="text-zinc-500">
+          Last seen:{' '}
+          <span className={stale ? 'text-amber-300' : 'text-zinc-300'} title={f.lastSeenAt ? new Date(f.lastSeenAt).toLocaleString() : undefined}>
+            {f.lastSeenAt ? timeAgo(new Date(f.lastSeenAt).getTime()) : '—'}
+          </span>
+        </span>
+        {source && (
+          <span className="text-zinc-500">
+            Source: <span className="font-mono text-zinc-300">{source}</span>
+          </span>
+        )}
+        {f.jobId != null && (
+          <span className="text-zinc-500">
+            Produced by: <span className="text-zinc-300">{job ? `${job.type} #${f.jobId}` : `scan #${f.jobId}`}</span>
+            {job?.finishedAt && <span className="text-zinc-600"> · {timeAgo(new Date(job.finishedAt).getTime())}</span>}
+          </span>
+        )}
+      </div>
+      {stale && (
+        <div className="mt-1.5 text-xs text-amber-300/80">Not re-observed in over 14 days — evidence may be stale; consider a retest.</div>
+      )}
+    </div>
+  )
+}
+
 export function FindingDetail({
   f,
   onUpdate,
@@ -335,6 +385,7 @@ export function FindingDetail({
           </>
         )}
       </div>
+      <Provenance f={f} />
       <LinkedFindings id={f.id} />
       <FindingPivots f={f} navigate={navigate} />
 
