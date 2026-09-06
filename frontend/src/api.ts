@@ -21,7 +21,7 @@ import { toolsApi } from './api/tools'
 
 export type { Me } from './api/auth'
 export type { Capture } from './api/captures'
-export type { AuditEntry, Drawing, DrawingMeta, Note } from './api/content'
+export type { AuditEntry, AuditPage, AuditQuery, AuditSummary, Drawing, DrawingMeta, Note } from './api/content'
 export type { Domain, DomainMode, DomainOverview, DomainProfile, OwaspConfig, ScopeConfig } from './api/domains'
 export type {
   Finding,

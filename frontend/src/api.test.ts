@@ -68,4 +68,37 @@ describe('API request lifecycle', () => {
       expect.anything(),
     )
   })
+
+  it('serializes every audit facet plus the pagination cursor', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ entries: [], nextCursor: null }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.audit({
+      domainId: 7,
+      actor: 'maia',
+      action: 'job:done',
+      mode: 'active',
+      target: 'a.example.com',
+      since: 1000,
+      limit: 50,
+      cursor: '42',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/audit?domainId=7&actor=maia&mode=active&target=a.example.com&since=1000&action=job%3Adone&limit=50&cursor=42',
+      expect.anything(),
+    )
+  })
+
+  it('audit summary omits the action facet and pagination', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ total: 0, byAction: {} }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.auditSummary({ domainId: 7, actor: 'maia', mode: 'active', target: 'a', since: 1000 })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/audit/summary?domainId=7&actor=maia&mode=active&target=a&since=1000',
+      expect.anything(),
+    )
+  })
 })

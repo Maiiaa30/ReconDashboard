@@ -17,6 +17,7 @@ const EXPECTED_METHODS = [
   'assets',
   'attachEvidence',
   'audit',
+  'auditSummary',
   'authzDiff',
   'backupRestore',
   'backupStatus',
