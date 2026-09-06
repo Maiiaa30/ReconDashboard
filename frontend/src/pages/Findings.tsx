@@ -4,6 +4,7 @@ import { api, type Finding, type FindingStatus, type FindingSummary, type Triage
 import { useApp } from '../state'
 import { Card, Empty, ExportLinks, PageHeader, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
+import { useConfirm } from '../components/Confirm'
 import { summarizeFinding } from '../lib/format'
 import { takePendingFindingFilter } from '../lib/navigationHandoff'
 import {
@@ -29,6 +30,7 @@ import { SnapshotsPanel } from './findings/SnapshotsPanel'
 export function Findings({ navigate }: { navigate?: (page: string, domainId?: number) => void }) {
   const { domains, selected } = useApp()
   const toast = useToast()
+  const ask = useConfirm()
   const [loaded, setLoaded] = useState(false)
   const [domainId, setDomainId] = useState<number | ''>(selected?.id ?? '')
   const [type, setType] = useState('')
@@ -231,18 +233,43 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
   )
 
   // Mark a finding for retest: optimistic → retest_pending, then persist. The
-  // finding auto-reopens to confirmed if a later scan re-detects it.
+  // backend also enqueues the re-detection scan where the type allows it; if that
+  // scan is a loud one on a passive domain it comes back blocked for confirmation.
+  // The finding auto-reopens to confirmed if a later scan re-detects it.
   const retest = useCallback(
     async (id: number) => {
       setFindings((prev) => prev.map((f) => (f.id === id ? { ...f, status: 'retest_pending', retestRequestedAt: new Date().toISOString() } : f)))
       try {
-        await api.retestFinding(id)
+        const { rescan } = await api.retestFinding(id)
+        if (rescan.kind === 'queued') {
+          toast.success(`Marked for retest — re-scan queued (${rescan.jobType} #${rescan.jobId}).`)
+        } else if (rescan.kind === 'blocked' && rescan.code === 'confirm_required') {
+          const ok = await ask({
+            title: 'Run the re-detection scan?',
+            message: `Re-detecting this finding runs a loud ${rescan.jobType} against the target. Only proceed if you are authorized to actively test it. (The finding is already marked for retest either way.)`,
+            confirmLabel: 'Run scan',
+            tone: 'danger',
+          })
+          if (!ok) {
+            toast.info('Marked for retest — re-scan not run.')
+          } else {
+            // Confirmed: re-issue with the passive-domain gate satisfied.
+            const retry = await api.retestFinding(id, true).catch(() => null)
+            if (retry?.rescan.kind === 'queued') toast.success(`Re-scan queued (${retry.rescan.jobType} #${retry.rescan.jobId}).`)
+            else if (retry?.rescan.kind === 'blocked') toast.info(`Re-scan not started: ${retry.rescan.message}`)
+            else toast.error('Re-scan failed to start.')
+          }
+        } else if (rescan.kind === 'blocked') {
+          toast.info(`Marked for retest — re-scan not started: ${rescan.message}`)
+        } else {
+          toast.success('Marked for retest — re-run the detecting scan to verify.')
+        }
       } catch {
         toast.error('Failed to mark for retest — reverting.')
         load()
       }
     },
-    [load, toast],
+    [ask, load, toast],
   )
 
   // Clear selection when the filter set changes (ids may no longer be shown).

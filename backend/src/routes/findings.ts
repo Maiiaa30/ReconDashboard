@@ -14,6 +14,7 @@ import {
   type FindingType,
 } from '../findings/store'
 import { suggestTriage } from '../findings/triageSuggest'
+import { runRetestScan } from '../findings/retestScan'
 
 // Must list EVERY FindingType — a type missing here is silently dropped from the
 // ?type= filter, so the query falls back to "all types" and the caller's findings
@@ -149,14 +150,18 @@ export const findingRoutes: FastifyPluginAsync = async (app) => {
     },
   )
 
-  // Mark a finding for retest: sets it to retest_pending and stamps when. A later
-  // scan that re-detects it flips it back to confirmed automatically; the operator
-  // marks it retest_passed once verified fixed.
-  app.post<{ Params: { id: string } }>('/api/findings/:id/retest', async (request, reply) => {
+  // Mark a finding for retest: set it to retest_pending, stamp when, and (when the
+  // finding type has a clean re-detection) enqueue that scan so re-detection can
+  // auto-reopen it to confirmed. `confirm` passes the passive-domain gate for the
+  // loud re-scans; a gated/blocked scan still leaves the finding pending and is
+  // reported back in `rescan` so the UI can prompt for confirmation.
+  app.post<{ Params: { id: string }; Body: { confirm?: boolean } }>('/api/findings/:id/retest', async (request, reply) => {
     const id = Number(request.params.id)
     if (!Number.isFinite(id)) return reply.code(400).send({ error: 'invalid id' })
     if (!requestRetest(id)) return reply.code(404).send({ error: 'finding not found' })
-    return { finding: getFinding(id) }
+    const finding = getFinding(id)!
+    const rescan = await runRetestScan(finding, { confirm: request.body?.confirm === true, userId: request.session.userId })
+    return { finding, rescan }
   })
 
   // Attach evidence (a request/response, screenshot path, or note) to a finding.

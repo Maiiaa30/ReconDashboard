@@ -32,6 +32,7 @@ export type {
   FindingStatusFilter,
   FindingSummary,
   ReportSnapshot,
+  RetestRescan,
   SnapshotMeta,
   TriageSuggestion,
 } from './api/findings'

@@ -73,6 +73,14 @@ export interface FindingPage {
   nextCursor: string | null
 }
 
+// Outcome of the auto-rescan the retest action tries to enqueue: none for a type
+// with no clean re-detection, queued when a scan was launched, or blocked (e.g. a
+// passive domain needs `confirm`, or a cooldown/scope rule stopped it).
+export type RetestRescan =
+  | { kind: 'none' }
+  | { kind: 'queued'; jobId: number; jobType: string }
+  | { kind: 'blocked'; jobType: string; code: string; message: string; retryAfterSec?: number }
+
 // Counts for a filter set: total plus per-status and per-severity breakdowns.
 export interface FindingSummary {
   total: number
@@ -113,9 +121,11 @@ export const findingsApi = {
   },
   updateFinding: (id: number, patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ finding: Finding }>(`/findings/${id}`, patchBody),
-  // Mark a finding for retest (→ retest_pending, stamped). It auto-reopens to
-  // confirmed if a later scan re-detects it.
-  retestFinding: (id: number) => post<{ finding: Finding }>(`/findings/${id}/retest`, {}),
+  // Mark a finding for retest (→ retest_pending, stamped) and, when the type has
+  // a clean re-detection, enqueue that scan. `confirm` passes the passive-domain
+  // gate for the loud re-scans. It auto-reopens to confirmed if re-detected.
+  retestFinding: (id: number, confirm?: boolean) =>
+    post<{ finding: Finding; rescan: RetestRescan }>(`/findings/${id}/retest`, confirm ? { confirm: true } : {}),
   // Attach evidence (request/response/screenshot/note) to a finding (merged).
   attachEvidence: (id: number, body: { request?: string; response?: string; screenshotPath?: string; note?: string }) =>
     post<{ finding: Finding; evidenceCount: number }>(`/findings/${id}/evidence`, body),
