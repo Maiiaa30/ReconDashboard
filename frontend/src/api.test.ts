@@ -101,4 +101,25 @@ describe('API request lifecycle', () => {
       expect.anything(),
     )
   })
+
+  it('serializes every subdomains-page facet plus the pagination cursor', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ subdomains: [], nextCursor: null }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.subdomainsPage(7, { q: 'api', newOnly: true, sort: 'host', dir: 'asc', limit: 50, cursor: 'abc' })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/domains/7/subdomains/page?q=api&newOnly=1&sort=host&dir=asc&limit=50&cursor=abc',
+      expect.anything(),
+    )
+  })
+
+  it('subdomains summary carries only the host filter', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ total: 0, newCount: 0 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.subdomainsSummary(7, { q: 'api' })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/domains/7/subdomains/summary?q=api', expect.anything())
+  })
 })

@@ -120,6 +120,8 @@ const EXPECTED_METHODS = [
   'snapshots',
   'snapshotUrl',
   'subdomains',
+  'subdomainsPage',
+  'subdomainsSummary',
   'today',
   'triageSuggest',
   'updateDomain',

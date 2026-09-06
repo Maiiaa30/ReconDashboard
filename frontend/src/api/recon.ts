@@ -19,6 +19,28 @@ export interface Subdomain {
   lastSeen: string
 }
 
+export type SubdomainSort = 'status' | 'host' | 'ip' | 'lastSeen' | 'new'
+
+export interface SubdomainQuery {
+  q?: string
+  newOnly?: boolean
+  sort?: SubdomainSort
+  dir?: 'asc' | 'desc'
+  limit?: number
+  cursor?: string
+}
+
+// One page of subdomains plus the cursor for the next page (null on the last).
+export interface SubdomainPage {
+  subdomains: Subdomain[]
+  nextCursor: string | null
+}
+
+export interface SubdomainSummary {
+  total: number
+  newCount: number
+}
+
 export interface Asset {
   id: number
   domainId: number
@@ -74,8 +96,28 @@ export interface FreeEmailResult {
 }
 
 export const reconApi = {
-  // subdomains
+  // subdomains — full unpaged list (global counts, API-surface + changes views)
   subdomains: (id: number, options?: RequestOptions) => get<{ subdomains: Subdomain[] }>(`/domains/${id}/subdomains`, options),
+  // Paged, server-side-filtered/sorted list for the Subdomains page.
+  subdomainsPage: (id: number, q: SubdomainQuery = {}, options?: RequestOptions) => {
+    const params = new URLSearchParams()
+    if (q.q) params.set('q', q.q)
+    if (q.newOnly) params.set('newOnly', '1')
+    if (q.sort) params.set('sort', q.sort)
+    if (q.dir) params.set('dir', q.dir)
+    if (q.limit) params.set('limit', String(q.limit))
+    if (q.cursor) params.set('cursor', q.cursor)
+    const qs = params.toString()
+    return get<SubdomainPage>(`/domains/${id}/subdomains/page${qs ? `?${qs}` : ''}`, options)
+  },
+  // total + new-host count for a filter set (newOnly excluded), header stats
+  // without loading every row.
+  subdomainsSummary: (id: number, q: Pick<SubdomainQuery, 'q'> = {}, options?: RequestOptions) => {
+    const params = new URLSearchParams()
+    if (q.q) params.set('q', q.q)
+    const qs = params.toString()
+    return get<SubdomainSummary>(`/domains/${id}/subdomains/summary${qs ? `?${qs}` : ''}`, options)
+  },
   assets: (id: number, options?: RequestOptions) => get<{ assets: Asset[] }>(`/domains/${id}/assets`, options),
   discover: (id: number) => post<{ jobId: number }>(`/domains/${id}/discover`),
   // passive DNS permutation + brute-resolve (wildcard-guarded)

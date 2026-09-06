@@ -11,7 +11,7 @@ import {
 } from '../domains/store'
 import { actorName, writeAudit } from '../audit/store'
 import { enqueueJob } from '../jobs/queue'
-import { acknowledgeNew, listSubdomains } from '../subdomains/store'
+import { acknowledgeNew, isSubdomainSort, listSubdomains, querySubdomains, summarizeSubdomains } from '../subdomains/store'
 import { domainOverviews } from '../domains/overview'
 import { correlateDomain, signatureClusters } from '../domains/correlate'
 import { buildMethodology, invalidateMethodology } from '../skills/methodology'
@@ -242,11 +242,46 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // --- Subdomains for a domain ----------------------------------------------
+  // Full unpaged list (kept for callers that need every row: global counts, the
+  // API-surface and changes views).
   app.get<{ Params: { id: string } }>('/api/domains/:id/subdomains', async (request, reply) => {
     const id = Number(request.params.id)
     if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
     return { subdomains: listSubdomains(id) }
   })
+
+  // Paged, server-side-filtered/sorted list for the Subdomains page. `cursor`
+  // continues from a prior page's `nextCursor` (null on the last page). Register
+  // before the bare route is irrelevant (static suffix), but grouped for clarity.
+  app.get<{
+    Params: { id: string }
+    Querystring: { q?: string; newOnly?: string; sort?: string; dir?: string; limit?: string; cursor?: string }
+  }>('/api/domains/:id/subdomains/page', async (request, reply) => {
+    const id = Number(request.params.id)
+    if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+    const { q, newOnly, sort, dir, limit, cursor } = request.query
+    return querySubdomains({
+      domainId: id,
+      q: typeof q === 'string' && q.trim() ? q.trim().slice(0, 200) : undefined,
+      newOnly: newOnly === '1' || newOnly === 'true',
+      sort: typeof sort === 'string' && isSubdomainSort(sort) ? sort : undefined,
+      dir: dir === 'asc' ? 'asc' : dir === 'desc' ? 'desc' : undefined,
+      limit: limit != null && Number.isFinite(Number(limit)) ? Number(limit) : undefined,
+      cursor: typeof cursor === 'string' && cursor ? cursor : undefined,
+    })
+  })
+
+  // total + new-host count for a filter set (newOnly facet excluded), so the
+  // header can show "N known, M new" without loading every row.
+  app.get<{ Params: { id: string }; Querystring: { q?: string } }>(
+    '/api/domains/:id/subdomains/summary',
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
+      const { q } = request.query
+      return summarizeSubdomains({ domainId: id, q: typeof q === 'string' && q.trim() ? q.trim().slice(0, 200) : undefined })
+    },
+  )
 
   // Trigger passive subdomain discovery now.
   app.post<{ Params: { id: string } }>(

@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Copy, Check } from 'lucide-react'
-import { api, type Subdomain } from '../api'
+import { api, type Subdomain, type SubdomainSort } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Empty, ExportLinks, PageHeader } from '../components/ui'
 import { useToast } from '../components/Toast'
@@ -9,8 +9,10 @@ import { safeHttpUrl } from '../lib/url'
 
 type Tone = 'green' | 'blue' | 'amber' | 'red' | 'zinc'
 
-type SortKey = 'status' | 'host' | 'ip' | 'lastSeen' | 'new'
-const SORTS: { key: SortKey; label: string }[] = [
+// Server-side page size for keyset pagination; "Load more" fetches the next page.
+const PAGE_SIZE = 100
+
+const SORTS: { key: SubdomainSort; label: string }[] = [
   { key: 'status', label: 'Status' },
   { key: 'host', label: 'Host' },
   { key: 'ip', label: 'IP' },
@@ -64,15 +66,23 @@ function CopyLink({ url }: { url: string }) {
 
 export function Subdomains() {
   const { selected } = useApp()
+  const toast = useToast()
   const [subs, setSubs] = useState<Subdomain[]>([])
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [summary, setSummary] = useState<{ total: number; newCount: number } | null>(null)
   const [running, setRunning] = useState(false)
   const [lastJob, setLastJob] = useState<number | null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
-  const [sortKey, setSortKey] = useState<SortKey>('status')
+  const [sortKey, setSortKey] = useState<SubdomainSort>('status')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [q, setQ] = useState('')
+  const [newOnly, setNewOnly] = useState(false)
+  const cursorRef = useRef<string | null>(null)
+  cursorRef.current = nextCursor
 
   // Text-ish keys default to A→Z; numeric/recency keys default to biggest-first.
-  function toggleSort(k: SortKey) {
+  function toggleSort(k: SubdomainSort) {
     if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     else {
       setSortKey(k)
@@ -80,29 +90,62 @@ export function Subdomains() {
     }
   }
 
-  const sorted = useMemo(() => {
-    const dir = sortDir === 'asc' ? 1 : -1
-    return [...subs].sort((a, b) => {
-      switch (sortKey) {
-        case 'status':
-          return ((a.httpStatus ?? -1) - (b.httpStatus ?? -1)) * dir
-        case 'host':
-          return a.host.localeCompare(b.host) * dir
-        case 'ip':
-          return (a.ipAddress ?? '').localeCompare(b.ipAddress ?? '', undefined, { numeric: true }) * dir
-        case 'lastSeen':
-          return (new Date(a.lastSeen).getTime() - new Date(b.lastSeen).getTime()) * dir
-        case 'new':
-          return ((a.isNew ? 1 : 0) - (b.isNew ? 1 : 0)) * dir
-        default:
-          return 0
-      }
-    })
-  }, [subs, sortKey, sortDir])
+  const query = useMemo(
+    () => ({ q: q.trim() || undefined, newOnly: newOnly || undefined, sort: sortKey, dir: sortDir }),
+    [q, newOnly, sortKey, sortDir],
+  )
 
+  // Load the first page for the current filter/sort.
   const load = useCallback(() => {
     if (!selected) return
-    api.subdomains(selected.id).then((r) => setSubs(r.subdomains))
+    api
+      .subdomainsPage(selected.id, { ...query, limit: PAGE_SIZE })
+      .then((r) => {
+        setSubs(r.subdomains)
+        setNextCursor(r.nextCursor)
+      })
+      .catch(() => toast.error('Failed to load subdomains.'))
+  }, [selected, query, toast])
+
+  const loadMore = useCallback(() => {
+    const cursor = cursorRef.current
+    if (!selected || !cursor || loadingMore) return
+    setLoadingMore(true)
+    api
+      .subdomainsPage(selected.id, { ...query, limit: PAGE_SIZE, cursor })
+      .then((r) => {
+        setSubs((prev) => [...prev, ...r.subdomains])
+        setNextCursor(r.nextCursor)
+      })
+      .catch(() => toast.error('Failed to load more subdomains.'))
+      .finally(() => setLoadingMore(false))
+  }, [selected, query, loadingMore, toast])
+
+  const loadSummary = useCallback(() => {
+    if (!selected) return
+    api
+      .subdomainsSummary(selected.id, { q: query.q })
+      .then(setSummary)
+      .catch(() => setSummary(null))
+  }, [selected, query.q])
+
+  // Debounced so typing in the host search doesn't fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => load(), 200)
+    return () => clearTimeout(t)
+  }, [load])
+
+  useEffect(() => {
+    const t = setTimeout(() => loadSummary(), 200)
+    return () => clearTimeout(t)
+  }, [loadSummary])
+
+  // While a discovery/permute job runs, poll to surface fresh results and detect
+  // completion. Polling is OFF when idle so loaded pages aren't clobbered.
+  const pollRunning = useCallback(() => {
+    if (!selected) return
+    load()
+    loadSummary()
     if (lastJob != null) {
       api.job(lastJob).then((r) => {
         if (r.job.status === 'done' || r.job.status === 'error') {
@@ -111,9 +154,9 @@ export function Subdomains() {
         }
       })
     }
-  }, [selected, lastJob])
+  }, [selected, lastJob, load, loadSummary])
 
-  usePoll(load, 3000, !!selected)
+  usePoll(pollRunning, 3000, !!selected && running)
 
   async function runDiscovery() {
     if (!selected) return
@@ -142,6 +185,7 @@ export function Subdomains() {
     try {
       await api.acknowledgeNew(selected.id)
       load()
+      loadSummary()
     } catch {
       /* transient; next poll refreshes */
     }
@@ -149,16 +193,19 @@ export function Subdomains() {
 
   if (!selected) return <Empty>Select a domain (Domains tab) to view subdomains.</Empty>
 
-  const newCount = subs.filter((s) => s.isNew).length
+  const newCount = summary?.newCount ?? 0
+  const total = summary?.total ?? subs.length
+  const inputCls =
+    'rounded-lg border border-hair bg-ink-850 px-3 py-1.5 text-sm outline-none focus:border-accent-500'
 
   return (
     <div>
       <PageHeader
         title="Subdomains"
-        subtitle={`${selected.host} — ${subs.length} known, ${newCount} new`}
+        subtitle={`${selected.host} — ${total} known, ${newCount} new`}
         actions={
           <>
-            {subs.length > 0 && (
+            {total > 0 && (
               <ExportLinks path={`/domains/${selected.id}/subdomains/export`} formats={['csv', 'txt', 'json']} />
             )}
             {newCount > 0 && (
@@ -176,32 +223,57 @@ export function Subdomains() {
         }
       />
 
+      <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Filter host…"
+          className={`${inputCls} w-44`}
+        />
+        <button
+          onClick={() => setNewOnly((v) => !v)}
+          className={`rounded-lg border px-2 py-1 transition ${
+            newOnly
+              ? 'border-accent-500 bg-accent-500/15 text-accent-fg'
+              : 'border-hair text-zinc-400 hover:border-hair-strong hover:text-zinc-200'
+          }`}
+        >
+          New only
+        </button>
+        <span className="ml-2 text-zinc-500">Sort by</span>
+        {SORTS.map((s) => {
+          const active = sortKey === s.key
+          return (
+            <button
+              key={s.key}
+              onClick={() => toggleSort(s.key)}
+              className={`rounded-lg border px-2 py-1 transition ${
+                active
+                  ? 'border-accent-500 bg-accent-500/15 text-accent-fg'
+                  : 'border-hair text-zinc-400 hover:border-hair-strong hover:text-zinc-200'
+              }`}
+            >
+              {s.label}
+              {active && <span className="ml-1">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+            </button>
+          )
+        })}
+      </div>
+
       {subs.length === 0 ? (
-        <Empty>No subdomains discovered yet. Click “Run discovery now” (passive: crt.sh + subfinder).</Empty>
+        <Empty>
+          {q || newOnly
+            ? 'No subdomains match this filter.'
+            : 'No subdomains discovered yet. Click “Run discovery now” (passive: crt.sh + subfinder).'}
+        </Empty>
       ) : (
         <>
-          <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="text-zinc-500">Sort by</span>
-            {SORTS.map((s) => {
-              const active = sortKey === s.key
-              return (
-                <button
-                  key={s.key}
-                  onClick={() => toggleSort(s.key)}
-                  className={`rounded-lg border px-2 py-1 transition ${
-                    active
-                      ? 'border-accent-500 bg-accent-500/15 text-accent-fg'
-                      : 'border-hair text-zinc-400 hover:border-hair-strong hover:text-zinc-200'
-                  }`}
-                >
-                  {s.label}
-                  {active && <span className="ml-1">{sortDir === 'asc' ? '▲' : '▼'}</span>}
-                </button>
-              )
-            })}
+          <div className="mb-2 text-xs text-zinc-500">
+            {subs.length}
+            {total > subs.length ? ` of ${total}` : ''} shown
           </div>
           <div className="divide-y divide-zinc-800/60 overflow-hidden rounded-xl border border-hair bg-ink-850/60">
-            {sorted.map((s) => {
+            {subs.map((s) => {
               const expanded = expandedId === s.id
               return (
                 <div key={s.id}>
@@ -251,6 +323,17 @@ export function Subdomains() {
               )
             })}
           </div>
+          {nextCursor && (
+            <div className="mt-3 flex justify-center">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="rounded-lg border border-hair px-4 py-1.5 text-sm text-zinc-300 transition hover:border-hair-strong hover:bg-ink-800 disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading…' : `Load more${total > subs.length ? ` (${total - subs.length} more)` : ''}`}
+              </button>
+            </div>
+          )}
           <p className="mt-2 text-xs text-zinc-600">
             Status, title, IP and server come from a lightweight HTTP/HTTPS probe run during discovery. Click a row to expand.
           </p>
