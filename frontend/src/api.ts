@@ -63,7 +63,7 @@ export type {
   StepStatus,
 } from './api/intel'
 export type { Job, JobStatus } from './api/jobs'
-export type { Asset, FreeEmailResult, LeaksResponse, ScreenshotEntry, Subdomain, SubdomainPage, SubdomainQuery, SubdomainSort, SubdomainSummary } from './api/recon'
+export type { Asset, AssetDetail, FreeEmailResult, LeaksResponse, ScreenshotEntry, Subdomain, SubdomainPage, SubdomainQuery, SubdomainSort, SubdomainSummary } from './api/recon'
 export type {
   Identity,
   IntruderAttempt,

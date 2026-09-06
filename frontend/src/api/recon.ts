@@ -1,5 +1,6 @@
 import { get, post, type RequestOptions } from './http'
 import type { Finding } from './findings'
+import type { Capture } from './captures'
 
 export interface Subdomain {
   id: number
@@ -12,6 +13,9 @@ export interface Subdomain {
   title: string | null
   server: string | null
   scheme: string | null
+  // Correlation signatures (TLS cert fingerprint + mmh3 favicon hash).
+  certFp: string | null
+  faviconHash: number | null
   probedAt: string | null
   screenshotPath: string | null
   screenshotAt: string | null
@@ -70,6 +74,28 @@ export interface Asset {
   screenshotFingerprint: string | null
 }
 
+// Per-asset investigation detail. `asset` is the raw inventory row (not the
+// enriched list shape); findings/captures/subdomain give the full picture.
+export interface AssetDetail {
+  asset: {
+    id: number
+    domainId: number | null
+    kind: 'host' | 'ip' | 'service'
+    value: string
+    ip: string | null
+    port: number | null
+    asn: string | null
+    asnName: string | null
+    cdn: string | null
+    firstSeen: string
+    lastSeen: string
+  }
+  subdomain: Subdomain | null
+  findings: Finding[]
+  captures: Capture[]
+  related: { sameIp: string[]; sameCert: string[]; sameFavicon: string[] }
+}
+
 export interface ScreenshotEntry {
   host: string
   status: number | null
@@ -119,6 +145,10 @@ export const reconApi = {
     return get<SubdomainSummary>(`/domains/${id}/subdomains/summary${qs ? `?${qs}` : ''}`, options)
   },
   assets: (id: number, options?: RequestOptions) => get<{ assets: Asset[] }>(`/domains/${id}/assets`, options),
+  // Per-asset investigation detail: findings + captures + subdomain enrichment +
+  // hosts sharing its IP / TLS cert / favicon.
+  assetDetail: (id: number, assetId: number, options?: RequestOptions) =>
+    get<AssetDetail>(`/domains/${id}/assets/${assetId}`, options),
   discover: (id: number) => post<{ jobId: number }>(`/domains/${id}/discover`),
   // passive DNS permutation + brute-resolve (wildcard-guarded)
   dnsPermute: (id: number) => post<{ jobId: number }>(`/domains/${id}/dns-permute`),

@@ -14,6 +14,7 @@ const EXPECTED_METHODS = [
   'assessmentComparison',
   'assessmentRun',
   'assessmentRuns',
+  'assetDetail',
   'assets',
   'attachEvidence',
   'audit',

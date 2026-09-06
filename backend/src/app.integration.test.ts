@@ -20,6 +20,7 @@ let assetSnapshots: any
 let urlCorpus: any
 let findingsTable: any
 let jobsTable: any
+let subdomainsTable: any
 
 beforeAll(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), 'recon-itest-'))
@@ -43,6 +44,7 @@ beforeAll(async () => {
   urlCorpus = schema.urlCorpus
   findingsTable = schema.findings
   jobsTable = schema.jobs
+  subdomainsTable = schema.subdomains
 }, 30_000)
 
 afterAll(async () => {
@@ -238,6 +240,33 @@ describe('engagement asset inventory', () => {
     expect(res.json().assets).toEqual(expect.arrayContaining([
       expect.objectContaining({ value: '203.0.113.10', ports: [80, 443], technologies: ['nginx'], title: 'Inventory host' }),
     ]))
+  })
+
+  it('aggregates a per-asset investigation view (findings, subdomain, related hosts)', async () => {
+    const id = newDomain({ host: 'invest.example.com', mode: 'passive_only' })
+    const assetId = Number(
+      db.insert(assets).values({ domainId: id, kind: 'host', value: 'app.invest.example.com', ip: '198.51.100.5' }).run().lastInsertRowid,
+    )
+    // The host's subdomain enrichment + a sibling sharing its IP.
+    db.insert(subdomainsTable).values({ domainId: id, host: 'app.invest.example.com', ipAddress: '198.51.100.5', httpStatus: 200, certFp: 'fp1' }).run()
+    db.insert(subdomainsTable).values({ domainId: id, host: 'www.invest.example.com', ipAddress: '198.51.100.5' }).run()
+    // A finding that mentions the asset host (queryFindings matches on host).
+    db.insert(findingsTable).values({ domainId: id, type: 'owasp', data: '{"url":"https://app.invest.example.com/x"}', host: 'app.invest.example.com', status: 'open', dedupeKey: 'owasp:x' }).run()
+
+    const res = await app.inject({ method: 'GET', url: `/api/domains/${id}/assets/${assetId}`, headers: { cookie } })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.asset).toMatchObject({ value: 'app.invest.example.com' })
+    expect(body.subdomain).toMatchObject({ host: 'app.invest.example.com', httpStatus: 200 })
+    expect(body.findings.map((f: any) => f.host)).toContain('app.invest.example.com')
+    expect(body.related.sameIp).toContain('www.invest.example.com')
+    expect(body.related.sameIp).not.toContain('app.invest.example.com') // excludes itself
+  })
+
+  it('404s an asset detail for an unknown asset', async () => {
+    const id = newDomain({ host: 'invest2.example.com', mode: 'passive_only' })
+    const res = await app.inject({ method: 'GET', url: `/api/domains/${id}/assets/999999`, headers: { cookie } })
+    expect(res.statusCode).toBe(404)
   })
 
   it('reopens a fixed finding when a later scan observes it again', async () => {
