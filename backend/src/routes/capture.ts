@@ -3,8 +3,23 @@ import type { FastifyPluginAsync } from 'fastify'
 import { config } from '../config'
 import { getDomain, listDomains } from '../domains/store'
 import { hostBelongsToDomain } from '../util/validate'
-import { insertCapture, listCaptures, getCapture, clearCaptures, deleteCapture, pruneCapturesOlderThan } from '../capture/store'
+import { insertCapture, getCapture, clearCaptures, deleteCapture, pruneCapturesOlderThan, queryCaptures, summarizeCaptures } from '../capture/store'
 import { actorName, writeAudit } from '../audit/store'
+
+// Cap free-text terms so a pathological query can't build a huge LIKE.
+const MAX_TERM = 200
+const term = (v?: string) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, MAX_TERM) : undefined)
+
+// Shared parse of the facets common to the list and summary endpoints. The
+// `method` facet is intentionally NOT parsed here: the summary groups by method,
+// so it must not also filter by it.
+function parseCaptureFilters(query: { domainId?: string; q?: string }) {
+  const { domainId, q } = query
+  return {
+    domainId: domainId != null && Number.isFinite(Number(domainId)) ? Number(domainId) : undefined,
+    q: term(q),
+  }
+}
 
 // Browser-extension capture ingest + read.
 //
@@ -126,11 +141,29 @@ export const captureRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/capture/status', async () => getCaptureRuntimeStatus())
 
   // List captured requests for a domain (dashboard read — session-authed).
-  app.get<{ Querystring: { domainId?: string; limit?: string } }>('/api/capture', async (request) => {
-    const domainId = request.query.domainId != null && Number.isFinite(Number(request.query.domainId)) ? Number(request.query.domainId) : undefined
-    const limit = request.query.limit != null && Number.isFinite(Number(request.query.limit)) ? Number(request.query.limit) : undefined
-    return { captures: listCaptures({ domainId, limit }) }
-  })
+  // Paged with a keyset cursor; `cursor` continues from a prior page's
+  // `nextCursor` (null on the last page).
+  app.get<{ Querystring: { domainId?: string; method?: string; q?: string; limit?: string; cursor?: string } }>(
+    '/api/capture',
+    async (request) => {
+      const { method, limit, cursor } = request.query
+      const filters = parseCaptureFilters(request.query)
+      const limitNum = limit != null && Number.isFinite(Number(limit)) ? Number(limit) : undefined
+      return queryCaptures({
+        ...filters,
+        method: term(method),
+        limit: limitNum,
+        cursor: typeof cursor === 'string' && cursor ? cursor : undefined,
+      })
+    },
+  )
+
+  // Counts by HTTP method for the current filter set (method facet excluded), so
+  // the UI can render a total and per-method counts without pulling every row.
+  app.get<{ Querystring: { domainId?: string; q?: string } }>(
+    '/api/capture/summary',
+    async (request) => summarizeCaptures(parseCaptureFilters(request.query)),
+  )
 
   // Full single capture incl. its body (the list omits bodies for speed).
   app.get<{ Params: { id: string } }>('/api/capture/:id', async (request, reply) => {

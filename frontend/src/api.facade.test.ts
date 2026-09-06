@@ -28,6 +28,7 @@ const EXPECTED_METHODS = [
   'cancelJob',
   'capture',
   'captures',
+  'capturesSummary',
   'captureScreenshots',
   'captureStatus',
   'chainSuggestions',

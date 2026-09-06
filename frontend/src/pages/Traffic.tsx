@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Repeat, ChevronRight, Trash2, Search, Lock, AlertTriangle } from 'lucide-react'
 import { api, type Capture } from '../api'
 import { useApp, usePoll } from '../state'
@@ -81,6 +81,9 @@ function analyze(c: Capture): { tags: { label: string; tone: Tone }[]; interesti
   return { tags, interesting, authed }
 }
 
+// Server-side page size for keyset pagination; "Load more" fetches older pages.
+const PAGE_SIZE = 100
+
 export function Traffic({ navigate }: { navigate: (page: string, domainId?: number) => void }) {
   const { selected } = useApp()
   const toast = useToast()
@@ -88,13 +91,19 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
   const [captures, setCaptures] = useState<Capture[]>([])
   const [loaded, setLoaded] = useState(false)
   const [query, setQuery] = useState('')
+  const [method, setMethod] = useState('')
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [summary, setSummary] = useState<{ total: number; byMethod: Record<string, number> } | null>(null)
+  // The live 2s poll refreshes the newest page. Once the operator pages into
+  // history it pauses so appended older pages aren't clobbered; a filter change
+  // or Refresh resumes it.
+  const [pagedBack, setPagedBack] = useState(false)
   const [status, setStatus] = useState<{ enabled: boolean; extensionSeenAt: number | null } | null>(null)
+  const cursorRef = useRef<string | null>(null)
+  cursorRef.current = nextCursor
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return captures
-    return captures.filter((c) => `${c.method} ${c.host} ${c.url}`.toLowerCase().includes(q))
-  }, [captures, query])
+  const q = useMemo(() => ({ method: method || undefined, q: query.trim() || undefined }), [method, query])
 
   // Warn if capture can't work: disabled on the server, or no recent sign of the
   // extension (it polls /targets every ~60s while enabled).
@@ -106,18 +115,62 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
     return null
   }, [status])
 
+  // Load (or refresh) the newest page for the current filter.
+  const load = useCallback(() => {
+    if (!selected) return
+    api
+      .captures(selected.id, { ...q, limit: PAGE_SIZE })
+      .then((r) => {
+        setCaptures(r.captures)
+        setNextCursor(r.nextCursor)
+        setPagedBack(false)
+      })
+      .catch(() => {})
+      .finally(() => setLoaded(true))
+  }, [selected, q])
+
+  const loadMore = useCallback(() => {
+    const cursor = cursorRef.current
+    if (!selected || !cursor || loadingMore) return
+    setLoadingMore(true)
+    setPagedBack(true) // pause the live poll while browsing history
+    api
+      .captures(selected.id, { ...q, limit: PAGE_SIZE, cursor })
+      .then((r) => {
+        setCaptures((prev) => [...prev, ...r.captures])
+        setNextCursor(r.nextCursor)
+      })
+      .catch(() => toast.error('Failed to load more requests.'))
+      .finally(() => setLoadingMore(false))
+  }, [selected, q, loadingMore, toast])
+
+  const loadSummary = useCallback(() => {
+    if (!selected) return
+    api
+      .capturesSummary(selected.id, { q: q.q })
+      .then(setSummary)
+      .catch(() => setSummary(null))
+  }, [selected, q.q])
+
+  // Debounced so typing in the search box doesn't fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      load()
+      loadSummary()
+    }, 200)
+    return () => clearTimeout(t)
+  }, [load, loadSummary])
+
+  // Live tail: refresh the newest page + summary every 2s, but only while the
+  // operator is on the first page (not paging back through history).
   usePoll(
     () => {
       if (!selected) return
-      api
-        .captures(selected.id, 300)
-        .then((r) => setCaptures(r.captures))
-        .catch(() => {})
-        .finally(() => setLoaded(true))
-      api
-        .captureStatus()
-        .then(setStatus)
-        .catch(() => {})
+      if (!pagedBack) {
+        load()
+        loadSummary()
+      }
+      api.captureStatus().then(setStatus).catch(() => {})
     },
     2000, // poll briskly so captures appear ~live as you browse
     !!selected,
@@ -142,7 +195,7 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
     if (!selected) return
     const ok = await ask({
       title: 'Clear captured traffic?',
-      message: `Delete all ${captures.length} captured request(s) for ${selected.host}. This can't be undone.`,
+      message: `Delete all ${summary?.total ?? captures.length} captured request(s) for ${selected.host}. This can't be undone.`,
       confirmLabel: 'Clear',
       tone: 'danger',
     })
@@ -190,7 +243,7 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
 
       {!loaded ? (
         <SkeletonList rows={5} />
-      ) : captures.length === 0 ? (
+      ) : captures.length === 0 && !query && !method ? (
         <Empty>
           <div className="space-y-1.5">
             <div>No captured requests yet for this target.</div>
@@ -203,25 +256,43 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
         </Empty>
       ) : (
         <div className="space-y-2">
-          <div className="relative">
-            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter by method, host or URL…"
-              spellCheck={false}
-              className="w-full rounded-lg border border-hair bg-ink-950 py-2 pl-8 pr-3 font-mono text-xs outline-none focus:border-accent-500"
-            />
-            {query && (
-              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-zinc-600">
-                {filtered.length}/{captures.length}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[16rem] flex-1">
+              <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Filter by method, host or URL…"
+                spellCheck={false}
+                className="w-full rounded-lg border border-hair bg-ink-950 py-2 pl-8 pr-3 font-mono text-xs outline-none focus:border-accent-500"
+              />
+            </div>
+            <select
+              value={method}
+              onChange={(e) => setMethod(e.target.value)}
+              className="rounded-lg border border-hair bg-ink-950 px-3 py-2 text-xs outline-none focus:border-accent-500"
+            >
+              <option value="">All methods{summary ? ` (${summary.total})` : ''}</option>
+              {summary &&
+                Object.entries(summary.byMethod)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([m, n]) => (
+                    <option key={m} value={m}>
+                      {m} ({n})
+                    </option>
+                  ))}
+            </select>
+            {summary && (
+              <span className="text-[11px] text-zinc-600">
+                {captures.length}
+                {summary.total > captures.length ? ` of ${summary.total}` : ''} shown
               </span>
             )}
           </div>
-          {filtered.length === 0 ? (
-            <Empty>No captured requests match “{query}”.</Empty>
+          {captures.length === 0 ? (
+            <Empty>No captured requests match this filter.</Empty>
           ) : (
-            filtered.map((c) => (
+            captures.map((c) => (
               <CaptureRow
                 key={c.id}
                 c={c}
@@ -230,6 +301,24 @@ export function Traffic({ navigate }: { navigate: (page: string, domainId?: numb
                 onDelete={() => deleteOne(c.id)}
               />
             ))
+          )}
+          {nextCursor && (
+            <div className="flex justify-center pt-1">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="rounded-lg border border-hair px-4 py-1.5 text-sm text-zinc-300 transition hover:border-hair-strong hover:bg-ink-800 disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading…' : 'Load more'}
+              </button>
+            </div>
+          )}
+          {pagedBack && (
+            <div className="flex justify-center">
+              <button onClick={load} className="text-[11px] text-zinc-500 hover:text-zinc-300">
+                Live paused while browsing history — jump to latest
+              </button>
+            </div>
           )}
         </div>
       )}

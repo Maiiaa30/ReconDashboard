@@ -1,4 +1,4 @@
-import { desc, eq, lt, sql } from 'drizzle-orm'
+import { and, desc, eq, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm'
 import { db } from '../db/index'
 import { capturedRequests } from '../db/schema'
 import { safeJsonParse } from '../util/json'
@@ -45,28 +45,126 @@ function mapRow(r: typeof capturedRequests.$inferSelect) {
 export function listCaptures(opts: { domainId?: number; limit?: number } = {}) {
   const limit = Math.min(Math.max(opts.limit ?? 200, 1), 1000)
   const rows = db
-    .select({
-      id: capturedRequests.id,
-      domainId: capturedRequests.domainId,
-      method: capturedRequests.method,
-      url: capturedRequests.url,
-      host: capturedRequests.host,
-      headers: capturedRequests.headers,
-      source: capturedRequests.source,
-      createdAt: capturedRequests.createdAt,
-      hasBody: sql<number>`(${capturedRequests.body} is not null and length(${capturedRequests.body}) > 0)`,
-    })
+    .select(listCols)
     .from(capturedRequests)
     .where(opts.domainId != null ? eq(capturedRequests.domainId, opts.domainId) : undefined)
     .orderBy(desc(capturedRequests.id))
     .limit(limit)
     .all()
-  return rows.map((r) => ({
+  return rows.map(mapListRow)
+}
+
+// The list projection (everything except the up-to-512KB body, which is
+// lazy-loaded on expand) — shared by listCaptures and queryCaptures.
+const listCols = {
+  id: capturedRequests.id,
+  domainId: capturedRequests.domainId,
+  method: capturedRequests.method,
+  url: capturedRequests.url,
+  host: capturedRequests.host,
+  headers: capturedRequests.headers,
+  source: capturedRequests.source,
+  createdAt: capturedRequests.createdAt,
+  hasBody: sql<number>`(${capturedRequests.body} is not null and length(${capturedRequests.body}) > 0)`,
+}
+
+function mapListRow<R extends { headers: string | null; hasBody: number }>(
+  r: R,
+): Omit<R, 'headers' | 'hasBody'> & { headers: [string, string][]; hasBody: boolean; body: string | null } {
+  return {
     ...r,
-    headers: safeJsonParse<[string, string][]>(r.headers, []),
+    headers: safeJsonParse<[string, string][]>(r.headers ?? '[]', []),
     hasBody: !!r.hasBody,
     body: null as string | null,
-  }))
+  }
+}
+
+// queryCaptures pushes filtering into SQL and pages with a keyset cursor over the
+// primary key. The id is a monotonic autoincrement in insertion (time) order, so
+// `id desc` is newest-first and the keyset needs only a single-id comparison.
+
+export interface CaptureFilter {
+  domainId?: number
+  // Exact HTTP method (a small known set — powers the method dropdown).
+  method?: string
+  // Free-text search: substring match against host, URL or method (mirrors the
+  // Traffic page's single "method host url" search box).
+  q?: string
+}
+
+export interface CaptureQuery extends CaptureFilter {
+  limit?: number
+  cursor?: string
+}
+
+const MAX_PAGE = 1000
+const DEFAULT_PAGE = 200
+
+function likeContains(col: AnyColumn, term: string): SQL {
+  const esc = term.replace(/[\\%_]/g, (c) => `\\${c}`)
+  return sql`${col} like ${`%${esc}%`} escape '\\'`
+}
+
+function captureConds(f: CaptureFilter): SQL[] {
+  const conds: SQL[] = []
+  if (f.domainId != null) conds.push(eq(capturedRequests.domainId, f.domainId))
+  if (f.method && f.method.trim()) conds.push(eq(capturedRequests.method, f.method.trim().toUpperCase()))
+  if (f.q && f.q.trim()) {
+    const t = f.q.trim()
+    conds.push(
+      or(
+        likeContains(capturedRequests.host, t),
+        likeContains(capturedRequests.url, t),
+        likeContains(capturedRequests.method, t),
+      )!,
+    )
+  }
+  return conds
+}
+
+export function queryCaptures(q: CaptureQuery = {}) {
+  const limit = Math.min(MAX_PAGE, Math.max(1, q.limit ?? DEFAULT_PAGE))
+  const conds = captureConds(q)
+  if (q.cursor) {
+    const c = Number(q.cursor)
+    if (Number.isSafeInteger(c) && c > 0) conds.push(lt(capturedRequests.id, c))
+  }
+  const rows = db
+    .select(listCols)
+    .from(capturedRequests)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(desc(capturedRequests.id))
+    .limit(limit + 1)
+    .all()
+
+  const hasMore = rows.length > limit
+  const page = hasMore ? rows.slice(0, limit) : rows
+  const captures = page.map(mapListRow)
+  const nextCursor = hasMore ? String(page[page.length - 1].id) : null
+  return { captures, nextCursor }
+}
+
+export interface CaptureSummary {
+  total: number
+  byMethod: Record<string, number>
+}
+
+// total + per-method counts for the filter set WITHOUT the method facet, so the
+// header/dropdown counts never load every row.
+export function summarizeCaptures(f: Omit<CaptureFilter, 'method'> = {}): CaptureSummary {
+  const rows = db
+    .select({ k: capturedRequests.method, n: sql<number>`count(*)` })
+    .from(capturedRequests)
+    .where(captureConds(f).length ? and(...captureConds(f)) : undefined)
+    .groupBy(capturedRequests.method)
+    .all()
+  const byMethod: Record<string, number> = {}
+  let total = 0
+  for (const r of rows) {
+    byMethod[r.k] = Number(r.n)
+    total += Number(r.n)
+  }
+  return { total, byMethod }
 }
 
 export function getCapture(id: number) {

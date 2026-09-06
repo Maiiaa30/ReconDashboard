@@ -122,4 +122,25 @@ describe('API request lifecycle', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/domains/7/subdomains/summary?q=api', expect.anything())
   })
+
+  it('serializes captures facets plus the pagination cursor', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ captures: [], nextCursor: null }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.captures(7, { method: 'POST', q: 'login', limit: 50, cursor: '42' })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/capture?domainId=7&method=POST&q=login&limit=50&cursor=42',
+      expect.anything(),
+    )
+  })
+
+  it('captures summary carries only the domain and search filter', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ total: 0, byMethod: {} }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.capturesSummary(7, { q: 'login' })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/capture/summary?domainId=7&q=login', expect.anything())
+  })
 })
