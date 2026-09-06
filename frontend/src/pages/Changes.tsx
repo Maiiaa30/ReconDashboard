@@ -21,13 +21,22 @@ export function Changes({ navigate }: { navigate: (page: string, domainId?: numb
     setLoadError(false)
   }, [selected?.id])
 
+  // The timeline only needs change-type findings and NEW hosts, so fetch exactly
+  // those server-side (bounded) instead of pulling every finding + every
+  // subdomain and filtering in the browser. `type` filters one type per call, so
+  // asset_change and cve_new are two calls; new hosts use the subdomains
+  // newOnly facet. No status filter → all lifecycle states (matches the timeline).
   const load = useCallback((signal: AbortSignal) => {
     if (!selected) return
-    return Promise.all([api.findings({ domainId: selected.id, limit: 1000 }, { signal }), api.subdomains(selected.id, { signal })])
-      .then(([findingResult, subdomainResult]) => {
+    return Promise.all([
+      api.findings({ domainId: selected.id, type: 'asset_change', status: 'all', limit: 200 }, { signal }),
+      api.findings({ domainId: selected.id, type: 'cve_new', status: 'all', limit: 200 }, { signal }),
+      api.subdomainsPage(selected.id, { newOnly: true, limit: 200 }, { signal }),
+    ])
+      .then(([assetChanges, cveNew, newHosts]) => {
         if (signal.aborted) return
-        setFindings(findingResult.findings)
-        setSubdomains(subdomainResult.subdomains)
+        setFindings([...assetChanges.findings, ...cveNew.findings])
+        setSubdomains(newHosts.subdomains)
         setLoadError(false)
       })
       .catch(() => {
