@@ -23,7 +23,7 @@ describe('API request lifecycle', () => {
   })
 
   it('keeps query construction intact when a signal is supplied', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ findings: [] }))
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ findings: [], nextCursor: null }))
     vi.stubGlobal('fetch', fetchMock)
     const controller = new AbortController()
 

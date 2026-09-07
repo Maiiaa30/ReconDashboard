@@ -1,26 +1,10 @@
 import { del, get, patch, post, type RequestOptions } from './http'
+import { findingPageSchema, findingSummarySchema, type Finding, type FindingStatus } from './schemas'
 
-export type FindingStatus = 'open' | 'confirmed' | 'retest_pending' | 'retest_passed' | 'false_positive' | 'resolved' | 'ignored'
-
-export interface Finding {
-  id: number
-  domainId: number | null
-  type: string
-  data: any
-  score: number | null
-  severity: 'critical' | 'high' | 'medium' | 'low' | 'info' | null
-  host: string | null
-  ip: string | null
-  url: string | null
-  jobId: number | null
-  tags: string[]
-  status: FindingStatus
-  note: string | null
-  createdAt: string
-  lastSeenAt: string | null
-  // When the operator marked this finding for retest (null unless retest_pending).
-  retestRequestedAt: string | null
-}
+// Finding, FindingStatus, FindingPage and FindingSummary are defined by their zod
+// schemas (single source of truth) and re-exported here so existing call sites
+// keep importing them from the api facade unchanged.
+export type { Finding, FindingStatus, FindingPage, FindingSummary } from './schemas'
 
 export interface FindingLink {
   finding: Finding
@@ -67,12 +51,6 @@ export interface FindingQuery {
   cursor?: string
 }
 
-// One page of findings plus the cursor for the next page (null on the last page).
-export interface FindingPage {
-  findings: Finding[]
-  nextCursor: string | null
-}
-
 // Outcome of the auto-rescan the retest action tries to enqueue: none for a type
 // with no clean re-detection, queued when a scan was launched, or blocked (e.g. a
 // passive domain needs `confirm`, or a cooldown/scope rule stopped it).
@@ -80,13 +58,6 @@ export type RetestRescan =
   | { kind: 'none' }
   | { kind: 'queued'; jobId: number; jobType: string }
   | { kind: 'blocked'; jobType: string; code: string; message: string; retryAfterSec?: number }
-
-// Counts for a filter set: total plus per-status and per-severity breakdowns.
-export interface FindingSummary {
-  total: number
-  byStatus: Record<string, number>
-  bySeverity: Record<string, number>
-}
 
 // Facets shared by the list and summary endpoints (everything except pagination
 // and the status/severity facets the summary intentionally ignores).
@@ -108,7 +79,7 @@ export const findingsApi = {
     if (q.limit) params.set('limit', String(q.limit))
     if (q.cursor) params.set('cursor', q.cursor)
     const qs = params.toString()
-    return get<FindingPage>(`/findings${qs ? `?${qs}` : ''}`, options)
+    return get(`/findings${qs ? `?${qs}` : ""}`, options, findingPageSchema)
   },
   // Total plus per-status/per-severity counts for a filter set (status/severity
   // facets excluded server-side), for header stats without loading every row.
@@ -117,7 +88,7 @@ export const findingsApi = {
     options?: RequestOptions,
   ) => {
     const qs = findingFilterParams(q).toString()
-    return get<FindingSummary>(`/findings/summary${qs ? `?${qs}` : ''}`, options)
+    return get(`/findings/summary${qs ? `?${qs}` : ''}`, options, findingSummarySchema)
   },
   updateFinding: (id: number, patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ finding: Finding }>(`/findings/${id}`, patchBody),

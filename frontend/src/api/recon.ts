@@ -1,30 +1,11 @@
 import { get, post, type RequestOptions } from './http'
 import type { Finding } from './findings'
 import type { Capture } from './captures'
+import { subdomainPageSchema, subdomainSummarySchema, type Subdomain } from './schemas'
 
-export interface Subdomain {
-  id: number
-  domainId: number
-  host: string
-  source: string | null
-  isNew: boolean
-  ipAddress: string | null
-  httpStatus: number | null
-  title: string | null
-  server: string | null
-  scheme: string | null
-  // Detected WAF/CDN vendor (e.g. 'cloudflare'). With a 403/503 status this host
-  // is alive-but-protected, not dead.
-  waf: string | null
-  // Correlation signatures (TLS cert fingerprint + mmh3 favicon hash).
-  certFp: string | null
-  faviconHash: number | null
-  probedAt: string | null
-  screenshotPath: string | null
-  screenshotAt: string | null
-  firstSeen: string
-  lastSeen: string
-}
+// Subdomain, SubdomainPage and SubdomainSummary are defined by their zod schemas
+// (single source of truth) and re-exported so call sites import them unchanged.
+export type { Subdomain, SubdomainPage, SubdomainSummary } from './schemas'
 
 export type SubdomainSort = 'status' | 'host' | 'ip' | 'lastSeen' | 'new'
 
@@ -35,17 +16,6 @@ export interface SubdomainQuery {
   dir?: 'asc' | 'desc'
   limit?: number
   cursor?: string
-}
-
-// One page of subdomains plus the cursor for the next page (null on the last).
-export interface SubdomainPage {
-  subdomains: Subdomain[]
-  nextCursor: string | null
-}
-
-export interface SubdomainSummary {
-  total: number
-  newCount: number
 }
 
 export interface Asset {
@@ -137,7 +107,7 @@ export const reconApi = {
     if (q.limit) params.set('limit', String(q.limit))
     if (q.cursor) params.set('cursor', q.cursor)
     const qs = params.toString()
-    return get<SubdomainPage>(`/domains/${id}/subdomains/page${qs ? `?${qs}` : ''}`, options)
+    return get(`/domains/${id}/subdomains/page${qs ? `?${qs}` : ""}`, options, subdomainPageSchema)
   },
   // total + new-host count for a filter set (newOnly excluded), header stats
   // without loading every row.
@@ -145,7 +115,7 @@ export const reconApi = {
     const params = new URLSearchParams()
     if (q.q) params.set('q', q.q)
     const qs = params.toString()
-    return get<SubdomainSummary>(`/domains/${id}/subdomains/summary${qs ? `?${qs}` : ''}`, options)
+    return get(`/domains/${id}/subdomains/summary${qs ? `?${qs}` : ""}`, options, subdomainSummarySchema)
   },
   assets: (id: number, options?: RequestOptions) => get<{ assets: Asset[] }>(`/domains/${id}/assets`, options),
   // Per-asset investigation detail: findings + captures + subdomain enrichment +
