@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
 
+// The Cloudflare pre-warm in runIntruder would otherwise make a real network
+// probe; stub it to "not challenged" so the test stays offline.
+vi.mock('../sources/cfClearance', () => ({
+  clearanceHeadersIfChallenged: vi.fn(async () => ({})),
+}))
+
 // Mock the sender so runIntruder can be exercised without a network. The response
 // is driven by the payload placed in ?q= by the template.
 vi.mock('./send', () => ({

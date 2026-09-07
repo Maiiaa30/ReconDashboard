@@ -11,6 +11,9 @@ export interface ReplayResponse {
   timeMs: number
   finalUrl: string
   redirects: { status: number; location: string }[]
+  // Set when a Cloudflare challenge was auto-solved and the request replayed with
+  // the resulting cf_clearance cookie.
+  cloudflareSolved?: boolean
 }
 
 export interface IntruderAttempt {

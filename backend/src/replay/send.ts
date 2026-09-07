@@ -1,5 +1,7 @@
 import zlib from 'node:zlib'
 import { assertPublicHost } from '../sources/guard'
+import { detectWaf } from '../sources/httpProbe'
+import { getClearance } from '../sources/cfClearance'
 import { applyRules, type MatchReplaceRule } from './matchReplace'
 
 // Server-side HTTP sender for the Replay (Repeater) + Intruder tools: take a
@@ -61,6 +63,9 @@ export interface ReplayResponse {
   timeMs: number
   finalUrl: string
   redirects: { status: number; location: string }[]
+  // Set when a Cloudflare challenge was auto-solved and the request replayed with
+  // the resulting cf_clearance cookie.
+  cloudflareSolved?: boolean
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -178,6 +183,40 @@ function decodeBody(buf: Buffer, contentEncoding: string, wasTruncated: boolean)
  * redirects, or SsrfBlockedError if a (redirect) host resolves internal.
  */
 export async function sendRawRequest(
+  req: ReplayRequest,
+  opts: { signal?: AbortSignal; rules?: MatchReplaceRule[] } = {},
+): Promise<ReplayResponse> {
+  const first = await sendOnce(req, opts)
+
+  // Cloudflare auto-solve: if the response is a challenge (403/503 behind
+  // Cloudflare) and the operator hasn't already supplied a cf_clearance cookie,
+  // solve it once in a headless browser and replay with the cookie + browser UA
+  // merged in. Transparent and flagged on the response; a no-op when not
+  // challenged, when the operator set their own clearance, or when the solve fails.
+  const alreadyHasClearance = Object.entries(req.headers ?? {}).some(
+    ([k, v]) => k.toLowerCase() === 'cookie' && /cf_clearance=/.test(v),
+  )
+  if (!alreadyHasClearance && (first.status === 403 || first.status === 503)) {
+    let host = ''
+    try { host = new URL(first.finalUrl).hostname } catch { host = '' }
+    if (host && detectWaf(new Headers(first.headers), first.body) === 'cloudflare') {
+      const c = await getClearance(host, opts.signal).catch(() => null)
+      if (c) {
+        const merged = { ...(req.headers ?? {}) }
+        const existingCookie = Object.entries(merged).find(([k]) => k.toLowerCase() === 'cookie')
+        if (existingCookie) merged[existingCookie[0]] = `${existingCookie[1]}; ${c.cookie}`
+        else merged.Cookie = c.cookie
+        merged['User-Agent'] = c.userAgent
+        const second = await sendOnce({ ...req, headers: merged }, opts)
+        second.cloudflareSolved = true
+        return second
+      }
+    }
+  }
+  return first
+}
+
+async function sendOnce(
   req: ReplayRequest,
   opts: { signal?: AbortSignal; rules?: MatchReplaceRule[] } = {},
 ): Promise<ReplayResponse> {

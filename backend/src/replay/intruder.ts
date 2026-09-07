@@ -1,4 +1,5 @@
 import { sendRawRequest, type ReplayRequest } from './send'
+import { clearanceHeadersIfChallenged } from '../sources/cfClearance'
 import type { MatchReplaceRule } from './matchReplace'
 
 // Intruder: iterate payloads through a request template with one or more marked
@@ -287,6 +288,31 @@ export async function runIntruder(
 ): Promise<IntruderResult> {
   const throttleMs = Math.max(0, Math.min(10_000, Math.floor(opts.throttleMs ?? 0)))
   const concurrency = Math.max(1, Math.min(MAX_CONCURRENCY, Math.floor(opts.concurrency ?? 1)))
+
+  // Cloudflare pre-warm: if the target is behind a challenge, solve it ONCE and
+  // bake the cf_clearance cookie + browser UA into the template, so every payload
+  // attempt rides it in a single request instead of each one hitting the 403 and
+  // re-solving. No-op when not challenged or the operator already set clearance.
+  let workTemplate = template
+  try {
+    const host = new URL(template.url).hostname
+    const hasClearance = Object.entries(template.headers ?? {}).some(
+      ([k, v]) => k.toLowerCase() === 'cookie' && /cf_clearance=/.test(v),
+    )
+    if (!hasClearance) {
+      const cf = await clearanceHeadersIfChallenged(host, opts.signal)
+      if (cf.Cookie) {
+        const headers = { ...(template.headers ?? {}) }
+        const cookieKey = Object.keys(headers).find((k) => k.toLowerCase() === 'cookie')
+        headers[cookieKey ?? 'Cookie'] = cookieKey ? `${headers[cookieKey]}; ${cf.Cookie}` : cf.Cookie
+        headers['User-Agent'] = cf['User-Agent']
+        workTemplate = { ...template, headers }
+      }
+    }
+  } catch {
+    /* invalid template URL — the per-attempt send will surface it */
+  }
+
   const { extract, match } = compileGrep(opts.grep)
   const positions = opts.positions
   const multi = positions.length > 1
@@ -307,7 +333,7 @@ export async function runIntruder(
       const display = multi ? displayPayload(assignment, positions) : (assignment[positions[0]] ?? '')
       const t0 = Date.now()
       try {
-        const res = await sendRawRequest(applyPayloads(template, assignment), { signal: opts.signal, rules: opts.rules })
+        const res = await sendRawRequest(applyPayloads(workTemplate, assignment), { signal: opts.signal, rules: opts.rules })
         const words = res.body ? res.body.split(/\s+/).filter(Boolean).length : 0
         const attempt: IntruderAttempt = { payload: display, status: res.status, length: res.bodyBytes, words, timeMs: res.timeMs }
         if (extract && res.body) {

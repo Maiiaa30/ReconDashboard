@@ -1,6 +1,6 @@
 import { run, ToolNotFoundError } from '../util/exec'
 import { assertPublicHost, guardedFetch } from './guard'
-import { clearanceCliArgs, clearanceCookieArgs } from './cfClearance'
+import { clearanceCliArgs, clearanceCookieArgs, clearanceHeadersIfChallenged } from './cfClearance'
 import type { Severity } from '../owasp/activeChecks'
 
 // Runners for the extra recon binaries (katana, naabu, dalfox, sslscan) plus an
@@ -199,8 +199,8 @@ const WP_TIMEOUT = 9_000
 // SSRF-guarded: re-resolves the host on every redirect hop and refuses internal
 // addresses, so a WordPress site that 30x-redirects into an internal URL can't
 // be used to reach our own infrastructure.
-async function wpFetch(url: string, signal?: AbortSignal): Promise<{ status: number; body: string } | null> {
-  const res = await guardedFetch(url, { timeoutMs: WP_TIMEOUT, signal })
+async function wpFetch(url: string, signal?: AbortSignal, headers?: Record<string, string>): Promise<{ status: number; body: string } | null> {
+  const res = await guardedFetch(url, { timeoutMs: WP_TIMEOUT, signal, headers })
   return res ? { status: res.status, body: res.body } : null
 }
 
@@ -209,21 +209,25 @@ export async function runWpEnum(scheme: string, host: string, signal?: AbortSign
   // (throws SsrfBlockedError with a clear message if it resolves internal).
   await assertPublicHost(host)
   const base = `${scheme}://${host}`
+  // Cloudflare bypass: ride a solved cf_clearance on every probe when the site is
+  // behind a challenge (else empty — no browser launched).
+  const cf = await clearanceHeadersIfChallenged(host, signal)
+  const cfH = cf.Cookie ? cf : undefined
 
-  const home = await wpFetch(base, signal)
+  const home = await wpFetch(base, signal, cfH)
   const isWp = !!home && (/wp-content|wp-includes|<meta name="generator" content="WordPress/i.test(home.body))
   if (!isWp) return null
 
   const items: string[] = []
   // Version
   const gen = home!.body.match(/<meta name="generator" content="WordPress ([\d.]+)"/i)?.[1]
-  const readme = await wpFetch(`${base}/readme.html`, signal)
+  const readme = await wpFetch(`${base}/readme.html`, signal, cfH)
   const rmVer = readme?.body.match(/Version ([\d.]+)/i)?.[1]
   const version = gen || rmVer
   if (version) items.push(`WordPress ${version}`)
 
   // Users via the REST API
-  const users = await wpFetch(`${base}/wp-json/wp/v2/users`, signal)
+  const users = await wpFetch(`${base}/wp-json/wp/v2/users`, signal, cfH)
   if (users && users.status === 200) {
     try {
       const arr = JSON.parse(users.body) as { slug?: string; name?: string }[]
@@ -239,7 +243,7 @@ export async function runWpEnum(scheme: string, host: string, signal?: AbortSign
   if (plugins.length) items.push(`Plugins: ${plugins.slice(0, 20).join(', ')}`)
 
   // Exposed endpoints
-  const xmlrpc = await wpFetch(`${base}/xmlrpc.php`, signal)
+  const xmlrpc = await wpFetch(`${base}/xmlrpc.php`, signal, cfH)
   if (xmlrpc && (xmlrpc.status === 200 || xmlrpc.status === 405)) items.push('xmlrpc.php reachable (brute-force / pingback)')
 
   return {
@@ -321,6 +325,10 @@ export async function runBypass403(
 ): Promise<ToolFinding | null> {
   await assertPublicHost(host)
   const base = `${scheme}://${host}`
+  // Cloudflare bypass: solve once, ride the clearance on every probe. Without it a
+  // CF challenge makes EVERY path look "403-protected" and no bypass can differ.
+  const cf = await clearanceHeadersIfChallenged(host, signal)
+  const cfH = cf.Cookie ? cf : undefined
 
   // Candidate paths: an explicit list (e.g. a 403 hit sent over from Fuzzing,
   // charset-guarded) or the built-in list of commonly-protected paths.
@@ -334,7 +342,7 @@ export async function runBypass403(
   const forbidden: { path: string; deniedBody: string }[] = []
   for (const p of candidates) {
     if (signal?.aborted) break
-    const res = await guardedFetch(`${base}${p}`, { timeoutMs: BYPASS_TIMEOUT, signal })
+    const res = await guardedFetch(`${base}${p}`, { timeoutMs: BYPASS_TIMEOUT, signal, headers: cfH })
     if (res && (res.status === 401 || res.status === 403)) forbidden.push({ path: p, deniedBody: res.body })
     if (forbidden.length >= MAX_FORBIDDEN) break
   }
@@ -344,7 +352,7 @@ export async function runBypass403(
   if (!forbidden.length) {
     if (paths && paths.length) {
       for (const p of candidates.slice(0, MAX_FORBIDDEN)) {
-        const res = await guardedFetch(`${base}${p}`, { timeoutMs: BYPASS_TIMEOUT, signal })
+        const res = await guardedFetch(`${base}${p}`, { timeoutMs: BYPASS_TIMEOUT, signal, headers: cfH })
         forbidden.push({ path: p, deniedBody: res?.body ?? '' })
       }
     } else {
@@ -367,7 +375,7 @@ export async function runBypass403(
     ]
     for (const a of attempts) {
       if (signal?.aborted) break
-      const res = await guardedFetch(a.url, { timeoutMs: BYPASS_TIMEOUT, headers: a.headers, method: a.method, signal })
+      const res = await guardedFetch(a.url, { timeoutMs: BYPASS_TIMEOUT, headers: cf.Cookie ? { ...cf, ...a.headers } : a.headers, method: a.method, signal })
       if (res && res.status >= 200 && res.status < 300 && !sameAsDenied(res.body, deniedBody)) {
         hits.push(`${p} → ${res.status} via ${a.technique}`)
       }
@@ -394,10 +402,14 @@ const WRITE_METHODS = ['PUT', 'DELETE', 'PATCH']
 export async function runHttpMethods(scheme: string, host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
   await assertPublicHost(host)
   const base = `${scheme}://${host}/`
+  // Cloudflare bypass: ride the clearance so a CF challenge doesn't answer every
+  // write-method probe with the same 403 (false 'not rejected' or masked result).
+  const cf = await clearanceHeadersIfChallenged(host, signal)
+  const cfH = cf.Cookie ? cf : undefined
   const accepted: string[] = []
   for (const m of WRITE_METHODS) {
     if (signal?.aborted) break
-    const res = await guardedFetch(base, { method: m, timeoutMs: BYPASS_TIMEOUT, signal })
+    const res = await guardedFetch(base, { method: m, timeoutMs: BYPASS_TIMEOUT, signal, headers: cfH })
     if (res && ![400, 401, 403, 404, 405, 501].includes(res.status)) {
       accepted.push(`${m} → ${res.status} (not rejected)`)
     }

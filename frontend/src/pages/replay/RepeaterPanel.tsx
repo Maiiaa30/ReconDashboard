@@ -128,6 +128,11 @@ export function RepeaterPanel({
             <span className="inline-flex items-center gap-1">
               <Ruler size={12} /> {resp.bodyBytes} B{resp.truncated ? '+' : ''}
             </span>
+            {resp.cloudflareSolved && (
+              <span title="A Cloudflare challenge was auto-solved in a headless browser and the request replayed with the cf_clearance cookie.">
+                <Badge tone="amber">Cloudflare solved</Badge>
+              </span>
+            )}
           </div>
         )}
         <div className="ml-auto">

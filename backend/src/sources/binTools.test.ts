@@ -8,6 +8,13 @@ vi.mock('./guard', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./guard')>()
   return { ...actual, guardedFetch: vi.fn(), assertPublicHost: vi.fn() }
 })
+// The Cloudflare pre-warm would otherwise make a real network probe; stub it to
+// "not challenged" so these unit tests stay offline and behaviour is unchanged.
+vi.mock('./cfClearance', () => ({
+  clearanceCliArgs: vi.fn(async () => []),
+  clearanceCookieArgs: vi.fn(async () => []),
+  clearanceHeadersIfChallenged: vi.fn(async () => ({})),
+}))
 
 import { run, ToolNotFoundError } from '../util/exec'
 import { guardedFetch, assertPublicHost } from './guard'

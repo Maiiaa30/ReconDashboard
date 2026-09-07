@@ -198,6 +198,18 @@ export async function clearanceCookieArgs(rawHost: string, signal?: AbortSignal)
   return c ? [`--cookie=${c.cookie}`, `--user-agent=${c.userAgent}`] : []
 }
 
+/**
+ * Header map ({ Cookie, User-Agent }) for an in-process guardedFetch caller, but
+ * ONLY when the host is actually Cloudflare-challenged (so a browser isn't
+ * launched for every host). Empty otherwise. Unlike clearanceHeaders(), this
+ * gates on a challenge check itself — use it in tool routines that fire many
+ * requests and don't pre-detect the challenge.
+ */
+export async function clearanceHeadersIfChallenged(rawHost: string, signal?: AbortSignal): Promise<Record<string, string>> {
+  const c = await getClearanceIfChallenged(rawHost, signal)
+  return c ? { Cookie: c.cookie, 'User-Agent': c.userAgent } : {}
+}
+
 /** Solve clearance only if the host is actually Cloudflare-challenged. */
 export async function getClearanceIfChallenged(rawHost: string, signal?: AbortSignal): Promise<Clearance | null> {
   const host = normalizeHost(rawHost)
