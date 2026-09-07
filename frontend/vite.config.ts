@@ -11,6 +11,20 @@ export default defineConfig({
   define: {
     'process.env.IS_PREACT': JSON.stringify('false'),
   },
+  build: {
+    // Emit a manifest so the bundle-budget script can measure the real first-load
+    // set (entry chunk + its static imports) rather than guessing by filename.
+    manifest: true,
+    rollupOptions: {
+      output: {
+        // Pull the rarely-changing React runtime into its own long-cached chunk so
+        // it isn't re-downloaded on every app change and drops out of the entry.
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-dom/client'],
+        },
+      },
+    },
+  },
   server: {
     host: true,
     port: Number(process.env.PORT) || 5173,
