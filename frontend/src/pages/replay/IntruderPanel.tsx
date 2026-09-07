@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Crosshair, StopCircle, AlertTriangle } from 'lucide-react'
 import { api, ApiError, type IntruderResult, type IntruderAttempt, type Job, type Wordlist } from '../../api'
 import { Badge, Button, Card, Spinner } from '../../components/ui'
+import { Tabs } from '../../components/Tabs'
 import { useToast } from '../../components/Toast'
 import { type BuiltRequest, NumField, PAYLOAD_MARKER, statusTone } from './shared'
 import { PayloadLibrary } from './PayloadLibrary'
@@ -174,17 +175,17 @@ export function IntruderPanel({
         </div>
         {!multiList && (
           <>
-            <div className="inline-flex rounded-lg border border-hair bg-ink-950 p-0.5 text-xs">
-              {(['list', 'range', 'wordlist'] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setPayloadMode(m)}
-                  className={`rounded px-2.5 py-1 capitalize ${payloadMode === m ? 'bg-accent-500/15 text-accent-fg' : 'text-zinc-400'}`}
-                >
-                  {m === 'range' ? 'Number range' : m}
-                </button>
-              ))}
-            </div>
+            <Tabs
+              label="Payload source"
+              value={payloadMode}
+              onChange={setPayloadMode}
+              className="inline-flex rounded-lg border border-hair bg-ink-950 p-0.5 text-xs"
+              items={[
+                { key: 'list', label: 'List' },
+                { key: 'range', label: 'Number range' },
+                { key: 'wordlist', label: 'Wordlist' },
+              ]}
+            />
             {payloadMode === 'list' && (
           <>
             <PayloadLibrary

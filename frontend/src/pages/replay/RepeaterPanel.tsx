@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Send, Clock, Ruler, ChevronRight, History } from 'lucide-react'
 import { api, ApiError, type ReplayResponse, type ReplayHistoryItem } from '../../api'
 import { Badge, Button, Card } from '../../components/ui'
+import { Tabs } from '../../components/Tabs'
 import { useToast } from '../../components/Toast'
 import { AttachToFinding } from '../../components/AttachToFinding'
 import { timeAgo } from '../../lib/format'
@@ -165,20 +166,16 @@ export function RepeaterPanel({
           )}
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="mb-1 flex flex-wrap items-center gap-2">
-              <div className="inline-flex rounded-lg border border-hair bg-ink-950 p-0.5 text-xs">
-                <button
-                  onClick={() => setView('body')}
-                  className={`rounded px-2.5 py-1 ${view === 'body' ? 'bg-accent-500/15 text-accent-fg' : 'text-zinc-400'}`}
-                >
-                  Body
-                </button>
-                <button
-                  onClick={() => setView('preview')}
-                  className={`rounded px-2.5 py-1 ${view === 'preview' ? 'bg-accent-500/15 text-accent-fg' : 'text-zinc-400'}`}
-                >
-                  Preview
-                </button>
-              </div>
+              <Tabs
+                label="Response view"
+                value={view}
+                onChange={setView}
+                className="inline-flex rounded-lg border border-hair bg-ink-950 p-0.5 text-xs"
+                items={[
+                  { key: 'body', label: 'Body' },
+                  { key: 'preview', label: 'Preview' },
+                ]}
+              />
               {resp.truncated && <span className="text-[10px] text-amber-400">truncated</span>}
               {view === 'preview' && (
                 <>

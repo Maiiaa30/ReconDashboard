@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { KeyRound, StopCircle } from 'lucide-react'
 import { api, ApiError, type Job, type Identity } from '../../api'
 import { Badge, Button, Card, Spinner } from '../../components/ui'
+import { Tabs } from '../../components/Tabs'
 import { useToast } from '../../components/Toast'
 import { type BuiltRequest, NumField, parseHeaders } from './shared'
 
@@ -120,13 +121,16 @@ export function AuthzPanel({
       </div>
 
       <div className="space-y-2">
-        <div className="inline-flex rounded-lg border border-hair bg-ink-950 p-0.5 text-xs">
-          {(['range', 'list'] as const).map((m) => (
-            <button key={m} onClick={() => setIdsMode(m)} className={`rounded px-2.5 py-1 capitalize ${idsMode === m ? 'bg-accent-500/15 text-accent-fg' : 'text-zinc-400'}`}>
-              {m === 'range' ? 'ID range' : 'ID list'}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          label="ID source"
+          value={idsMode}
+          onChange={setIdsMode}
+          className="inline-flex rounded-lg border border-hair bg-ink-950 p-0.5 text-xs"
+          items={[
+            { key: 'range', label: 'ID range' },
+            { key: 'list', label: 'ID list' },
+          ]}
+        />
         {idsMode === 'range' ? (
           <div className="flex flex-wrap items-end gap-2 text-xs">
             <NumField label="from" value={from} onChange={setFrom} />
