@@ -1,21 +1,25 @@
+import { z } from 'zod'
 import { del, get, post, put } from './http'
-import { sitemapResponseSchema } from './schemas'
+import {
+  sitemapResponseSchema, replayResponseSchema, matchReplaceRuleSchema,
+  replayHistoryItemSchema, replayHistoryDetailSchema, identitySchema,
+  type MatchReplaceRule,
+} from './schemas'
 
-// Replay (Repeater): the full response from a server-side send.
-export interface ReplayResponse {
-  status: number
-  statusText: string
-  headers: [string, string][]
-  body: string
-  bodyBytes: number
-  truncated: boolean
-  timeMs: number
-  finalUrl: string
-  redirects: { status: number; location: string }[]
-  // Set when a Cloudflare challenge was auto-solved and the request replayed with
-  // the resulting cf_clearance cookie.
-  cloudflareSolved?: boolean
-}
+// These types are defined by their zod schemas (single source of truth) and
+// re-exported so call sites import them unchanged. IntruderAttempt/IntruderResult
+// stay hand-typed below — they ride inside a job result, not a request boundary.
+export type {
+  ReplayResponse, MatchReplaceRule, ReplayHistoryItem, ReplayHistoryDetail, Identity,
+  SitemapEndpoint, SitemapHost,
+} from './schemas'
+
+const replaySendResponse = z.object({ response: replayResponseSchema }).passthrough()
+const historyResponse = z.object({ history: z.array(replayHistoryItemSchema) }).passthrough()
+const historyDetailResponse = z.object({ entry: replayHistoryDetailSchema }).passthrough()
+const identitiesResponse = z.object({ identities: z.array(identitySchema) }).passthrough()
+const identityResponse = z.object({ identity: identitySchema }).passthrough()
+const rulesResponse = z.object({ rules: z.array(matchReplaceRuleSchema) }).passthrough()
 
 export interface IntruderAttempt {
   payload: string
@@ -39,48 +43,6 @@ export interface IntruderResult {
   baseline: { status: number; length: number } | null
 }
 
-export interface MatchReplaceRule {
-  id: number
-  domainId: number | null
-  name: string
-  enabled: boolean
-  part: 'url' | 'header' | 'body'
-  match: string
-  replace: string
-  isRegex: boolean
-}
-
-// Repeater history entry (list form — no response body).
-export interface ReplayHistoryItem {
-  id: number
-  identityId?: number | null
-  method: string
-  url: string
-  reqHeaders: [string, string][]
-  reqBody: string | null
-  status: number | null
-  statusText: string | null
-  timeMs: number | null
-  respBytes: number | null
-  createdAt: string
-}
-// A named request identity (A / B / anon) reusable across Repeater/Intruder/authz.
-export interface Identity {
-  id: number
-  domainId: number | null
-  name: string
-  headers: Record<string, string>
-  isAnon: boolean
-}
-// Full entry (with the stored response) — fetched when a history row is opened.
-export interface ReplayHistoryDetail extends ReplayHistoryItem {
-  respHeaders: [string, string][]
-  respBody: string | null
-}
-
-// SitemapEndpoint and SitemapHost are defined by their zod schemas and
-// re-exported so call sites import them unchanged.
-export type { SitemapEndpoint, SitemapHost } from './schemas'
 
 export const replayApi = {
   // replay (Repeater): send one composed request server-side, gated to the domain's scope
@@ -93,13 +55,14 @@ export const replayApi = {
     followRedirects?: boolean
     identityId?: number
     confirm?: boolean
-  }) => post<{ response: ReplayResponse }>('/replay/send', bodyReq),
+  }) => post('/replay/send', bodyReq, replaySendResponse),
   // repeater history (optionally scoped to one identity)
   replayHistory: (domainId: number, limit?: number, identityId?: number) =>
-    get<{ history: ReplayHistoryItem[] }>(
+    get(
       `/replay/history?domainId=${domainId}${limit ? `&limit=${limit}` : ''}${identityId != null ? `&identityId=${identityId}` : ''}`,
+      {}, historyResponse,
     ),
-  replayHistoryDetail: (id: number) => get<{ entry: ReplayHistoryDetail }>(`/replay/history/${id}`),
+  replayHistoryDetail: (id: number) => get(`/replay/history/${id}`, {}, historyDetailResponse),
   clearReplayHistory: (domainId: number) => del<{ cleared: number }>(`/replay/history?domainId=${domainId}`),
   // intruder: iterate payloads through a request template (gated LOUD job). One or
   // more {{Pn}} positions; sniper/battering-ram use one list, pitchfork/cluster-
@@ -145,9 +108,9 @@ export const replayApi = {
     post<{ enabled: boolean; narrative?: string; note?: string }>(`/domains/${domainId}/chains/narrate`, { chainId }),
 
   // Named identities (A / B / anon) reused across Repeater / Intruder / authz_diff
-  identities: (domainId: number) => get<{ identities: Identity[] }>(`/identities?domainId=${domainId}`),
+  identities: (domainId: number) => get(`/identities?domainId=${domainId}`, {}, identitiesResponse),
   saveIdentity: (bodyReq: { domainId: number; name: string; headers?: Record<string, string>; isAnon?: boolean }) =>
-    post<{ identity: Identity }>('/identities', bodyReq),
+    post('/identities', bodyReq, identityResponse),
   deleteIdentity: (id: number) => del<{ ok: true }>(`/identities/${id}`),
 
   // JWT RS256->HS256 alg-confusion confirm ({{JWT}} marker + original token, gated)
@@ -187,7 +150,7 @@ export const replayApi = {
   encodePayload: (input: string, chain: string[]) => post<{ output: string }>('/payloads/encode', { input, chain }),
 
   // match/replace rules (applied inside the Repeater/Intruder send path)
-  matchReplaceRules: () => get<{ rules: MatchReplaceRule[] }>('/match-replace'),
+  matchReplaceRules: () => get('/match-replace', {}, rulesResponse),
   createMatchReplace: (body: Partial<MatchReplaceRule> & { name: string; part: string }) =>
     post<{ rule: MatchReplaceRule }>('/match-replace', body),
   updateMatchReplace: (id: number, body: Partial<MatchReplaceRule>) => put<{ rule: MatchReplaceRule }>(`/match-replace/${id}`, body),

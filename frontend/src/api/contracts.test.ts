@@ -4,6 +4,7 @@ import {
   findingSchema, jobSchema, subdomainPageSchema,
   captureSchema, domainSchema, domainOverviewSchema, auditEntrySchema,
   metaStatusSchema, correlateResponseSchema, checkHostResultSchema, sitemapResponseSchema, nextActionSchema,
+  methodologySchema, assessmentRunSchema, replayResponseSchema, identitySchema, reportSnapshotSchema,
 } from './schemas'
 
 const finding = {
@@ -95,5 +96,42 @@ describe('response contracts', () => {
       },
     }
     expect(validate(metaStatusSchema, meta, '/meta').tools.nmap).toBe(true)
+  })
+
+  it('accepts methodology, assessment-run, replay and identity graphs', () => {
+    const methodology = {
+      tech: ['nginx'], ports: [443],
+      skills: [{
+        id: 's1', name: 'Web', description: 'd', applicable: true, reason: 'r', coverage: 0.5,
+        steps: [{ key: 'k', label: 'l', why: 'w', action: { kind: 'nuclei', tags: 'cve' }, status: 'todo', manual: false }],
+      }],
+    }
+    expect(validate(methodologySchema, methodology, '/methodology').skills[0].steps[0].status).toBe('todo')
+
+    const run = {
+      id: 1, domainId: 2, profile: 'full', name: 'run', status: 'running', createdBy: 'op',
+      confirmActive: true, currentPhase: 1, totalPhases: 6, coverage: 0.1, completedSteps: 0, totalSteps: 6,
+      targetCoverage: 0, completedTargetJobs: 0, totalTargetJobs: 0,
+      steps: [{
+        id: 10, runId: 1, key: 'discover', label: 'Discover', phase: 1, position: 0, action: 'discover',
+        targetStrategy: 'domain', status: 'running', jobs: [{
+          id: 100, target: null, attempt: 1, current: true, status: 'running', outcome: 'running',
+          reason: null, summary: [], progress: null, error: null, findingsProduced: 0, highFindings: 0,
+        }], error: null, startedAt: null, completedAt: null,
+        evidence: { targets: 1, completed: 0, degraded: 0, unavailable: 0, failed: 0, cancelled: 0, findingsProduced: 0, highFindings: 0 },
+      }],
+      startedAt: null, completedAt: null, createdAt: 't', updatedAt: 't', reportSnapshot: null,
+    }
+    expect(validate(assessmentRunSchema, run, '/run').steps[0].jobs[0].outcome).toBe('running')
+    expect(() => validate(assessmentRunSchema, { ...run, status: 'bogus' }, '/run')).toThrow(ContractError)
+
+    const snap = { id: 1, assessmentRunId: 1, host: 'a.com', label: null, meta: null, createdAt: 't' }
+    expect(validate(reportSnapshotSchema, snap, '/snap').host).toBe('a.com')
+
+    const resp = { status: 200, statusText: 'OK', headers: [['x', 'y']], body: '', bodyBytes: 0, truncated: false, timeMs: 5, finalUrl: 'https://a.com/', redirects: [], cloudflareSolved: true }
+    expect(validate(replayResponseSchema, resp, '/send').cloudflareSolved).toBe(true)
+
+    const ident = { id: 1, domainId: null, name: 'A', headers: { Cookie: 'x' }, isAnon: false }
+    expect(validate(identitySchema, ident, '/identities').name).toBe('A')
   })
 })

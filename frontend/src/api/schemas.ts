@@ -430,3 +430,234 @@ export type SitemapEndpoint = z.infer<typeof sitemapEndpointSchema>
 export type SitemapHost = z.infer<typeof sitemapHostSchema>
 export type MetaStatus = z.infer<typeof metaStatusSchema>
 export type Wordlist = z.infer<typeof metaStatusSchema>['wordlists'][number]
+
+// --- Report snapshots (shared by findings + assessment runs) -----------------
+export const snapshotMetaSchema = z
+  .object({ findings: z.number(), high: z.number(), medium: z.number(), low: z.number(), cves: z.number() })
+  .passthrough()
+
+export const reportSnapshotSchema = z
+  .object({
+    id: z.number(),
+    assessmentRunId: z.number().nullable(),
+    host: z.string(),
+    label: z.string().nullable(),
+    meta: snapshotMetaSchema.nullable(),
+    createdAt: z.string(),
+  })
+  .passthrough()
+
+// --- Methodology coverage graph ----------------------------------------------
+const stepActionSchema = z
+  .object({
+    kind: z.enum(['discover', 'exposure', 'osint', 'screenshots', 'origin', 'owasp', 'nmap', 'nuclei', 'ffuf', 'tool']),
+    tool: z.string().optional(),
+    tags: z.string().optional(),
+  })
+  .passthrough()
+
+export const methodologyStepSchema = z
+  .object({
+    key: z.string(),
+    label: z.string(),
+    why: z.string(),
+    action: stepActionSchema,
+    status: z.enum(['found', 'done', 'running', 'todo', 'skipped']),
+    manual: z.boolean(),
+  })
+  .passthrough()
+
+export const methodologySkillSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string(),
+    applicable: z.boolean(),
+    reason: z.string(),
+    coverage: z.number(),
+    steps: z.array(methodologyStepSchema),
+  })
+  .passthrough()
+
+export const methodologySchema = z
+  .object({ tech: z.array(z.string()), ports: z.array(z.number()), skills: z.array(methodologySkillSchema) })
+  .passthrough()
+
+// --- Assessment run graph ----------------------------------------------------
+const assessmentExecutionOutcomeSchema = z.enum([
+  'pending', 'running', 'completed', 'degraded', 'unavailable', 'failed', 'cancelled', 'missing',
+])
+
+export const assessmentStepJobSchema = z
+  .object({
+    id: z.number(),
+    target: z.string().nullable(),
+    attempt: z.number(),
+    current: z.boolean(),
+    status: z.string(),
+    outcome: assessmentExecutionOutcomeSchema,
+    reason: z.string().nullable(),
+    summary: z.array(z.string()),
+    progress: z.string().nullable(),
+    error: z.string().nullable(),
+    findingsProduced: z.number(),
+    highFindings: z.number(),
+  })
+  .passthrough()
+
+export const assessmentStepSchema = z
+  .object({
+    id: z.number(),
+    runId: z.number(),
+    key: z.string(),
+    label: z.string(),
+    phase: z.number(),
+    position: z.number(),
+    action: z.enum(['discover', 'exposure', 'osint', 'screenshots', 'api', 'nmap', 'nuclei', 'ffuf', 'owasp', 'params']),
+    targetStrategy: z.enum(['domain', 'live_web', 'live_hosts']),
+    status: z.enum(['pending', 'queued', 'running', 'done', 'degraded', 'unavailable', 'failed', 'skipped', 'cancelled']),
+    jobs: z.array(assessmentStepJobSchema),
+    error: z.string().nullable(),
+    startedAt: z.string().nullable(),
+    completedAt: z.string().nullable(),
+    evidence: z
+      .object({
+        targets: z.number(), completed: z.number(), degraded: z.number(), unavailable: z.number(),
+        failed: z.number(), cancelled: z.number(), findingsProduced: z.number(), highFindings: z.number(),
+      })
+      .passthrough(),
+  })
+  .passthrough()
+
+export const assessmentRunSchema = z
+  .object({
+    id: z.number(),
+    domainId: z.number(),
+    profile: z.enum(['passive', 'monitor', 'web', 'full', 'custom']),
+    name: z.string(),
+    status: z.enum(['queued', 'running', 'completed', 'partial', 'cancelled']),
+    createdBy: z.string(),
+    confirmActive: z.boolean(),
+    currentPhase: z.number(),
+    totalPhases: z.number(),
+    coverage: z.number(),
+    completedSteps: z.number(),
+    totalSteps: z.number(),
+    targetCoverage: z.number(),
+    completedTargetJobs: z.number(),
+    totalTargetJobs: z.number(),
+    steps: z.array(assessmentStepSchema),
+    startedAt: z.string().nullable(),
+    completedAt: z.string().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    reportSnapshot: reportSnapshotSchema.nullable(),
+  })
+  .passthrough()
+
+export const assessmentFindingSnapshotSchema = z
+  .object({
+    findingKey: z.string(),
+    findingId: z.number().nullable(),
+    type: z.string(),
+    title: z.string(),
+    target: z.string().nullable(),
+    score: z.number().nullable(),
+    severity: z.string().nullable(),
+    status: z.string(),
+  })
+  .passthrough()
+
+export const assessmentComparisonSchema = z
+  .object({
+    previousRunId: z.number().nullable(),
+    counts: z.object({ new: z.number(), unchanged: z.number(), resolved: z.number(), regressed: z.number() }).passthrough(),
+    new: z.array(assessmentFindingSnapshotSchema),
+    unchanged: z.array(assessmentFindingSnapshotSchema),
+    resolved: z.array(assessmentFindingSnapshotSchema),
+    regressed: z.array(assessmentFindingSnapshotSchema),
+  })
+  .passthrough()
+
+// --- Replay: history, identity, match/replace, response ----------------------
+export const matchReplaceRuleSchema = z
+  .object({
+    id: z.number(),
+    domainId: z.number().nullable(),
+    name: z.string(),
+    enabled: z.boolean(),
+    part: z.enum(['url', 'header', 'body']),
+    match: z.string(),
+    replace: z.string(),
+    isRegex: z.boolean(),
+  })
+  .passthrough()
+
+export const replayHistoryItemSchema = z
+  .object({
+    id: z.number(),
+    identityId: z.number().nullable().optional(),
+    method: z.string(),
+    url: z.string(),
+    reqHeaders: z.array(z.tuple([z.string(), z.string()])),
+    reqBody: z.string().nullable(),
+    status: z.number().nullable(),
+    statusText: z.string().nullable(),
+    timeMs: z.number().nullable(),
+    respBytes: z.number().nullable(),
+    createdAt: z.string(),
+  })
+  .passthrough()
+
+export const replayHistoryDetailSchema = replayHistoryItemSchema.extend({
+  respHeaders: z.array(z.tuple([z.string(), z.string()])),
+  respBody: z.string().nullable(),
+})
+
+export const identitySchema = z
+  .object({
+    id: z.number(),
+    domainId: z.number().nullable(),
+    name: z.string(),
+    headers: z.record(z.string()),
+    isAnon: z.boolean(),
+  })
+  .passthrough()
+
+export const replayResponseSchema = z
+  .object({
+    status: z.number(),
+    statusText: z.string(),
+    headers: z.array(z.tuple([z.string(), z.string()])),
+    body: z.string(),
+    bodyBytes: z.number(),
+    truncated: z.boolean(),
+    timeMs: z.number(),
+    finalUrl: z.string(),
+    redirects: z.array(z.object({ status: z.number(), location: z.string() }).passthrough()),
+    cloudflareSolved: z.boolean().optional(),
+  })
+  .passthrough()
+
+export type SnapshotMeta = z.infer<typeof snapshotMetaSchema>
+export type ReportSnapshot = z.infer<typeof reportSnapshotSchema>
+export type StepStatus = z.infer<typeof methodologyStepSchema>['status']
+export type StepAction = z.infer<typeof stepActionSchema>
+export type MethodologyStep = z.infer<typeof methodologyStepSchema>
+export type MethodologySkill = z.infer<typeof methodologySkillSchema>
+export type Methodology = z.infer<typeof methodologySchema>
+export type AssessmentExecutionOutcome = z.infer<typeof assessmentExecutionOutcomeSchema>
+export type AssessmentStepJob = z.infer<typeof assessmentStepJobSchema>
+export type AssessmentStep = z.infer<typeof assessmentStepSchema>
+export type AssessmentStepStatus = z.infer<typeof assessmentStepSchema>['status']
+export type AssessmentAction = z.infer<typeof assessmentStepSchema>['action']
+export type AssessmentRun = z.infer<typeof assessmentRunSchema>
+export type AssessmentProfile = z.infer<typeof assessmentRunSchema>['profile']
+export type AssessmentRunStatus = z.infer<typeof assessmentRunSchema>['status']
+export type AssessmentFindingSnapshot = z.infer<typeof assessmentFindingSnapshotSchema>
+export type AssessmentComparison = z.infer<typeof assessmentComparisonSchema>
+export type MatchReplaceRule = z.infer<typeof matchReplaceRuleSchema>
+export type ReplayHistoryItem = z.infer<typeof replayHistoryItemSchema>
+export type ReplayHistoryDetail = z.infer<typeof replayHistoryDetailSchema>
+export type Identity = z.infer<typeof identitySchema>
+export type ReplayResponse = z.infer<typeof replayResponseSchema>

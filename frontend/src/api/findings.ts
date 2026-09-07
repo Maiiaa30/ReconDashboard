@@ -1,10 +1,16 @@
+import { z } from 'zod'
 import { del, get, patch, post, type RequestOptions } from './http'
-import { findingPageSchema, findingSummarySchema, type Finding, type FindingStatus } from './schemas'
+import {
+  findingPageSchema, findingSummarySchema, reportSnapshotSchema,
+  type Finding, type FindingStatus,
+} from './schemas'
 
-// Finding, FindingStatus, FindingPage and FindingSummary are defined by their zod
-// schemas (single source of truth) and re-exported here so existing call sites
-// keep importing them from the api facade unchanged.
-export type { Finding, FindingStatus, FindingPage, FindingSummary } from './schemas'
+// These types are defined by their zod schemas (single source of truth) and
+// re-exported here so existing call sites keep importing them from the api facade.
+export type { Finding, FindingStatus, FindingPage, FindingSummary, ReportSnapshot, SnapshotMeta } from './schemas'
+
+const snapshotsResponse = z.object({ snapshots: z.array(reportSnapshotSchema) }).passthrough()
+const snapshotResponse = z.object({ snapshot: reportSnapshotSchema }).passthrough()
 
 export interface FindingLink {
   finding: Finding
@@ -17,23 +23,6 @@ export interface TriageSuggestion {
   suggestedStatus: FindingStatus
   reason: string
   nextAction: string
-}
-
-export interface SnapshotMeta {
-  findings: number
-  high: number
-  medium: number
-  low: number
-  cves: number
-}
-
-export interface ReportSnapshot {
-  id: number
-  assessmentRunId: number | null
-  host: string
-  label: string | null
-  meta: SnapshotMeta | null
-  createdAt: string
 }
 
 // 'active' hides triaged-away statuses; 'all' shows every status.
@@ -103,9 +92,9 @@ export const findingsApi = {
   findingLinks: (id: number) => get<{ links: FindingLink[] }>(`/findings/${id}/links`),
 
   // immutable report snapshots (frozen deliverables)
-  snapshots: (domainId: number, options?: RequestOptions) => get<{ snapshots: ReportSnapshot[] }>(`/domains/${domainId}/report/snapshots`, options),
+  snapshots: (domainId: number, options?: RequestOptions) => get(`/domains/${domainId}/report/snapshots`, options, snapshotsResponse),
   createSnapshot: (domainId: number, label?: string) =>
-    post<{ snapshot: ReportSnapshot }>(`/domains/${domainId}/report/snapshot`, label ? { label } : {}),
+    post(`/domains/${domainId}/report/snapshot`, label ? { label } : {}, snapshotResponse),
   deleteSnapshot: (id: number) => del<{ ok: true }>(`/report/snapshots/${id}`),
   snapshotUrl: (id: number, format: 'html' | 'md') => `/api/report/snapshots/${id}?format=${format}`,
   // Chromium-rendered PDF of a frozen snapshot.

@@ -1,13 +1,25 @@
+import { z } from 'zod'
 import { get, patch, post, type RequestOptions } from './http'
-import type { ReportSnapshot } from './findings'
 import {
   correlateResponseSchema, nextActionsResponseSchema, chainsResponseSchema,
-  type NextActionStatus,
+  methodologySchema, assessmentRunSchema, assessmentComparisonSchema, reportSnapshotSchema,
+  type NextActionStatus, type AssessmentProfile, type AssessmentAction,
 } from './schemas'
 
 // These types are defined by their zod schemas (single source of truth) and
 // re-exported so call sites import them from the api facade unchanged.
-export type { AttackPath, SignatureCluster, NextAction, NextActionStatus, ChainSuggestion } from './schemas'
+export type {
+  AttackPath, SignatureCluster, NextAction, NextActionStatus, ChainSuggestion,
+  StepStatus, StepAction, MethodologyStep, MethodologySkill, Methodology,
+  AssessmentProfile, AssessmentAction, AssessmentRunStatus, AssessmentStepStatus,
+  AssessmentExecutionOutcome, AssessmentStepJob, AssessmentStep, AssessmentRun,
+  AssessmentFindingSnapshot, AssessmentComparison,
+} from './schemas'
+
+const runsResponse = z.object({ runs: z.array(assessmentRunSchema) }).passthrough()
+const runResponse = z.object({ run: assessmentRunSchema }).passthrough()
+const comparisonResponse = z.object({ comparison: assessmentComparisonSchema }).passthrough()
+const reportSnapshotResponse = z.object({ snapshot: reportSnapshotSchema }).passthrough()
 
 export type AdviceActionKind = 'nmap' | 'naabu' | 'nuclei' | 'ffuf' | 'dalfox' | 'sslscan' | 'katana' | 'owasp'
 export interface AdviceAction {
@@ -21,146 +33,29 @@ export interface IntelAdvice {
   quickWins: { item: string; why: string }[]
   deeperDigs: { item: string; why: string }[]
 }
-export type StepStatus = 'found' | 'done' | 'running' | 'todo' | 'skipped'
-export interface StepAction {
-  kind: 'discover' | 'exposure' | 'osint' | 'screenshots' | 'origin' | 'owasp' | 'nmap' | 'nuclei' | 'ffuf' | 'tool'
-  tool?: string
-  tags?: string
-}
-export interface MethodologyStep {
-  key: string
-  label: string
-  why: string
-  action: StepAction
-  status: StepStatus
-  manual: boolean
-}
-export interface MethodologySkill {
-  id: string
-  name: string
-  description: string
-  applicable: boolean
-  reason: string
-  coverage: number
-  steps: MethodologyStep[]
-}
-export interface Methodology {
-  tech: string[]
-  ports: number[]
-  skills: MethodologySkill[]
-}
-
-export type AssessmentProfile = 'passive' | 'monitor' | 'web' | 'full' | 'custom'
-export type AssessmentAction = 'discover' | 'exposure' | 'osint' | 'screenshots' | 'api' | 'nmap' | 'nuclei' | 'ffuf' | 'owasp' | 'params'
-export type AssessmentRunStatus = 'queued' | 'running' | 'completed' | 'partial' | 'cancelled'
-export type AssessmentStepStatus = 'pending' | 'queued' | 'running' | 'done' | 'degraded' | 'unavailable' | 'failed' | 'skipped' | 'cancelled'
-export type AssessmentExecutionOutcome = 'pending' | 'running' | 'completed' | 'degraded' | 'unavailable' | 'failed' | 'cancelled' | 'missing'
-export interface AssessmentStepJob {
-  id: number
-  target: string | null
-  attempt: number
-  current: boolean
-  status: string
-  outcome: AssessmentExecutionOutcome
-  reason: string | null
-  summary: string[]
-  progress: string | null
-  error: string | null
-  findingsProduced: number
-  highFindings: number
-}
-export interface AssessmentStep {
-  id: number
-  runId: number
-  key: string
-  label: string
-  phase: number
-  position: number
-  action: AssessmentAction
-  targetStrategy: 'domain' | 'live_web' | 'live_hosts'
-  status: AssessmentStepStatus
-  jobs: AssessmentStepJob[]
-  error: string | null
-  startedAt: string | null
-  completedAt: string | null
-  evidence: {
-    targets: number
-    completed: number
-    degraded: number
-    unavailable: number
-    failed: number
-    cancelled: number
-    findingsProduced: number
-    highFindings: number
-  }
-}
-export interface AssessmentRun {
-  id: number
-  domainId: number
-  profile: AssessmentProfile
-  name: string
-  status: AssessmentRunStatus
-  createdBy: string
-  confirmActive: boolean
-  currentPhase: number
-  totalPhases: number
-  coverage: number
-  completedSteps: number
-  totalSteps: number
-  targetCoverage: number
-  completedTargetJobs: number
-  totalTargetJobs: number
-  steps: AssessmentStep[]
-  startedAt: string | null
-  completedAt: string | null
-  createdAt: string
-  updatedAt: string
-  reportSnapshot: ReportSnapshot | null
-}
-
-export interface AssessmentFindingSnapshot {
-  findingKey: string
-  findingId: number | null
-  type: string
-  title: string
-  target: string | null
-  score: number | null
-  severity: string | null
-  status: string
-}
-
-export interface AssessmentComparison {
-  previousRunId: number | null
-  counts: { new: number; unchanged: number; resolved: number; regressed: number }
-  new: AssessmentFindingSnapshot[]
-  unchanged: AssessmentFindingSnapshot[]
-  resolved: AssessmentFindingSnapshot[]
-  regressed: AssessmentFindingSnapshot[]
-}
-
 export const intelApi = {
   // attack-path correlation
   correlate: (id: number) => get(`/domains/${id}/correlate`, {}, correlateResponseSchema),
 
   // recon methodology / coverage
-  methodology: (id: number, options?: RequestOptions) => get<Methodology>(`/domains/${id}/methodology`, options),
+  methodology: (id: number, options?: RequestOptions) => get(`/domains/${id}/methodology`, options, methodologySchema),
   setMethodologyStep: (id: number, skillId: string, stepKey: string, state: 'done' | 'skipped' | 'clear') =>
-    patch<Methodology>(`/domains/${id}/methodology/step`, { skillId, stepKey, state }),
+    patch(`/domains/${id}/methodology/step`, { skillId, stepKey, state }, methodologySchema),
   nextActions: (id: number, includeClosed = true, options?: RequestOptions) => get(`/domains/${id}/next-actions?includeClosed=${includeClosed}`, options, nextActionsResponseSchema),
   updateNextAction: (id: number, actionKey: string, state: NextActionStatus) =>
     patch(`/domains/${id}/next-actions`, { actionKey, state }, nextActionsResponseSchema),
 
   // Persistent, dependency-aware assessment workflows.
-  assessmentRuns: (id: number, options?: RequestOptions) => get<{ runs: AssessmentRun[] }>(`/domains/${id}/assessment-runs`, options),
-  assessmentRun: (id: number, options?: RequestOptions) => get<{ run: AssessmentRun }>(`/assessment-runs/${id}`, options),
+  assessmentRuns: (id: number, options?: RequestOptions) => get(`/domains/${id}/assessment-runs`, options, runsResponse),
+  assessmentRun: (id: number, options?: RequestOptions) => get(`/assessment-runs/${id}`, options, runResponse),
   createAssessmentRun: (id: number, body: { profile: AssessmentProfile; name?: string; steps?: AssessmentAction[]; confirm?: boolean }) =>
-    post<{ run: AssessmentRun }>(`/domains/${id}/assessment-runs`, body),
-  retryAssessmentRun: (id: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${id}/retry`),
-  cancelAssessmentRun: (id: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${id}/cancel`),
-  assessmentComparison: (id: number, options?: RequestOptions) => get<{ comparison: AssessmentComparison }>(`/assessment-runs/${id}/comparison`, options),
-  retryAssessmentTarget: (runId: number, stepId: number, jobId: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${runId}/steps/${stepId}/jobs/${jobId}/retry`),
-  cancelAssessmentTarget: (runId: number, stepId: number, jobId: number) => post<{ run: AssessmentRun }>(`/assessment-runs/${runId}/steps/${stepId}/jobs/${jobId}/cancel`),
-  createAssessmentReport: (id: number) => post<{ snapshot: ReportSnapshot }>(`/assessment-runs/${id}/report-snapshot`),
+    post(`/domains/${id}/assessment-runs`, body, runResponse),
+  retryAssessmentRun: (id: number) => post(`/assessment-runs/${id}/retry`, undefined, runResponse),
+  cancelAssessmentRun: (id: number) => post(`/assessment-runs/${id}/cancel`, undefined, runResponse),
+  assessmentComparison: (id: number, options?: RequestOptions) => get(`/assessment-runs/${id}/comparison`, options, comparisonResponse),
+  retryAssessmentTarget: (runId: number, stepId: number, jobId: number) => post(`/assessment-runs/${runId}/steps/${stepId}/jobs/${jobId}/retry`, undefined, runResponse),
+  cancelAssessmentTarget: (runId: number, stepId: number, jobId: number) => post(`/assessment-runs/${runId}/steps/${stepId}/jobs/${jobId}/cancel`, undefined, runResponse),
+  createAssessmentReport: (id: number) => post(`/assessment-runs/${id}/report-snapshot`, undefined, reportSnapshotResponse),
 
   // AI-drafted report narrative (optional; only when llm.enabled)
   generateNarrative: (id: number) => post<{ narrative: string; model: string; note: string }>(`/domains/${id}/report/narrative`),
