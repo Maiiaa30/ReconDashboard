@@ -49,9 +49,22 @@ services:
         condition: service_completed_successfully
     # Override the dev CMD (npm run dev) — run the server without file-watching.
     command: ["npm", "run", "start"]
+    # Liveness: the public health route. start_period covers first-boot migrations
+    # + admin seed; curl is already in the image.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     ports:
       # Single tailnet-facing port; the whole app (UI + API) is here.
       - "3001:3001"
+    # NOTE: read_only root is intentionally NOT set. The recon CLIs (ffuf, nmap,
+    # sqlmap) and headless Chromium write to /tmp, and the entrypoint uses gosu to
+    # drop privileges (so no-new-privileges would break setuid). Hardening the
+    # filesystem would need tmpfs mounts for /tmp (and Chromium's needs) verified
+    # against every scanner — a deliberate follow-up, not a blind flip here.
 
 volumes:
   app-data:
