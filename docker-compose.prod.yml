@@ -47,8 +47,9 @@ services:
     depends_on:
       frontend-build:
         condition: service_completed_successfully
-    # Override the dev CMD (npm run dev) — run the server without file-watching.
-    command: ["npm", "run", "start"]
+    # Run the compiled plain-Node bundle (built into the image) instead of the dev
+    # CMD (tsx watch). No file-watching, no TypeScript at runtime.
+    command: ["node", "dist/server.mjs"]
     # Liveness: the public health route. start_period covers first-boot migrations
     # + admin seed; curl is already in the image.
     healthcheck:

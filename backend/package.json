@@ -11,7 +11,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts"
+    "db:migrate": "tsx src/db/migrate.ts",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server.mjs --packages=external",
+    "start:prod": "node dist/server.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
@@ -31,6 +33,7 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.5",
     "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.2",
     "eslint": "^10.7.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

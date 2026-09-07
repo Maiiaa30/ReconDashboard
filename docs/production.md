@@ -103,7 +103,6 @@ backup taken before the upgrade.
   Chromium write to `/tmp`, and the entrypoint drops privileges with `gosu`
   (so `no-new-privileges` would break setuid). Enabling it safely needs `tmpfs`
   mounts sized for the scanners and verification against each tool.
-- **Plain-node runtime.** The backend runs via `tsx` in production. A compiled
-  `dist` run under plain Node is a follow-up (it needs the extensionless /
-  bundler-resolution imports handled by an esbuild bundle with native modules
-  external).
+- **Plain-node runtime.** Done — the image compiles the backend to a single ESM
+  bundle (`dist/server.mjs`, node_modules external) via esbuild, and the prod
+  compose runs it under plain Node (`node dist/server.mjs`). `tsx` is dev-only.

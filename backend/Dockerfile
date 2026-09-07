@@ -147,6 +147,13 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 COPY . .
+
+# Compile the backend to a single plain-Node ESM bundle (dist/server.mjs) with
+# all node_modules kept external. Production runs this under plain Node
+# (docker-compose.prod.yml: node dist/server.mjs); dev still uses tsx. Building it
+# in every image is cheap (~a second) and keeps the prod artifact ready.
+RUN npm run build
+
 COPY docker-entrypoint.sh /usr/local/bin/recon-entrypoint
 COPY tool-startup-check.sh /usr/local/bin/tool-startup-check
 
