@@ -1,4 +1,9 @@
 import { del, get, post, put } from './http'
+import { auditPageSchema, auditSummarySchema } from './schemas'
+
+// AuditEntry, AuditPage and AuditSummary are defined by their zod schemas and
+// re-exported so call sites import them unchanged.
+export type { AuditEntry, AuditPage, AuditSummary } from './schemas'
 
 export interface Note {
   id: number
@@ -21,18 +26,6 @@ export interface Drawing extends DrawingMeta {
   data: any
 }
 
-export interface AuditEntry {
-  id: number
-  ts: string
-  actor: string
-  action: string
-  domainId: number | null
-  target: string | null
-  mode: string | null
-  jobId: number | null
-  detail: string | null
-}
-
 export interface AuditQuery {
   domainId?: number
   actor?: string
@@ -42,18 +35,6 @@ export interface AuditQuery {
   since?: number
   limit?: number
   cursor?: string
-}
-
-// One page of audit entries plus the cursor for the next page (null on the last).
-export interface AuditPage {
-  entries: AuditEntry[]
-  nextCursor: string | null
-}
-
-// Counts for a filter set: total plus a per-action breakdown.
-export interface AuditSummary {
-  total: number
-  byAction: Record<string, number>
 }
 
 // Facets shared by the list and summary endpoints (everything except pagination
@@ -93,12 +74,12 @@ export const contentApi = {
     if (q.limit) params.set('limit', String(q.limit))
     if (q.cursor) params.set('cursor', q.cursor)
     const qs = params.toString()
-    return get<AuditPage>(`/audit${qs ? `?${qs}` : ''}`)
+    return get(`/audit${qs ? `?${qs}` : ''}`, {}, auditPageSchema)
   },
   // Total plus per-action counts for a filter set (action facet excluded
   // server-side), for header stats without loading every row.
   auditSummary: (q: Pick<AuditQuery, 'domainId' | 'actor' | 'mode' | 'target' | 'since'> = {}) => {
     const qs = auditFilterParams(q).toString()
-    return get<AuditSummary>(`/audit/summary${qs ? `?${qs}` : ''}`)
+    return get(`/audit/summary${qs ? `?${qs}` : ''}`, {}, auditSummarySchema)
   },
 }

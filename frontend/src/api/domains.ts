@@ -1,62 +1,24 @@
+import { z } from 'zod'
 import { del, get, patch, post, type RequestOptions } from './http'
+import {
+  domainSchema, domainOverviewSchema,
+  type DomainMode, type DomainProfile, type OwaspConfig, type ScopeConfig,
+} from './schemas'
 
-export type DomainMode = 'passive_only' | 'active_authorized'
+// These types are defined by their zod schemas (single source of truth) and
+// re-exported so call sites import them from the api facade unchanged.
+export type { Domain, DomainMode, DomainProfile, OwaspConfig, ScopeConfig, DomainOverview } from './schemas'
 
-export interface DomainProfile {
-  hasLogin?: boolean
-  hasParams?: boolean
-  hasUpload?: boolean
-  hasApi?: boolean
-  hasRedirects?: boolean
-}
-
-export interface OwaspConfig {
-  xssParams?: string[]
-  xssPayloads?: string[]
-  redirectParams?: string[]
-  sensitivePaths?: string[]
-  authHeader?: string
-}
-
-export interface ScopeConfig {
-  allow?: string[]
-  deny?: string[]
-}
-
-export interface Domain {
-  id: number
-  host: string
-  label: string | null
-  mode: DomainMode
-  profile?: DomainProfile
-  owaspConfig?: OwaspConfig
-  scopeConfig?: ScopeConfig
-  authorizedFrom?: string | null
-  authorizedUntil?: string | null
-  monitorIntervalHours?: number
-  createdAt: string
-  updatedAt: string
-}
-
-export interface DomainOverview {
-  id: number
-  host: string
-  label: string | null
-  mode: DomainMode
-  createdAt: number | null
-  subdomains: { total: number; new: number }
-  findings: { total: number; maxScore: number | null }
-  exposure: { ips: number; openPorts: number; cves: number }
-  lastActivity: number | null
-  monitorIntervalHours: number
-}
+const domainsResponse = z.object({ domains: z.array(domainSchema) }).passthrough()
+const domainResponse = z.object({ domain: domainSchema }).passthrough()
+const overviewResponse = z.object({ overview: z.array(domainOverviewSchema) }).passthrough()
 
 export const domainsApi = {
-  domains: () => get<{ domains: Domain[] }>('/domains'),
-  domainsOverview: (options?: RequestOptions) => get<{ overview: DomainOverview[] }>('/domains/overview', options),
+  domains: () => get('/domains', {}, domainsResponse),
+  domainsOverview: (options?: RequestOptions) => get('/domains/overview', options, overviewResponse),
   createDomain: (host: string, mode: DomainMode, label?: string) =>
-    post<{ domain: Domain }>('/domains', { host, mode, label }),
-  setDomainMode: (id: number, mode: DomainMode) => patch<{ domain: Domain }>(`/domains/${id}`, { mode }),
+    post('/domains', { host, mode, label }, domainResponse),
+  setDomainMode: (id: number, mode: DomainMode) => patch(`/domains/${id}`, { mode }, domainResponse),
   updateDomain: (
     id: number,
     patchBody: {
@@ -69,7 +31,7 @@ export const domainsApi = {
       authorizedFrom?: number | null
       authorizedUntil?: number | null
     },
-  ) => patch<{ domain: Domain }>(`/domains/${id}`, patchBody),
+  ) => patch(`/domains/${id}`, patchBody, domainResponse),
   deleteDomain: (id: number) => del<{ ok: true }>(`/domains/${id}`),
   // Clear a domain's recon data (findings/subdomains/jobs/captures/…) but keep the domain.
   purgeDomainData: (id: number) => del<{ ok: true }>(`/domains/${id}/data`),

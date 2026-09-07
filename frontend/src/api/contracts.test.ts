@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { validate, ContractError } from './http'
-import { findingSchema, jobSchema, subdomainPageSchema } from './schemas'
+import {
+  findingSchema, jobSchema, subdomainPageSchema,
+  captureSchema, domainSchema, domainOverviewSchema, auditEntrySchema,
+} from './schemas'
 
 const finding = {
   id: 1, domainId: 2, type: 'owasp', data: { foo: 'bar' }, score: 90,
@@ -33,5 +36,27 @@ describe('response contracts', () => {
     const page = { subdomains: [], nextCursor: null }
     expect(validate(subdomainPageSchema, page, '/subs').nextCursor).toBeNull()
     expect(() => validate(subdomainPageSchema, { subdomains: [{ id: 'x' }], nextCursor: null }, '/subs')).toThrow(ContractError)
+  })
+
+  it('accepts capture, domain, overview and audit shapes', () => {
+    const capture = {
+      id: 1, domainId: null, method: 'GET', url: 'https://a.com/', host: 'a.com',
+      headers: [['accept', '*/*']], body: null, source: 'ext', createdAt: 't',
+    }
+    expect(validate(captureSchema, capture, '/capture').method).toBe('GET')
+
+    const domain = { id: 1, host: 'a.com', label: null, mode: 'passive_only', createdAt: 't', updatedAt: 't' }
+    expect(validate(domainSchema, domain, '/domains').mode).toBe('passive_only')
+    expect(() => validate(domainSchema, { ...domain, mode: 'nonsense' }, '/domains')).toThrow(ContractError)
+
+    const overview = {
+      id: 1, host: 'a.com', label: null, mode: 'active_authorized', createdAt: 1,
+      subdomains: { total: 0, new: 0 }, findings: { total: 0, maxScore: null },
+      exposure: { ips: 0, openPorts: 0, cves: 0 }, lastActivity: null, monitorIntervalHours: 24,
+    }
+    expect(validate(domainOverviewSchema, overview, '/overview').monitorIntervalHours).toBe(24)
+
+    const audit = { id: 1, ts: 't', actor: 'op', action: 'scan', domainId: null, target: null, mode: null, jobId: null, detail: null }
+    expect(validate(auditEntrySchema, audit, '/audit').action).toBe('scan')
   })
 })

@@ -1,18 +1,9 @@
 import { del, get, type RequestOptions } from './http'
+import { capturePageSchema, captureSummarySchema, type Capture } from './schemas'
 
-// A request captured by the browser extension, awaiting replay/review.
-export interface Capture {
-  id: number
-  domainId: number | null
-  method: string
-  url: string
-  host: string
-  headers: [string, string][]
-  body: string | null // null in list responses — lazy-loaded via api.capture(id)
-  hasBody?: boolean // present in list responses; whether a body exists to fetch
-  source: string
-  createdAt: string
-}
+// Capture, CapturePage and CaptureSummary are defined by their zod schemas
+// (single source of truth) and re-exported so call sites import them unchanged.
+export type { Capture, CapturePage, CaptureSummary } from './schemas'
 
 export interface CaptureQuery {
   method?: string
@@ -20,17 +11,6 @@ export interface CaptureQuery {
   q?: string
   limit?: number
   cursor?: string
-}
-
-// One page of captures plus the cursor for the next page (null on the last).
-export interface CapturePage {
-  captures: Capture[]
-  nextCursor: string | null
-}
-
-export interface CaptureSummary {
-  total: number
-  byMethod: Record<string, number>
 }
 
 export const capturesApi = {
@@ -43,7 +23,7 @@ export const capturesApi = {
     if (q.limit) p.set('limit', String(q.limit))
     if (q.cursor) p.set('cursor', q.cursor)
     const qs = p.toString()
-    return get<CapturePage>(`/capture${qs ? `?${qs}` : ''}`, options)
+    return get(`/capture${qs ? `?${qs}` : ''}`, options, capturePageSchema)
   },
   // total + per-method counts for a filter set (method facet excluded), for
   // header stats without loading every row.
@@ -52,7 +32,7 @@ export const capturesApi = {
     if (domainId != null) p.set('domainId', String(domainId))
     if (q.q) p.set('q', q.q)
     const qs = p.toString()
-    return get<CaptureSummary>(`/capture/summary${qs ? `?${qs}` : ''}`, options)
+    return get(`/capture/summary${qs ? `?${qs}` : ''}`, options, captureSummarySchema)
   },
   captureStatus: () => get<{ enabled: boolean; extensionSeenAt: number | null }>('/capture/status'),
   capture: (id: number) => get<{ capture: Capture }>(`/capture/${id}`),

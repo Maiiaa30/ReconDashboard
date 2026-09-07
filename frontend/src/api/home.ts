@@ -1,23 +1,9 @@
 import { get, post, type RequestOptions } from './http'
-import type { DomainOverview } from './domains'
+import { homeResponseSchema } from './schemas'
 
-export interface HomeFinding {
-  id: number
-  domainId: number | null
-  type: string
-  data: any
-  score: number | null
-  tags: string[]
-}
-
-export interface RecentChange {
-  id: number
-  domainId: number | null
-  type: 'cve_new' | 'asset_change'
-  data: { ip?: string; host?: string; cveId?: string; cvss?: number | null; kev?: boolean; title?: string; detail?: string; action?: { kind: 'nmap' | 'owasp'; label: string; target: string } }
-  score: number | null
-  createdAt: string
-}
+// HomeFinding and RecentChange are defined by their zod schemas and re-exported
+// so call sites import them unchanged.
+export type { HomeFinding, RecentChange } from './schemas'
 
 // "Today" panel — what's new/risky since the operator's last Home visit.
 export interface TodayData {
@@ -31,7 +17,7 @@ export interface TodayData {
 
 export const homeApi = {
   // engagement home (cross-target overview + top open findings + recent changes)
-  home: (options?: RequestOptions) => get<{ overview: DomainOverview[]; topFindings: HomeFinding[]; recentChanges: RecentChange[] }>('/home', options),
+  home: (options?: RequestOptions) => get('/home', options, homeResponseSchema),
   // "Today" — new/risky since the last explicit acknowledgement.
   today: () => get<TodayData>('/home/today'),
   acknowledgeToday: () => post<{ viewedAt: string }>('/home/today/ack'),
