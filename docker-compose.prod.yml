@@ -1,0 +1,58 @@
+# Production compose — single-origin, compiled-frontend topology.
+#
+# Differences from the dev compose (docker-compose.yml):
+#   - the frontend is BUILT to static assets and served BY the backend, so there
+#     is ONE origin and ONE published port (no Vite dev server on 5173);
+#   - NODE_ENV=production;
+#   - no read-write source bind mounts (the image is the artifact);
+#   - a CSRF Origin check is enforced (set TRUSTED_ORIGINS in .env).
+#
+# Runs on a private VM reached ONLY over Tailscale — never exposed publicly, no
+# public TLS/ACME by design. Bring it up with:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Set in .env before first run:
+#   TRUSTED_ORIGINS=https://<host>.<tailnet>.ts.net   # your tailnet URL for the app
+# (plus the usual ADMIN_PASSWORD / SESSION_SECRET).
+
+services:
+  # One-shot: compiles the SPA and publishes dist into the shared spa-dist volume,
+  # then exits. The backend waits for it to finish before starting.
+  frontend-build:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    volumes:
+      - spa-dist:/out
+
+  backend:
+    restart: unless-stopped
+    build: ./backend
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOST=0.0.0.0
+      - DATABASE_PATH=/data/app.db
+      # Serve the built SPA from one origin (the backend). Points at the shared
+      # volume the frontend-build service published to.
+      - STATIC_DIR=/app/public
+      # TRUSTED_ORIGINS comes from .env — the CSRF Origin allowlist for mutating
+      # requests. Leave it set to your tailnet app URL.
+    volumes:
+      - app-data:/data
+      # The compiled SPA, read-only. Served at / by @fastify/static.
+      - spa-dist:/app/public:ro
+    depends_on:
+      frontend-build:
+        condition: service_completed_successfully
+    # Override the dev CMD (npm run dev) — run the server without file-watching.
+    command: ["npm", "run", "start"]
+    ports:
+      # Single tailnet-facing port; the whole app (UI + API) is here.
+      - "3001:3001"
+
+volumes:
+  app-data:
+  spa-dist:

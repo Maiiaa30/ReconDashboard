@@ -2,6 +2,7 @@ import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, ty
 import fastifyCookie from '@fastify/cookie'
 import fastifySession from '@fastify/session'
 import fastifyRateLimit from '@fastify/rate-limit'
+import fastifyStatic from '@fastify/static'
 import { config } from './config'
 import './db/index' // opens SQLite, ensures data dir/volume exists
 import { runMigrations } from './db/migrate'
@@ -9,6 +10,7 @@ import { seedAdmin } from './auth/seed'
 import { dedupeExistingFindings } from './findings/store'
 import { authRoutes } from './auth/routes'
 import { authGuard } from './auth/guard'
+import { originGuard } from './auth/originGuard'
 import { sqliteSessionStore, startSessionPruner } from './auth/sessionStore'
 import { registerJobHandlers } from './jobs/register'
 import { getScorer } from './scoring'
@@ -66,7 +68,14 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
     return reply.code(status).send({ error: err.message })
   })
-  app.setNotFoundHandler((_req, reply) => {
+  app.setNotFoundHandler((req, reply) => {
+    // Single-origin serving: an unmatched non-API GET is a client-side route, so
+    // hand back the SPA shell and let the router resolve it. API misses and
+    // non-GET misses still return the JSON 404. reply.sendFile is decorated by
+    // @fastify/static, registered below only when STATIC_DIR is set.
+    if (config.staticDir && req.method === 'GET' && !req.url.startsWith('/api/')) {
+      return reply.sendFile('index.html')
+    }
     reply.code(404).send({ error: 'not found' })
   })
 
@@ -103,6 +112,10 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   })
 
+  // CSRF Origin guard (no-op unless TRUSTED_ORIGINS is set). Runs before auth so a
+  // forged cross-origin mutation is refused regardless of session state.
+  app.addHook('onRequest', originGuard)
+
   // Auth guard runs after the session plugin has loaded the session.
   app.addHook('onRequest', authGuard)
 
@@ -136,6 +149,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(matchReplaceRoutes)
   await app.register(identityRoutes)
   await app.register(aiRoutes)
+
+  // Single-origin production serving: when STATIC_DIR points at the built SPA,
+  // serve its assets at `/` (the SPA fallback above handles client routes). In
+  // dev this is unset and Vite serves the frontend on its own port.
+  if (config.staticDir) {
+    await app.register(fastifyStatic, { root: config.staticDir, index: ['index.html'], wildcard: false })
+    app.log.info(`serving static SPA from ${config.staticDir}`)
+  }
 
   return app
 }

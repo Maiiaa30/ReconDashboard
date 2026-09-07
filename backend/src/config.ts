@@ -128,4 +128,20 @@ export const config = {
     const apiKey = process.env.LEAK_API_KEY?.trim() || ''
     return { provider, apiKey, enabled: Boolean(provider && apiKey) }
   })(),
+
+  // Production single-origin serving: absolute path to the built frontend (Vite
+  // `dist`). When set, the backend serves the SPA at `/` with a history-API
+  // fallback, so the whole app lives on ONE origin. Empty in dev (Vite serves
+  // the frontend on its own port and proxies /api here).
+  staticDir: process.env.STATIC_DIR?.trim() || '',
+
+  // CSRF Origin allowlist for state-changing session-authed requests. When set
+  // (comma-separated origins, e.g. "https://recon.tailnet.ts.net"), a mutating
+  // request whose Origin header is present but not on the list is rejected.
+  // Empty => the check is OFF (dev runs the SPA cross-port, so its Origin would
+  // never match; enable this only once same-origin serving is in place).
+  trustedOrigins: (process.env.TRUSTED_ORIGINS ?? '')
+    .split(',')
+    .map((o) => o.trim().replace(/\/$/, ''))
+    .filter(Boolean),
 } as const
