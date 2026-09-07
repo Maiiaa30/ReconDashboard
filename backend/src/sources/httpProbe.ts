@@ -24,6 +24,11 @@ export interface ProbeResult {
   redirect: string | null
   contentHash: string | null
   contentLength: number | null
+  // Detected WAF/CDN vendor (e.g. 'cloudflare') when the response carries its
+  // fingerprint. Combined with a 403/503/429 status this means the host is ALIVE
+  // but sitting behind a bot-mitigation challenge — not a dead host. Surfaced so
+  // a Cloudflare-fronted estate reads as "protected", not a wall of scary 403s.
+  waf: string | null
 }
 
 const TIMEOUT_MS = 8_000
@@ -37,6 +42,22 @@ interface FetchInfo {
   apiHint: boolean
   contentHash: string | null
   contentLength: number | null
+  waf: string | null
+}
+
+// Identify the WAF/CDN in front of a host from response headers + (optionally)
+// the challenge body. Header fingerprints are cheap and vendor-specific; the
+// body markers only refine Cloudflare's generic "Just a moment…" interstitial.
+export function detectWaf(headers: Headers, body?: string): string | null {
+  const server = (headers.get('server') ?? '').toLowerCase()
+  if (headers.has('cf-ray') || headers.has('cf-mitigated') || server.includes('cloudflare')) return 'cloudflare'
+  if (server.includes('akamaighost') || headers.has('x-akamai-transformed')) return 'akamai'
+  if (headers.has('x-sucuri-id') || headers.has('x-sucuri-cache')) return 'sucuri'
+  if (headers.has('x-iinfo') || server.includes('incapsula') || server.includes('imperva')) return 'imperva'
+  if (server.includes('awselb') || (headers.get('x-amzn-waf-action') ?? '')) return headers.has('x-amzn-waf-action') ? 'aws-waf' : null
+  if (server.includes('fastly') || headers.has('x-served-by')) return server.includes('fastly') ? 'fastly' : null
+  if (body && /just a moment|attention required.*cloudflare|cf-browser-verification|__cf_chl/i.test(body)) return 'cloudflare'
+  return null
 }
 
 // Follow redirects MANUALLY, re-resolving and SSRF-checking every hop — a
@@ -72,8 +93,20 @@ async function fetchOnce(startUrl: string, signal?: AbortSignal): Promise<FetchI
         // subdomain look dead. This is still a single, standard GET.
         headers: {
           'User-Agent': BROWSER_UA,
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.9',
+          // Full modern-Chrome client hints + fetch metadata. Header-only WAF
+          // rules challenge requests missing these; sending them dodges the
+          // cheap checks (it does NOT beat a JS/TLS-fingerprint challenge — use
+          // the WAF/Origin module to find the real origin for that).
+          'Upgrade-Insecure-Requests': '1',
+          'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+          'sec-ch-ua-mobile': '?0',
+          'sec-ch-ua-platform': '"Windows"',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
         },
       })
 
@@ -81,7 +114,7 @@ async function fetchOnce(startUrl: string, signal?: AbortSignal): Promise<FetchI
       if (res.status >= 300 && res.status < 400) {
         const loc = res.headers.get('location')
         if (res.body) await res.body.cancel().catch(() => {})
-        if (!loc) return { status: res.status, server: res.headers.get('server'), title: null, loginHint: false, apiHint: false, contentHash: null, contentLength: null }
+        if (!loc) return { status: res.status, server: res.headers.get('server'), title: null, loginHint: false, apiHint: false, contentHash: null, contentLength: null, waf: detectWaf(res.headers) }
         current = new URL(loc, current).toString()
         continue
       }
@@ -94,6 +127,7 @@ async function fetchOnce(startUrl: string, signal?: AbortSignal): Promise<FetchI
       const declaredLength = Number(res.headers.get('content-length'))
       let contentLength = Number.isFinite(declaredLength) ? declaredLength : null
       let contentHash: string | null = null
+      let waf = detectWaf(res.headers)
 
       if (ct.includes('html') && res.body) {
         const reader = res.body.getReader()
@@ -122,10 +156,13 @@ async function fetchOnce(startUrl: string, signal?: AbortSignal): Promise<FetchI
         loginHint =
           /<input[^>]+type=["']?password/i.test(html) ||
           /\b(sign[\s-]?in|log[\s-]?in)\b/i.test(title ?? '')
+        // Body markers refine the header check (Cloudflare's JS interstitial
+        // returns 403/503 with a generic "Just a moment…" page).
+        waf ??= detectWaf(res.headers, html)
       } else if (res.body) {
         await res.body.cancel().catch(() => {})
       }
-      return { status: res.status, server, title, loginHint, apiHint, contentHash, contentLength }
+      return { status: res.status, server, title, loginHint, apiHint, contentHash, contentLength, waf }
     } catch {
       return null
     } finally {
@@ -147,7 +184,7 @@ export async function probeHost(host: string, signal?: AbortSignal): Promise<Pro
   if (allIps.some(isInternalIp)) {
     return {
       host, scheme: null, status: null, title: null, server: null, ip, url: null, cnames,
-      loginHint: false, apiHint: apiByName, technologies: [], redirect: null, contentHash: null, contentLength: null,
+      loginHint: false, apiHint: apiByName, technologies: [], redirect: null, contentHash: null, contentLength: null, waf: null,
     }
   }
   for (const scheme of ['https', 'http'] as const) {
@@ -159,12 +196,12 @@ export async function probeHost(host: string, signal?: AbortSignal): Promise<Pro
         host, scheme, status: res.status, title: res.title, server: res.server, ip, url, cnames,
         loginHint: res.loginHint,
         apiHint: res.apiHint || apiByName,
-        technologies: [], redirect: null, contentHash: res.contentHash, contentLength: res.contentLength,
+        technologies: [], redirect: null, contentHash: res.contentHash, contentLength: res.contentLength, waf: res.waf,
       }
     }
   }
   return {
     host, scheme: null, status: null, title: null, server: null, ip, url: null, cnames,
-    loginHint: false, apiHint: apiByName, technologies: [], redirect: null, contentHash: null, contentLength: null,
+    loginHint: false, apiHint: apiByName, technologies: [], redirect: null, contentHash: null, contentLength: null, waf: null,
   }
 }

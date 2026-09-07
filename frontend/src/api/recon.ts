@@ -13,6 +13,9 @@ export interface Subdomain {
   title: string | null
   server: string | null
   scheme: string | null
+  // Detected WAF/CDN vendor (e.g. 'cloudflare'). With a 403/503 status this host
+  // is alive-but-protected, not dead.
+  waf: string | null
   // Correlation signatures (TLS cert fingerprint + mmh3 favicon hash).
   certFp: string | null
   faviconHash: number | null

@@ -12,6 +12,17 @@ describe('parseHttpxJsonl', () => {
     expect(rows.get('portal.example.com')).toMatchObject({
       scheme: 'https', status: 302, server: 'nginx', loginHint: true,
       technologies: ['Nginx', 'React'], redirect: '/login', contentHash: 'abc123', contentLength: 450,
+      waf: null,
     })
+  })
+
+  it('flags a Cloudflare-fronted host as protected, not dead', () => {
+    const rows = parseHttpxJsonl(JSON.stringify({
+      input: 'app.example.com', url: 'https://app.example.com', status_code: 403,
+      cdn_name: 'cloudflare', tech: ['Cloudflare'], a: ['104.16.1.1'],
+    }))
+    // A 403 behind Cloudflare means alive-but-challenged; the waf marker lets the
+    // UI show that instead of a wall of scary 403s.
+    expect(rows.get('app.example.com')).toMatchObject({ status: 403, waf: 'cloudflare' })
   })
 })

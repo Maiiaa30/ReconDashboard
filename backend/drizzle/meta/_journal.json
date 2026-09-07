@@ -260,6 +260,13 @@
       "when": 1788735163523,
       "tag": "0036_early_whirlwind",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1788807854751,
+      "tag": "0037_equal_killmonger",
+      "breakpoints": true
     }
   ]
 }

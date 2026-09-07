@@ -19,6 +19,18 @@ const number = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+// Infer the WAF/CDN vendor from httpx's own signals: -tech-detect surfaces
+// "Cloudflare", and (when built with it) row.cdn_name/webserver name the edge.
+function wafFromHttpx(row: Json): string | null {
+  const hay = `${row.cdn_name ?? ''} ${row.webserver ?? ''} ${strings(row.tech).join(' ')}`.toLowerCase()
+  if (hay.includes('cloudflare')) return 'cloudflare'
+  if (hay.includes('akamai')) return 'akamai'
+  if (hay.includes('sucuri')) return 'sucuri'
+  if (hay.includes('incapsula') || hay.includes('imperva')) return 'imperva'
+  if (hay.includes('fastly')) return 'fastly'
+  return null
+}
+
 export function parseHttpxJsonl(output: string): Map<string, ProbeResult> {
   const probes = new Map<string, ProbeResult>()
   for (const line of output.split('\n')) {
@@ -47,6 +59,7 @@ export function parseHttpxJsonl(output: string): Map<string, ProbeResult> {
         redirect: typeof row.location === 'string' ? row.location.slice(0, 1000) : null,
         contentHash: typeof hash.body_sha256 === 'string' ? hash.body_sha256 : null,
         contentLength: number(row.content_length),
+        waf: wafFromHttpx(row),
       })
     } catch {
       // Ignore non-JSON diagnostics and retain the rest of the batch.
@@ -78,7 +91,7 @@ export async function httpxProbeHosts(hosts: string[], signal?: AbortSignal): Pr
       await writeFile(input, allowed.join('\n'), 'utf8')
       const { stdout } = await run(
         'httpx',
-        ['-l', input, '-no-stdin', '-json', '-silent', '-no-color', '-status-code', '-title', '-web-server', '-tech-detect', '-ip', '-cname', '-location', '-content-length', '-hash', 'sha256', '-timeout', '8', '-retries', '1', '-threads', '25'],
+        ['-l', input, '-no-stdin', '-json', '-silent', '-no-color', '-status-code', '-title', '-web-server', '-tech-detect', '-cdn', '-ip', '-cname', '-location', '-content-length', '-hash', 'sha256', '-timeout', '8', '-retries', '1', '-threads', '25'],
         { timeoutMs: 240_000, signal },
       )
       available = true
@@ -100,6 +113,6 @@ export async function httpxProbeHosts(hosts: string[], signal?: AbortSignal): Pr
   return { available, probes: valid.map((host) => parsed.get(host) ?? {
     host, scheme: null, status: null, title: null, server: null, ip: null, url: null,
     cnames: [], loginHint: false, apiHint: /^api[.-]/i.test(host), technologies: [],
-    redirect: null, contentHash: null, contentLength: null,
+    redirect: null, contentHash: null, contentLength: null, waf: null,
   }) }
 }

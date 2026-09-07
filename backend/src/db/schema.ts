@@ -103,6 +103,9 @@ export const subdomains = sqliteTable(
     title: text('title'),
     server: text('server'),
     scheme: text('scheme'),
+    // WAF/CDN vendor detected in front of the host (e.g. 'cloudflare'). With a
+    // 403/503 http_status this marks the host as alive-but-protected, not dead.
+    waf: text('waf'),
     // Correlation signatures that survive CDN fronting: the TLS cert fingerprint
     // and the mmh3 favicon hash. Two hosts sharing either are the same asset even
     // on different IPs (correlate.ts clusters by these).

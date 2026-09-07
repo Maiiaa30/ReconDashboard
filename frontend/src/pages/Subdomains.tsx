@@ -290,6 +290,11 @@ export function Subdomains() {
                       </span>
                     )}
                     {!s.title && <span className="flex-1" />}
+                    {s.waf && (
+                      <Badge tone="amber">
+                        {(s.httpStatus === 403 || s.httpStatus === 503 || s.httpStatus === 429) ? `${s.waf} · protected` : s.waf}
+                      </Badge>
+                    )}
                     {s.isNew && <Badge tone="blue">new</Badge>}
                     <CopyLink url={`${s.scheme ?? 'https'}://${s.host}`} />
                     <span className="text-xs text-zinc-600">{expanded ? '▾' : '▸'}</span>
@@ -299,6 +304,7 @@ export function Subdomains() {
                     <div className="grid grid-cols-2 gap-x-6 gap-y-3 border-t border-hair/60 bg-ink-900/50 px-3 py-3 sm:grid-cols-3">
                       <Field label="IP address" value={s.ipAddress ?? '—'} mono />
                       <Field label="Server" value={s.server ?? '—'} mono />
+                      <Field label="WAF / CDN" value={s.waf ?? '—'} />
                       <Field label="Scheme" value={s.scheme ?? '—'} mono />
                       <Field label="Source" value={s.source ?? '—'} />
                       <Field label="First seen" value={new Date(s.firstSeen).toLocaleString()} />
@@ -335,7 +341,7 @@ export function Subdomains() {
             </div>
           )}
           <p className="mt-2 text-xs text-zinc-600">
-            Status, title, IP and server come from a lightweight HTTP/HTTPS probe run during discovery. Click a row to expand.
+            Status, title, IP and server come from a lightweight HTTP/HTTPS probe run during discovery. Cloudflare-challenged hosts (403 · "Just a moment…") are re-checked through a headless browser that solves the JS challenge, so a protected host that loads in your browser shows as reachable here too. Click a row to expand.
           </p>
         </>
       )}

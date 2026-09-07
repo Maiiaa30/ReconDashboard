@@ -6,6 +6,7 @@ import { certSpotterSubdomains } from '../../sources/certspotter'
 import { crtShSubdomains } from '../../sources/crtsh'
 import { dnsxResolveHosts } from '../../sources/dnsx'
 import { httpxProbeHosts } from '../../sources/httpx'
+import { browserProbeHost } from '../../sources/browserProbe'
 import { confirmTakeover, detectTakeover } from '../../sources/takeover'
 import { subfinderSubdomains } from '../../sources/subfinder'
 import { diffAndStore, listSubdomains, updateProbe } from '../../subdomains/store'
@@ -15,6 +16,7 @@ import { alertChanges, recordAndDetectChanges } from '../../findings/changeWatch
 import type { JobContext } from '../worker'
 
 const MAX_PROBE = 200 // cap probing on very large new batches
+const MAX_BROWSER_ESCALATE = 25 // cap headless-browser Cloudflare bypass per run (heavy)
 
 // Phase 2: passive subdomain discovery. crt.sh (always) + subfinder (if present).
 // Purely passive — no active probing, no shell strings. Diffs against stored
@@ -94,7 +96,7 @@ export async function subdomainDiscoveryHandler({ params, log, signal, progress 
     const probe = httpx.probes.find((item) => item.host === host) ?? {
       host, scheme: null, status: null, title: null, server: null, ip: null, url: null,
       cnames: [], loginHint: false, apiHint: false, technologies: [], redirect: null,
-      contentHash: null, contentLength: null,
+      contentHash: null, contentLength: null, waf: null,
     }
     const dns = dnsx.records.get(host)
     if (dns) {
@@ -103,6 +105,28 @@ export async function subdomainDiscoveryHandler({ params, log, signal, progress 
     }
     return probe
   })
+
+  // Cloudflare-bypass escalation. A plain fetch only ever sees the "Just a
+  // moment…" JS interstitial (403/503) even though the host serves fine in a
+  // real browser. Re-probe those hosts through headless Chromium, which runs the
+  // challenge JS and reaches the real app — the same thing the operator's own
+  // browser does. Bounded (browsers are heavy) and skipped when Chromium is
+  // absent. Cleared results overwrite the interstitial probe in place.
+  const challenged = probes.filter((p) => p.waf === 'cloudflare' && (p.status === 403 || p.status === 503 || p.status === 429))
+  if (challenged.length) {
+    progress(`solving Cloudflare challenge for ${Math.min(challenged.length, MAX_BROWSER_ESCALATE)} host(s) via headless browser`)
+    const targets = challenged.slice(0, MAX_BROWSER_ESCALATE)
+    const cleared = await mapLimit(targets, 3, (p) => browserProbeHost(p.host, signal).catch(() => null), null)
+    for (let i = 0; i < targets.length; i++) {
+      const solved = cleared[i]
+      if (!solved) continue
+      const idx = probes.findIndex((p) => p.host === targets[i].host)
+      if (idx >= 0) probes[idx] = solved // in-place: index-aligned with toProbe
+      log.info({ host: targets[i].host }, 'cleared Cloudflare challenge via headless browser')
+    }
+    sources.cloudflareBypass = `${cleared.filter(Boolean).length}/${targets.length} cleared`
+  }
+
   const probeByHost = new Map(probes.filter((p) => p.host).map((p) => [p.host, p]))
 
   // Stamp probe data for EVERY host we probed (probes[] is index-aligned with
@@ -118,6 +142,7 @@ export async function subdomainDiscoveryHandler({ params, log, signal, progress 
       server: p?.server ?? null,
       scheme: p?.scheme ?? null,
       loginHint: p?.loginHint ?? false,
+      waf: p?.waf ?? null,
     })
     if (p?.status != null) {
       const changes = recordAndDetectChanges(domainId, `host:${host}`, {

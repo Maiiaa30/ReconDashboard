@@ -19,6 +19,7 @@ vi.mock('../db/index', async () => {
       title text,
       server text,
       scheme text,
+      waf text,
       cert_fp text,
       favicon_hash integer,
       login_hint integer NOT NULL DEFAULT 0,

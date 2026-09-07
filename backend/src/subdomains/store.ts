@@ -258,6 +258,7 @@ export interface ProbeData {
   server: string | null
   scheme: string | null
   loginHint?: boolean
+  waf?: string | null
 }
 
 /** Store HTTP-probe enrichment for a discovered host. */
@@ -270,6 +271,7 @@ export function updateProbe(domainId: number, host: string, p: ProbeData): void 
       server: p.server,
       scheme: p.scheme,
       loginHint: p.loginHint ?? false,
+      waf: p.waf ?? null,
       probedAt: new Date(),
     })
     .where(and(eq(subdomains.domainId, domainId), eq(subdomains.host, host)))
