@@ -153,13 +153,13 @@ export function Audit() {
             <table className="w-full min-w-[720px] text-sm">
               <thead className="bg-ink-900/60 text-left text-xs uppercase tracking-wide text-zinc-500">
                 <tr>
-                  <th className="px-3 py-2 w-40">When</th>
-                  <th className="px-3 py-2 w-28">Actor</th>
-                  <th className="px-3 py-2 w-40">Action</th>
-                  <th className="px-3 py-2">Target</th>
-                  <th className="px-3 py-2 w-20">Mode</th>
-                  <th className="px-3 py-2 w-16">Job</th>
-                  <th className="px-3 py-2">Detail</th>
+                  <th scope="col" className="px-3 py-2 w-40">When</th>
+                  <th scope="col" className="px-3 py-2 w-28">Actor</th>
+                  <th scope="col" className="px-3 py-2 w-40">Action</th>
+                  <th scope="col" className="px-3 py-2">Target</th>
+                  <th scope="col" className="px-3 py-2 w-20">Mode</th>
+                  <th scope="col" className="px-3 py-2 w-16">Job</th>
+                  <th scope="col" className="px-3 py-2">Detail</th>
                 </tr>
               </thead>
               <tbody>

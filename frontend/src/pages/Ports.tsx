@@ -171,12 +171,12 @@ export function Ports() {
           <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-ink-900/60 text-left text-xs uppercase tracking-wide text-zinc-500">
               <tr>
-                <th className="px-3 py-2 w-24">Port</th>
-                <th className="px-3 py-2 w-24">State</th>
-                <th className="px-3 py-2">Host / IP</th>
-                <th className="px-3 py-2 w-40">Likely service</th>
-                <th className="px-3 py-2 w-44">nmap service</th>
-                <th className="px-3 py-2 w-24">Risk</th>
+                <th scope="col" className="px-3 py-2 w-24">Port</th>
+                <th scope="col" className="px-3 py-2 w-24">State</th>
+                <th scope="col" className="px-3 py-2">Host / IP</th>
+                <th scope="col" className="px-3 py-2 w-40">Likely service</th>
+                <th scope="col" className="px-3 py-2 w-44">nmap service</th>
+                <th scope="col" className="px-3 py-2 w-24">Risk</th>
               </tr>
             </thead>
             <tbody>

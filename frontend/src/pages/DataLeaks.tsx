@@ -194,11 +194,11 @@ export function DataLeaks() {
             <table className="w-full min-w-[760px] text-sm">
               <thead className="bg-ink-900/60 text-left text-xs uppercase tracking-wide text-zinc-500">
                 <tr>
-                  <th className="px-3 py-2 w-14"></th>
-                  <th className="px-3 py-2">Account</th>
-                  <th className="px-3 py-2">Password</th>
-                  <th className="px-3 py-2 w-40">Breach / source</th>
-                  <th className="px-3 py-2 w-28">Date</th>
+                  <th scope="col" className="px-3 py-2 w-14"></th>
+                  <th scope="col" className="px-3 py-2">Account</th>
+                  <th scope="col" className="px-3 py-2">Password</th>
+                  <th scope="col" className="px-3 py-2 w-40">Breach / source</th>
+                  <th scope="col" className="px-3 py-2 w-28">Date</th>
                 </tr>
               </thead>
               <tbody>

@@ -162,7 +162,10 @@ export function AttackGraph({ paths, host, navigate }: { paths: AttackPath[]; ho
         <span className="ml-auto text-zinc-600">drag · scroll to zoom · hover / click a node</span>
       </div>
 
-      <div ref={containerRef} className="h-[460px] w-full cursor-grab">
+      {/* Canvas graph is pointer-driven; the same attack-path data is available as
+          a keyboard-navigable table on the Intel page, so expose this as a labelled
+          image rather than an unreachable interactive region. */}
+      <div ref={containerRef} role="img" aria-label="Attack-path network graph. The same IPs, hosts, ports and CVEs are listed in the attack paths table below." className="h-[460px] w-full cursor-grab">
         <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-zinc-500">Loading graph…</div>}>
           <ForceGraph2D
             ref={setFgRef as any}
@@ -308,7 +311,7 @@ export function AttackGraph({ paths, host, navigate }: { paths: AttackPath[]; ho
         <div className="absolute bottom-3 right-3 max-w-xs rounded-lg border border-hair bg-ink-900/95 p-3 text-xs shadow-pop">
           <div className="mb-1 flex items-center justify-between gap-2">
             <span className="font-mono text-zinc-100">{selected.ip}</span>
-            <button onClick={clearSelection} className="text-zinc-500 hover:text-zinc-300">
+            <button onClick={clearSelection} aria-label="Close node details" className="text-zinc-500 hover:text-zinc-300">
               ✕
             </button>
           </div>

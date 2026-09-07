@@ -216,14 +216,14 @@ export function Jobs() {
           <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-ink-900/60 text-left text-xs uppercase tracking-wide text-zinc-500">
               <tr>
-                <th className="px-3 py-2 w-12">#</th>
-                <th className="px-3 py-2">Job</th>
-                <th className="px-3 py-2">Target</th>
-                <th className="px-3 py-2 w-24">Status</th>
-                <th className="px-3 py-2">Result</th>
-                <th className="px-3 py-2 w-20">Age</th>
-                <th className="px-3 py-2 w-24">Duration</th>
-                <th className="px-3 py-2 w-20"></th>
+                <th scope="col" className="px-3 py-2 w-12">#</th>
+                <th scope="col" className="px-3 py-2">Job</th>
+                <th scope="col" className="px-3 py-2">Target</th>
+                <th scope="col" className="px-3 py-2 w-24">Status</th>
+                <th scope="col" className="px-3 py-2">Result</th>
+                <th scope="col" className="px-3 py-2 w-20">Age</th>
+                <th scope="col" className="px-3 py-2 w-24">Duration</th>
+                <th scope="col" className="px-3 py-2 w-20"></th>
               </tr>
             </thead>
             <tbody>

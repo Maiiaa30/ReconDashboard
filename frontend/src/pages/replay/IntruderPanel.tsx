@@ -399,14 +399,14 @@ function AttemptTable({
         <table className="w-full text-left font-mono text-[11px]">
           <thead className="sticky top-0 bg-ink-900 text-zinc-500">
             <tr>
-              <th className="px-2 py-1 font-medium">payload</th>
-              <th className="px-2 py-1 font-medium">status</th>
-              <th className="px-2 py-1 font-medium">length</th>
-              {hasWords && <th className="px-2 py-1 font-medium">words</th>}
-              <th className="px-2 py-1 font-medium">time</th>
-              {hasExtract && <th className="px-2 py-1 font-medium">extract</th>}
-              {hasMatched && <th className="px-2 py-1 font-medium">match</th>}
-              {canExplain && <th className="px-2 py-1 font-medium">AI</th>}
+              <th scope="col" className="px-2 py-1 font-medium">payload</th>
+              <th scope="col" className="px-2 py-1 font-medium">status</th>
+              <th scope="col" className="px-2 py-1 font-medium">length</th>
+              {hasWords && <th scope="col" className="px-2 py-1 font-medium">words</th>}
+              <th scope="col" className="px-2 py-1 font-medium">time</th>
+              {hasExtract && <th scope="col" className="px-2 py-1 font-medium">extract</th>}
+              {hasMatched && <th scope="col" className="px-2 py-1 font-medium">match</th>}
+              {canExplain && <th scope="col" className="px-2 py-1 font-medium">AI</th>}
             </tr>
           </thead>
           <tbody>

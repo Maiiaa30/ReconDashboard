@@ -55,7 +55,7 @@ function SortTh({
   const activeCol = sortKey === k
   const Icon = !activeCol ? ChevronsUpDown : sortDir === 'asc' ? ChevronUp : ChevronDown
   return (
-    <th className={`px-3 py-2 ${className}`}>
+    <th scope="col" className={`px-3 py-2 ${className}`}>
       <button
         type="button"
         onClick={() => onSort(k)}
@@ -296,7 +296,7 @@ export function Fuzzing() {
                 <SortTh label="Length" k="length" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="w-24" />
                 <SortTh label="Words" k="words" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="w-24" />
                 <SortTh label="Found" k="found" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="w-28" />
-                <th className="w-24 px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">Action</th>
+                <th scope="col" className="w-24 px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">Action</th>
               </tr>
             </thead>
             <tbody>

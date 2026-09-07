@@ -141,11 +141,11 @@ export function Origin() {
                 <table className="w-full min-w-[560px] text-sm">
                   <thead className="bg-ink-900/60 text-left text-xs text-zinc-500">
                     <tr>
-                      <th className="px-3 py-2">IP</th>
-                      <th className="px-3 py-2">Reachable</th>
-                      <th className="px-3 py-2">Status</th>
-                      <th className="px-3 py-2">Server</th>
-                      <th className="px-3 py-2">Verdict</th>
+                      <th scope="col" className="px-3 py-2">IP</th>
+                      <th scope="col" className="px-3 py-2">Reachable</th>
+                      <th scope="col" className="px-3 py-2">Status</th>
+                      <th scope="col" className="px-3 py-2">Server</th>
+                      <th scope="col" className="px-3 py-2">Verdict</th>
                     </tr>
                   </thead>
                   <tbody>

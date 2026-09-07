@@ -462,11 +462,11 @@ function AttackPathsTable({ paths }: { paths: AttackPath[] }) {
         <table className="w-full min-w-[680px] text-sm">
           <thead className="bg-ink-900/60 text-left text-xs uppercase tracking-wide text-zinc-500">
             <tr>
-              <th className="px-3 py-2">Host(s)</th>
-              <th className="px-3 py-2 w-40">IP</th>
-              <th className="px-3 py-2 w-32">ASN</th>
-              <th className="px-3 py-2">Ports</th>
-              <th className="px-3 py-2 w-28">CVEs</th>
+              <th scope="col" className="px-3 py-2">Host(s)</th>
+              <th scope="col" className="px-3 py-2 w-40">IP</th>
+              <th scope="col" className="px-3 py-2 w-32">ASN</th>
+              <th scope="col" className="px-3 py-2">Ports</th>
+              <th scope="col" className="px-3 py-2 w-28">CVEs</th>
             </tr>
           </thead>
           <tbody>
