@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown, ChevronsLeft, ChevronsRight, Globe, LogOut, Menu, Radar as RadarLogo, Search, X,
 } from 'lucide-react'
@@ -113,6 +113,11 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   // finishes — cleared when the operator opens that page.
   const [jobs, setJobs] = useState<Job[]>([])
   const [seen, setSeen] = useState<Record<string, number>>({})
+  // Baseline for the green "new results" dot: the moment this shell mounted.
+  // Without it, every module with ANY historically-completed job would light up
+  // green on every startup/reload (seen[key] defaults to 0, so any finishedAt
+  // beats it). A job must finish AFTER you opened the app to count as new.
+  const mountedAt = useRef(Date.now())
   usePoll(
     () => {
       api
@@ -138,7 +143,9 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         out[key] = 'running'
       } else if (j.status === 'done' && key !== active && out[key] !== 'running') {
         const fin = j.finishedAt ? new Date(j.finishedAt).getTime() : 0
-        if (fin > (seen[key] ?? 0)) out[key] = 'ready'
+        // Baseline is the last time you opened this page, or — if never opened
+        // this session — when the app mounted. Pre-existing finished jobs stay dark.
+        if (fin > (seen[key] ?? mountedAt.current)) out[key] = 'ready'
       }
     }
     return out
