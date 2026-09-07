@@ -1,5 +1,6 @@
 import { run, ToolNotFoundError } from '../util/exec'
 import { assertPublicHost, guardedFetch } from './guard'
+import { clearanceCliArgs, clearanceCookieArgs } from './cfClearance'
 import type { Severity } from '../owasp/activeChecks'
 
 // Runners for the extra recon binaries (katana, naabu, dalfox, sslscan) plus an
@@ -24,9 +25,12 @@ const linesOf = (s: string) =>
 
 // --- katana (crawler) --------------------------------------------------------
 export async function runKatana(scheme: string, host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
+  // Cloudflare bypass: ride a solved cf_clearance (+browser UA) so the crawler
+  // sees the real site, not the challenge page. -H is repeatable in katana.
+  const cf = await clearanceCliArgs(host, signal)
   const { stdout } = await run(
     'katana',
-    ['-u', `${scheme}://${host}`, '-silent', '-nc', '-d', '2', '-jc', '-timeout', '10', '-c', '10'],
+    ['-u', `${scheme}://${host}`, '-silent', '-nc', '-d', '2', '-jc', '-timeout', '10', '-c', '10', ...cf],
     { timeoutMs: 300_000, signal },
   )
   const urls = [...new Set(linesOf(stdout).filter((u) => /^https?:\/\//.test(u)))]
@@ -73,10 +77,13 @@ export async function runNaabu(host: string, signal?: AbortSignal): Promise<Tool
 // --- dalfox (XSS) ------------------------------------------------------------
 export async function runDalfox(scheme: string, host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
   let stdout = ''
+  // Cloudflare bypass: dalfox takes repeatable -H, so pass cf_clearance + UA when
+  // the target is challenged (else empty). Without it every probe hits the 403.
+  const cf = await clearanceCliArgs(host, signal)
   try {
     const res = await run(
       'dalfox',
-      ['url', `${scheme}://${host}`, '--silence', '--no-color', '--skip-bav', '--timeout', '10', '--worker', '30'],
+      ['url', `${scheme}://${host}`, '--silence', '--no-color', '--skip-bav', '--timeout', '10', '--worker', '30', ...cf],
       { timeoutMs: 300_000, signal },
     )
     stdout = res.stdout
@@ -140,6 +147,10 @@ export async function runSslscan(host: string, signal?: AbortSignal): Promise<To
 // 20-min timeout + AbortSignal still bound it and allow operator cancel).
 export async function runSqlmap(scheme: string, host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
   let stdout = ''
+  // Cloudflare bypass: sqlmap uses --cookie/--user-agent (not -H). When the host
+  // is challenged, pass the solved clearance + its matching UA and drop
+  // --random-agent (a random UA wouldn't match the cf_clearance binding).
+  const cf = await clearanceCookieArgs(host, signal)
   try {
     const res = await run(
       'sqlmap',
@@ -149,7 +160,7 @@ export async function runSqlmap(scheme: string, host: string, signal?: AbortSign
         '--crawl=2', // discover testable URLs under the host
         '--forms', // also submit + test HTML forms
         '--level=1', '--risk=1', // keep it light (default depth/aggressiveness)
-        '--random-agent',
+        ...(cf.length ? cf : ['--random-agent']),
         '--disable-coloring',
         '--timeout=10', '--retries=1',
         '--flush-session',

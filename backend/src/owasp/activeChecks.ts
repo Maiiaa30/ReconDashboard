@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { resolveDns } from '../sources/dns'
 import { guardedFetchRaw } from '../sources/guard'
+import { detectWaf } from '../sources/httpProbe'
+import { clearanceHeaders } from '../sources/cfClearance'
 import { isInternalIp } from '../util/validate'
 import { analyzeCsp, analyzeHsts } from './csp'
 import { corsVerdict } from './cors'
@@ -538,8 +540,24 @@ export async function runActiveChecks(
   const allIps = [...(dns?.a ?? []), ...(dns?.aaaa ?? [])]
   if (allIps.some(isInternalIp)) return { findings: [], reachable: false, targetedParams: 0 }
 
-  const base = await fetchRaw(baseUrl, { follow: true, headers, signal: ctx.signal })
+  let base = await fetchRaw(baseUrl, { follow: true, headers, signal: ctx.signal })
   if (!base) return { findings: [], reachable: false, targetedParams: 0 }
+
+  // Cloudflare bypass: if the landing request is a challenge (403/503 behind
+  // Cloudflare), solve it once in a headless browser and merge the resulting
+  // cf_clearance + browser UA into ctx.headers so EVERY subsequent check rides
+  // the same session. Mutating `headers` in place also updates ctx.headers (same
+  // reference). No-op when not challenged or when the solve fails.
+  if ((base.status === 403 || base.status === 503) && detectWaf(base.headers, base.body) === 'cloudflare') {
+    const cf = await clearanceHeaders(host, ctx.signal)
+    if (cf.Cookie) {
+      // Preserve an operator-set Cookie by concatenating rather than clobbering.
+      if (headers.Cookie) cf.Cookie = `${headers.Cookie}; ${cf.Cookie}`
+      Object.assign(headers, cf)
+      const reprobe = await fetchRaw(baseUrl, { follow: true, headers, signal: ctx.signal })
+      if (reprobe) base = reprobe
+    }
+  }
 
   const findings: ActiveFinding[] = [...checkSecurityHeaders(base, baseUrl), ...checkCsp(base, baseUrl)]
   const groups = await Promise.all([

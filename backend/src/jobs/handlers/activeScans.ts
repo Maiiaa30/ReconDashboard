@@ -7,6 +7,7 @@ import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
 import { fingerprintHost } from '../../sources/fingerprint'
 import { assertPublicHost } from '../../sources/guard'
+import { clearanceCliArgs } from '../../sources/cfClearance'
 import { run, toolExists } from '../../util/exec'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
 import type { JobContext } from '../worker'
@@ -176,6 +177,14 @@ export async function nucleiHandler({ params, log, signal, progress }: JobContex
   const scheme = params.scheme === 'http' ? 'http' : 'https'
   const url = `${scheme}://${target}`
   const args = ['-u', url, '-jsonl', '-silent', '-no-color']
+  // Cloudflare bypass: if the target is behind a Cloudflare challenge, solve it
+  // once in a headless browser and pass the cf_clearance cookie + browser UA so
+  // nuclei's own requests aren't answered with "Just a moment…". No-op otherwise.
+  const cfArgs = await clearanceCliArgs(target, signal)
+  if (cfArgs.length) {
+    args.push(...cfArgs)
+    progress(`nuclei: using solved Cloudflare clearance for ${target}`)
+  }
   if (params.severity && /^[a-z,]+$/.test(String(params.severity))) {
     args.push('-severity', String(params.severity))
   }
@@ -315,6 +324,18 @@ export async function ffufHandler({ params, log, signal, progress }: JobContext)
       args.push('-ac', '-recursion', '-recursion-depth', String(recursionDepth))
     }
     progress(`fuzzing ${target} with ffuf${recursion ? ` (recursive, depth ${recursionDepth})` : ''}`)
+  }
+
+  // Cloudflare bypass: ride a solved cf_clearance so ffuf isn't fuzzing the
+  // "Just a moment…" interstitial (every path would false-hit the same challenge
+  // size). Skipped for vhost mode — the Host header is the fuzz target there, so
+  // the clearance host wouldn't match. No-op when the target isn't challenged.
+  if (!vhost) {
+    const cfArgs = await clearanceCliArgs(target, signal)
+    if (cfArgs.length) {
+      args.push(...cfArgs)
+      progress(`ffuf: using solved Cloudflare clearance for ${target}`)
+    }
   }
 
   try {
