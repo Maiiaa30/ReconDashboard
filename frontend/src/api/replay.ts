@@ -1,4 +1,5 @@
 import { del, get, post, put } from './http'
+import { sitemapResponseSchema } from './schemas'
 
 // Replay (Repeater): the full response from a server-side send.
 export interface ReplayResponse {
@@ -77,18 +78,9 @@ export interface ReplayHistoryDetail extends ReplayHistoryItem {
   respBody: string | null
 }
 
-export interface SitemapEndpoint {
-  path: string
-  method: string
-  status: number | null
-  source: 'captured' | 'fuzzed' | 'discovered'
-  url: string
-}
-export interface SitemapHost {
-  host: string
-  count: number
-  endpoints: SitemapEndpoint[]
-}
+// SitemapEndpoint and SitemapHost are defined by their zod schemas and
+// re-exported so call sites import them unchanged.
+export type { SitemapEndpoint, SitemapHost } from './schemas'
 
 export const replayApi = {
   // replay (Repeater): send one composed request server-side, gated to the domain's scope
@@ -202,5 +194,5 @@ export const replayApi = {
   deleteMatchReplace: (id: number) => del<{ ok: true }>(`/match-replace/${id}`),
 
   // Workbench sitemap (endpoint tree from captured + discovered data).
-  sitemap: (domainId: number) => get<{ hosts: SitemapHost[] }>(`/replay/sitemap?domainId=${domainId}`),
+  sitemap: (domainId: number) => get(`/replay/sitemap?domainId=${domainId}`, {}, sitemapResponseSchema),
 }

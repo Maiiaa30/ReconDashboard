@@ -1,27 +1,13 @@
 import { get, patch, post, type RequestOptions } from './http'
 import type { ReportSnapshot } from './findings'
+import {
+  correlateResponseSchema, nextActionsResponseSchema, chainsResponseSchema,
+  type NextActionStatus,
+} from './schemas'
 
-export interface AttackPath {
-  ip: string
-  cdn: string | null
-  asn: string | null
-  asnName: string | null
-  hosts: string[]
-  ports: number[]
-  cveCount: number
-  worstCvss: number | null
-  kev: boolean
-  score: number
-}
-
-// Hosts sharing a TLS cert / favicon hash — same asset across different IPs.
-export interface SignatureCluster {
-  key: string
-  kind: 'cert' | 'favicon'
-  signature: string
-  hosts: string[]
-  ips: string[]
-}
+// These types are defined by their zod schemas (single source of truth) and
+// re-exported so call sites import them from the api facade unchanged.
+export type { AttackPath, SignatureCluster, NextAction, NextActionStatus, ChainSuggestion } from './schemas'
 
 export type AdviceActionKind = 'nmap' | 'naabu' | 'nuclei' | 'ffuf' | 'dalfox' | 'sslscan' | 'katana' | 'owasp'
 export interface AdviceAction {
@@ -35,15 +21,6 @@ export interface IntelAdvice {
   quickWins: { item: string; why: string }[]
   deeperDigs: { item: string; why: string }[]
 }
-export interface ChainSuggestion {
-  id: string
-  title: string
-  rationale: string
-  severity: 'critical' | 'high' | 'medium'
-  findingIds: number[]
-  action?: AdviceAction
-}
-
 export type StepStatus = 'found' | 'done' | 'running' | 'todo' | 'skipped'
 export interface StepAction {
   kind: 'discover' | 'exposure' | 'osint' | 'screenshots' | 'origin' | 'owasp' | 'nmap' | 'nuclei' | 'ffuf' | 'tool'
@@ -71,23 +48,6 @@ export interface Methodology {
   tech: string[]
   ports: number[]
   skills: MethodologySkill[]
-}
-
-export type NextActionStatus = 'open' | 'attempted' | 'completed' | 'dismissed'
-export interface NextAction {
-  key: string
-  priority: number
-  risk: 'critical' | 'high' | 'medium' | 'low'
-  mode: 'passive' | 'loud' | 'manual'
-  automation: 'automated' | 'guided'
-  source: 'assessment' | 'finding' | 'attack_chain' | 'methodology'
-  title: string
-  why: string
-  target: string
-  page: string
-  moduleLabel: string
-  status: NextActionStatus
-  findingIds: number[]
 }
 
 export type AssessmentProfile = 'passive' | 'monitor' | 'web' | 'full' | 'custom'
@@ -180,15 +140,15 @@ export interface AssessmentComparison {
 
 export const intelApi = {
   // attack-path correlation
-  correlate: (id: number) => get<{ paths: AttackPath[]; signatureClusters: SignatureCluster[] }>(`/domains/${id}/correlate`),
+  correlate: (id: number) => get(`/domains/${id}/correlate`, {}, correlateResponseSchema),
 
   // recon methodology / coverage
   methodology: (id: number, options?: RequestOptions) => get<Methodology>(`/domains/${id}/methodology`, options),
   setMethodologyStep: (id: number, skillId: string, stepKey: string, state: 'done' | 'skipped' | 'clear') =>
     patch<Methodology>(`/domains/${id}/methodology/step`, { skillId, stepKey, state }),
-  nextActions: (id: number, includeClosed = true, options?: RequestOptions) => get<{ actions: NextAction[] }>(`/domains/${id}/next-actions?includeClosed=${includeClosed}`, options),
+  nextActions: (id: number, includeClosed = true, options?: RequestOptions) => get(`/domains/${id}/next-actions?includeClosed=${includeClosed}`, options, nextActionsResponseSchema),
   updateNextAction: (id: number, actionKey: string, state: NextActionStatus) =>
-    patch<{ actions: NextAction[] }>(`/domains/${id}/next-actions`, { actionKey, state }),
+    patch(`/domains/${id}/next-actions`, { actionKey, state }, nextActionsResponseSchema),
 
   // Persistent, dependency-aware assessment workflows.
   assessmentRuns: (id: number, options?: RequestOptions) => get<{ runs: AssessmentRun[] }>(`/domains/${id}/assessment-runs`, options),
@@ -207,5 +167,5 @@ export const intelApi = {
 
   // AI intel advisor: structured, prioritized testing plan (optional; llm.enabled)
   adviseIntel: (id: number) => post<{ advice: IntelAdvice; model: string; note: string }>(`/domains/${id}/intel/advise`),
-  chainSuggestions: (id: number) => get<{ chains: ChainSuggestion[] }>(`/domains/${id}/chains`),
+  chainSuggestions: (id: number) => get(`/domains/${id}/chains`, {}, chainsResponseSchema),
 }

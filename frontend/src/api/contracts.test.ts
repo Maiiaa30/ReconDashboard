@@ -3,6 +3,7 @@ import { validate, ContractError } from './http'
 import {
   findingSchema, jobSchema, subdomainPageSchema,
   captureSchema, domainSchema, domainOverviewSchema, auditEntrySchema,
+  metaStatusSchema, correlateResponseSchema, checkHostResultSchema, sitemapResponseSchema, nextActionSchema,
 } from './schemas'
 
 const finding = {
@@ -58,5 +59,41 @@ describe('response contracts', () => {
 
     const audit = { id: 1, ts: 't', actor: 'op', action: 'scan', domainId: null, target: null, mode: null, jobId: null, detail: null }
     expect(validate(auditEntrySchema, audit, '/audit').action).toBe('scan')
+  })
+
+  it('accepts intel, checkhost, sitemap and meta shapes', () => {
+    const correlate = { paths: [], signatureClusters: [] }
+    expect(validate(correlateResponseSchema, correlate, '/correlate').paths).toEqual([])
+
+    const na = {
+      key: 'k', priority: 1, risk: 'high', mode: 'loud', automation: 'guided', source: 'finding',
+      title: 't', why: 'w', target: 'x', page: 'findings', moduleLabel: 'Findings', status: 'open', findingIds: [],
+    }
+    expect(validate(nextActionSchema, na, '/next').risk).toBe('high')
+    expect(() => validate(nextActionSchema, { ...na, mode: 'bogus' }, '/next')).toThrow(ContractError)
+
+    const check = {
+      target: 'a.com', resolvedIp: '1.2.3.4',
+      dns: { a: ['1.2.3.4'], aaaa: [], cname: [], ns: [] },
+      ping: { available: true, alive: true, transmitted: 1, received: 1, lossPct: 0, rttMs: { min: 1, avg: 1, max: 1 }, error: null },
+      tcp: [{ port: 443, open: true, latencyMs: 5 }], http: null,
+    }
+    expect(validate(checkHostResultSchema, check, '/check').tcp[0].port).toBe(443)
+
+    const sitemap = { hosts: [{ host: 'a.com', count: 1, endpoints: [{ path: '/', method: 'GET', status: 200, source: 'captured', url: 'https://a.com/' }] }] }
+    expect(validate(sitemapResponseSchema, sitemap, '/sitemap').hosts[0].endpoints[0].source).toBe('captured')
+
+    const meta = {
+      scorer: 'rules', aiProvider: 'none', scheduler: { enabled: true, intervalMinutes: 60 }, discordConfigured: false,
+      tools: { subfinder: true, nmap: true, nuclei: true, ffuf: true, chromium: true, dig: true },
+      wordlists: [],
+      readiness: {
+        checkedAt: 1, database: { ok: true, sizeBytes: 1 }, storage: { freeBytes: null },
+        worker: { running: true, startedAt: null, lastTickAt: null, lanes: { passive: true, loud: true } },
+        queue: { queued: 0, running: 0, failed: 0, lastActivityAt: null },
+        capture: { enabled: false, extensionSeenAt: null }, backup: { serverPassphraseConfigured: false },
+      },
+    }
+    expect(validate(metaStatusSchema, meta, '/meta').tools.nmap).toBe(true)
   })
 })

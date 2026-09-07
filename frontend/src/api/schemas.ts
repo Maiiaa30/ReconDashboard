@@ -276,3 +276,157 @@ export type Domain = z.infer<typeof domainSchema>
 export type DomainOverview = z.infer<typeof domainOverviewSchema>
 export type HomeFinding = z.infer<typeof homeFindingSchema>
 export type RecentChange = z.infer<typeof recentChangeSchema>
+
+// --- Tools (ad-hoc lookups) --------------------------------------------------
+export const whoisResultSchema = z
+  .object({ query: z.string(), kind: z.enum(['domain', 'ip']), server: z.string(), raw: z.string() })
+  .passthrough()
+
+const pingResultSchema = z
+  .object({
+    available: z.boolean(), alive: z.boolean(),
+    transmitted: z.number().nullable(), received: z.number().nullable(), lossPct: z.number().nullable(),
+    rttMs: z.object({ min: z.number(), avg: z.number(), max: z.number() }).passthrough().nullable(),
+    error: z.string().nullable(),
+  })
+  .passthrough()
+
+const tcpResultSchema = z.object({ port: z.number(), open: z.boolean(), latencyMs: z.number().nullable() }).passthrough()
+
+export const checkHostResultSchema = z
+  .object({
+    target: z.string(),
+    resolvedIp: z.string().nullable(),
+    // No .passthrough() here: its index signature would defeat the `'error' in dns`
+    // narrowing the UI relies on to tell a resolved result from a DNS error.
+    dns: z.union([
+      z.object({ a: z.array(z.string()), aaaa: z.array(z.string()), cname: z.array(z.string()), ns: z.array(z.string()) }),
+      z.object({ error: z.string() }),
+    ]),
+    ping: pingResultSchema,
+    tcp: z.array(tcpResultSchema),
+    http: z
+      .object({ scheme: z.string().nullable(), status: z.number().nullable(), title: z.string().nullable(), server: z.string().nullable(), url: z.string().nullable() })
+      .passthrough()
+      .nullable(),
+  })
+  .passthrough()
+
+// --- Intel: attack paths + next actions + chains -----------------------------
+export const attackPathSchema = z
+  .object({
+    ip: z.string(), cdn: z.string().nullable(), asn: z.string().nullable(), asnName: z.string().nullable(),
+    hosts: z.array(z.string()), ports: z.array(z.number()),
+    cveCount: z.number(), worstCvss: z.number().nullable(), kev: z.boolean(), score: z.number(),
+  })
+  .passthrough()
+
+export const signatureClusterSchema = z
+  .object({ key: z.string(), kind: z.enum(['cert', 'favicon']), signature: z.string(), hosts: z.array(z.string()), ips: z.array(z.string()) })
+  .passthrough()
+
+export const correlateResponseSchema = z
+  .object({ paths: z.array(attackPathSchema), signatureClusters: z.array(signatureClusterSchema) })
+  .passthrough()
+
+const adviceActionSchema = z
+  .object({ kind: z.enum(['nmap', 'naabu', 'nuclei', 'ffuf', 'dalfox', 'sslscan', 'katana', 'owasp']), target: z.string() })
+  .passthrough()
+
+export const nextActionSchema = z
+  .object({
+    key: z.string(), priority: z.number(),
+    risk: z.enum(['critical', 'high', 'medium', 'low']),
+    mode: z.enum(['passive', 'loud', 'manual']),
+    automation: z.enum(['automated', 'guided']),
+    source: z.enum(['assessment', 'finding', 'attack_chain', 'methodology']),
+    title: z.string(), why: z.string(), target: z.string(), page: z.string(), moduleLabel: z.string(),
+    status: z.enum(['open', 'attempted', 'completed', 'dismissed']),
+    findingIds: z.array(z.number()),
+  })
+  .passthrough()
+
+export const nextActionsResponseSchema = z.object({ actions: z.array(nextActionSchema) }).passthrough()
+
+export const chainSuggestionSchema = z
+  .object({
+    id: z.string(), title: z.string(), rationale: z.string(),
+    severity: z.enum(['critical', 'high', 'medium']),
+    findingIds: z.array(z.number()), action: adviceActionSchema.optional(),
+  })
+  .passthrough()
+
+export const chainsResponseSchema = z.object({ chains: z.array(chainSuggestionSchema) }).passthrough()
+
+// --- Replay: sitemap ---------------------------------------------------------
+export const sitemapEndpointSchema = z
+  .object({
+    path: z.string(),
+    method: z.string(),
+    status: z.number().nullable(),
+    source: z.enum(['captured', 'fuzzed', 'discovered']),
+    url: z.string(),
+  })
+  .passthrough()
+
+export const sitemapHostSchema = z
+  .object({ host: z.string(), count: z.number(), endpoints: z.array(sitemapEndpointSchema) })
+  .passthrough()
+
+export const sitemapResponseSchema = z.object({ hosts: z.array(sitemapHostSchema) }).passthrough()
+
+// --- System readiness --------------------------------------------------------
+export const metaStatusSchema = z
+  .object({
+    scorer: z.string(),
+    aiProvider: z.string(),
+    scheduler: z.object({ enabled: z.boolean(), intervalMinutes: z.number() }).passthrough(),
+    discordConfigured: z.boolean(),
+    llm: z.object({ enabled: z.boolean(), model: z.string().nullable() }).passthrough().optional(),
+    leaks: z.object({ enabled: z.boolean(), provider: z.string().nullable() }).passthrough().optional(),
+    tools: z
+      .object({
+        subfinder: z.boolean(), nmap: z.boolean(), nuclei: z.boolean(), ffuf: z.boolean(), chromium: z.boolean(), dig: z.boolean(),
+        katana: z.boolean().optional(), naabu: z.boolean().optional(), dalfox: z.boolean().optional(),
+        dnsx: z.boolean().optional(), httpx: z.boolean().optional(), sslscan: z.boolean().optional(),
+        sqlmap: z.boolean().optional(), wpenum: z.boolean().optional(), bypass403: z.boolean().optional(),
+        methods: z.boolean().optional(), datastores: z.boolean().optional(),
+      })
+      .passthrough(),
+    wordlists: z.array(
+      z.object({ path: z.string(), name: z.string(), sizeKb: z.number(), category: z.enum(['payload', 'content']).optional() }).passthrough(),
+    ),
+    readiness: z
+      .object({
+        checkedAt: z.number(),
+        database: z.object({ ok: z.boolean(), sizeBytes: z.number() }).passthrough(),
+        storage: z.object({ freeBytes: z.number().nullable() }).passthrough(),
+        worker: z
+          .object({
+            running: z.boolean(),
+            startedAt: z.number().nullable(),
+            lastTickAt: z.number().nullable(),
+            lanes: z.object({ passive: z.boolean(), loud: z.boolean() }).passthrough(),
+          })
+          .passthrough(),
+        queue: z.object({ queued: z.number(), running: z.number(), failed: z.number(), lastActivityAt: z.number().nullable() }).passthrough(),
+        capture: z.object({ enabled: z.boolean(), extensionSeenAt: z.number().nullable() }).passthrough(),
+        backup: z.object({ serverPassphraseConfigured: z.boolean() }).passthrough(),
+      })
+      .passthrough(),
+  })
+  .passthrough()
+
+export type WhoisResult = z.infer<typeof whoisResultSchema>
+export type CheckHostResult = z.infer<typeof checkHostResultSchema>
+export type PingResult = z.infer<typeof pingResultSchema>
+export type TcpResult = z.infer<typeof tcpResultSchema>
+export type AttackPath = z.infer<typeof attackPathSchema>
+export type SignatureCluster = z.infer<typeof signatureClusterSchema>
+export type NextAction = z.infer<typeof nextActionSchema>
+export type NextActionStatus = z.infer<typeof nextActionSchema>['status']
+export type ChainSuggestion = z.infer<typeof chainSuggestionSchema>
+export type SitemapEndpoint = z.infer<typeof sitemapEndpointSchema>
+export type SitemapHost = z.infer<typeof sitemapHostSchema>
+export type MetaStatus = z.infer<typeof metaStatusSchema>
+export type Wordlist = z.infer<typeof metaStatusSchema>['wordlists'][number]

@@ -157,9 +157,12 @@ describe('api facade composition', () => {
   // One request from a few different clients confirms the spread kept each
   // client wired to the real transport (URL + verb), not just present by name.
   it('routes composed client methods through the shared transport', async () => {
-    // Shape satisfies the one validated call here (api.audit → auditPageSchema);
-    // the unvalidated calls ignore the extra fields.
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ entries: [], nextCursor: null }))
+    // Shape is a superset satisfying every validated call here (api.correlate →
+    // correlateResponseSchema, api.audit → auditPageSchema); unvalidated calls
+    // ignore the extra fields.
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ entries: [], nextCursor: null, paths: [], signatureClusters: [] }),
+    )
     vi.stubGlobal('fetch', fetchMock)
 
     await api.me() // auth

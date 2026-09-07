@@ -1,40 +1,16 @@
+import { z } from 'zod'
 import { post } from './http'
+import { whoisResultSchema, checkHostResultSchema } from './schemas'
 
-export interface WhoisResult {
-  query: string
-  kind: 'domain' | 'ip'
-  server: string
-  raw: string
-}
+// Types now live with their zod schemas (single source of truth).
+export type { WhoisResult, CheckHostResult, PingResult, TcpResult } from './schemas'
 
-export interface TcpResult {
-  port: number
-  open: boolean
-  latencyMs: number | null
-}
-
-export interface PingResult {
-  available: boolean
-  alive: boolean
-  transmitted: number | null
-  received: number | null
-  lossPct: number | null
-  rttMs: { min: number; avg: number; max: number } | null
-  error: string | null
-}
-
-export interface CheckHostResult {
-  target: string
-  resolvedIp: string | null
-  dns: { a: string[]; aaaa: string[]; cname: string[]; ns: string[] } | { error: string }
-  ping: PingResult
-  tcp: TcpResult[]
-  http: { scheme: string | null; status: number | null; title: string | null; server: string | null; url: string | null } | null
-}
+const whoisResponse = z.object({ result: whoisResultSchema }).passthrough()
+const checkHostResponse = z.object({ result: checkHostResultSchema }).passthrough()
 
 export const toolsApi = {
   // ad-hoc lookup tools (not scoped to a tracked domain)
-  whois: (query: string) => post<{ result: WhoisResult }>('/tools/whois', { query }),
+  whois: (query: string) => post('/tools/whois', { query }, whoisResponse),
   checkHost: (host: string, ports?: number[]) =>
-    post<{ result: CheckHostResult }>('/tools/check-host', { host, ...(ports ? { ports } : {}) }),
+    post('/tools/check-host', { host, ...(ports ? { ports } : {}) }, checkHostResponse),
 }

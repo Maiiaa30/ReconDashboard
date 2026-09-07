@@ -1,54 +1,9 @@
 import { apiError, get, readResponseBody, type RequestOptions } from './http'
+import { metaStatusSchema } from './schemas'
 
-export interface Wordlist {
-  path: string
-  name: string
-  sizeKb: number
-  category?: 'payload' | 'content'
-}
-
-export interface MetaStatus {
-  scorer: string
-  aiProvider: string
-  scheduler: { enabled: boolean; intervalMinutes: number }
-  discordConfigured: boolean
-  llm?: { enabled: boolean; model: string | null }
-  leaks?: { enabled: boolean; provider: string | null }
-  tools: {
-    subfinder: boolean
-    nmap: boolean
-    nuclei: boolean
-    ffuf: boolean
-    chromium: boolean
-    dig: boolean
-    katana?: boolean
-    naabu?: boolean
-    dalfox?: boolean
-    dnsx?: boolean
-    httpx?: boolean
-    sslscan?: boolean
-    sqlmap?: boolean
-    wpenum?: boolean
-    bypass403?: boolean
-    methods?: boolean
-    datastores?: boolean
-  }
-  wordlists: Wordlist[]
-  readiness: {
-    checkedAt: number
-    database: { ok: boolean; sizeBytes: number }
-    storage: { freeBytes: number | null }
-    worker: {
-      running: boolean
-      startedAt: number | null
-      lastTickAt: number | null
-      lanes: { passive: boolean; loud: boolean }
-    }
-    queue: { queued: number; running: number; failed: number; lastActivityAt: number | null }
-    capture: { enabled: boolean; extensionSeenAt: number | null }
-    backup: { serverPassphraseConfigured: boolean }
-  }
-}
+// MetaStatus and Wordlist are defined by their zod schema (single source of
+// truth) and re-exported so call sites import them unchanged.
+export type { MetaStatus, Wordlist } from './schemas'
 
 export interface BackupCheckResult {
   ok: boolean
@@ -78,7 +33,7 @@ async function uploadBackup(
 }
 
 export const systemApi = {
-  meta: (options?: RequestOptions) => get<MetaStatus>('/meta/status', options),
+  meta: (options?: RequestOptions) => get('/meta/status', options, metaStatusSchema),
   backupStatus: () => get<{ serverPassphraseConfigured: boolean }>('/backup/status'),
   backupVerify: (blob: Blob, passphrase?: string) => uploadBackup('/backup/verify', blob, passphrase),
   backupRestore: (blob: Blob, passphrase: string | undefined, reauth: { password: string; token?: string }) =>
