@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Repeat, Crosshair, KeyRound, FlaskConical, Fingerprint, Network } from 'lucide-react'
 import { api, type Identity } from '../api'
 import { useApp } from '../state'
 import { Empty, PageHeader } from '../components/ui'
+import { Tabs } from '../components/Tabs'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/Confirm'
 import { takePendingReplay } from '../lib/replayHandoff'
@@ -94,14 +95,19 @@ export function Replay() {
         title="Replay"
         subtitle={`${selected.host} — compose, send and fuzz requests (server-side, scoped to this target)`}
         actions={
-          <div className="inline-flex rounded-lg border border-hair bg-ink-850 p-0.5">
-            <ModeTab active={mode === 'repeater'} onClick={() => setMode('repeater')} icon={<Repeat size={14} />} label="Repeater" />
-            <ModeTab active={mode === 'intruder'} onClick={() => setMode('intruder')} icon={<Crosshair size={14} />} label="Intruder" />
-            <ModeTab active={mode === 'authz'} onClick={() => setMode('authz')} icon={<KeyRound size={14} />} label="Authz" />
-            <ModeTab active={mode === 'inject'} onClick={() => setMode('inject')} icon={<FlaskConical size={14} />} label="Inject" />
-            <ModeTab active={mode === 'jwt'} onClick={() => setMode('jwt')} icon={<Fingerprint size={14} />} label="JWT" />
-            <ModeTab active={mode === 'sitemap'} onClick={() => setMode('sitemap')} icon={<Network size={14} />} label="Sitemap" />
-          </div>
+          <Tabs
+            label="Replay tool"
+            value={mode}
+            onChange={setMode}
+            items={[
+              { key: 'repeater', label: 'Repeater', icon: <Repeat size={14} /> },
+              { key: 'intruder', label: 'Intruder', icon: <Crosshair size={14} /> },
+              { key: 'authz', label: 'Authz', icon: <KeyRound size={14} /> },
+              { key: 'inject', label: 'Inject', icon: <FlaskConical size={14} /> },
+              { key: 'jwt', label: 'JWT', icon: <Fingerprint size={14} /> },
+              { key: 'sitemap', label: 'Sitemap', icon: <Network size={14} /> },
+            ]}
+          />
         }
       />
 
@@ -120,16 +126,18 @@ export function Replay() {
       )}
 
       {mode === 'sitemap' ? (
-        <SitemapPanel
-          domainId={selected.id}
-          onOpen={(m, u) => {
-            if ((METHODS as readonly string[]).includes(m)) setMethod(m as (typeof METHODS)[number])
-            setUrl(u)
-            setMode('repeater')
-          }}
-        />
+        <div role="tabpanel" aria-label="Sitemap tool">
+          <SitemapPanel
+            domainId={selected.id}
+            onOpen={(m, u) => {
+              if ((METHODS as readonly string[]).includes(m)) setMethod(m as (typeof METHODS)[number])
+              setUrl(u)
+              setMode('repeater')
+            }}
+          />
+        </div>
       ) : (
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2 lg:grid-rows-1">
+      <div role="tabpanel" aria-label={`${mode} tool`} className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2 lg:grid-rows-1">
         <RequestEditor
           mode={mode}
           method={method}
@@ -229,16 +237,4 @@ export function Replay() {
   )
 }
 
-function ModeTab({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: ReactNode; label: string }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
-        active ? 'bg-accent-500/15 text-accent-fg' : 'text-zinc-400 hover:text-zinc-200'
-      }`}
-    >
-      {icon} {label}
-    </button>
-  )
-}
 

@@ -157,6 +157,9 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault()
         setPaletteOpen((v) => !v)
+      } else if (e.key === 'Escape') {
+        // Close the mobile nav drawer on Escape (keyboard parity with the backdrop tap).
+        setNavOpen((open) => (open ? false : open))
       }
     }
     window.addEventListener('keydown', onKey)
@@ -209,7 +212,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
 
       {/* Dim backdrop behind the mobile drawer (tap to close). */}
       {navOpen && (
-        <div className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm md:hidden" onClick={() => setNavOpen(false)} />
+        <div aria-hidden="true" className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm md:hidden" onClick={() => setNavOpen(false)} />
       )}
 
       {/* Sidebar: a static column on desktop, a slide-in drawer on mobile. */}
