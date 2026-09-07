@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 
 // In-app confirmation dialog to replace window.confirm/alert — themed, keyboard
@@ -19,6 +19,11 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [dialog, setDialog] = useState<ConfirmOptions | null>(null)
   const resolver = useRef<((v: boolean) => void) | null>(null)
   const confirmBtn = useRef<HTMLButtonElement>(null)
+  const panel = useRef<HTMLDivElement>(null)
+  // The element focused before the dialog opened, so focus can be restored to it.
+  const restoreFocus = useRef<HTMLElement | null>(null)
+  const titleId = useId()
+  const descId = useId()
 
   const confirm = useCallback<ConfirmFn>((o) => {
     // If a dialog is somehow already open, resolve its promise false rather than
@@ -36,18 +41,41 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     resolver.current = null
   }, [])
 
-  // Esc cancels; the confirm button is auto-focused so Enter/Space activates it.
+  // While open: Esc cancels, the confirm button is auto-focused (Enter/Space
+  // activates it), Tab is trapped inside the dialog, and on close focus returns
+  // to whatever had it before — the keyboard baseline expected of a modal.
   useEffect(() => {
     if (!dialog) return
+    restoreFocus.current = (document.activeElement as HTMLElement | null) ?? null
     confirmBtn.current?.focus()
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
         close(false)
+        return
+      }
+      if (e.key === 'Tab') {
+        const nodes = panel.current?.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        )
+        if (!nodes || nodes.length === 0) return
+        const first = nodes[0]
+        const last = nodes[nodes.length - 1]
+        const active = document.activeElement
+        if (e.shiftKey && (active === first || !panel.current?.contains(active))) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault()
+          first.focus()
+        }
       }
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      restoreFocus.current?.focus?.()
+    }
   }, [dialog, close])
 
   const danger = dialog?.tone === 'danger'
@@ -59,8 +87,11 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => close(false)} />
           <div
+            ref={panel}
             role="alertdialog"
             aria-modal="true"
+            aria-labelledby={dialog.title ? titleId : undefined}
+            aria-describedby={descId}
             className="relative w-full max-w-sm rounded-2xl border border-hair bg-ink-850 p-5 shadow-pop"
           >
             <div className="flex items-start gap-3">
@@ -70,8 +101,8 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 </span>
               )}
               <div className="min-w-0">
-                {dialog.title && <h2 className="text-base font-semibold text-zinc-100">{dialog.title}</h2>}
-                <div className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">{dialog.message}</div>
+                {dialog.title && <h2 id={titleId} className="text-base font-semibold text-zinc-100">{dialog.title}</h2>}
+                <div id={descId} className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">{dialog.message}</div>
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">
