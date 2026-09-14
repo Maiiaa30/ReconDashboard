@@ -169,7 +169,7 @@ function OwaspCard({ item }: { item: OwaspLlmItem }) {
     <Card className={`border-l-4 ${SEV_BORDER[item.severity]}`}>
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone="indigo">{item.id}</Badge>
-        <h3 className="text-sm font-semibold text-zinc-100">{item.title}</h3>
+        <h2 className="text-sm font-semibold text-zinc-100">{item.title}</h2>
         <Badge tone={SEV_TONE[item.severity]}>{item.severity}</Badge>
         <a
           href={item.ref}
@@ -187,7 +187,7 @@ function OwaspCard({ item }: { item: OwaspLlmItem }) {
       </div>
       {item.examples.length > 0 && (
         <div className="mt-3">
-          <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">Example probes</h4>
+          <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">Example probes</h3>
           <div className="space-y-1.5">
             {item.examples.map((ex, i) => (
               <CopyBlock key={i} text={ex} />
@@ -205,7 +205,7 @@ function PayloadCard({ p }: { p: Payload }) {
     <Card className={`flex flex-col border-l-4 ${style.border}`}>
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={style.tone}>{p.category}</Badge>
-        <h3 className="text-sm font-semibold text-zinc-100">{p.title}</h3>
+        <h2 className="text-sm font-semibold text-zinc-100">{p.title}</h2>
       </div>
       <div className="mt-2">
         <CopyBlock text={p.text} />
@@ -228,7 +228,7 @@ function MethodologyCard({ m }: { m: (typeof MODEL_METHODOLOGY)[number] }) {
   return (
     <Card>
       <div className="flex items-center gap-2">
-        <h3 className="text-sm font-semibold text-zinc-100">{info.label}</h3>
+        <h2 className="text-sm font-semibold text-zinc-100">{info.label}</h2>
         <span className="text-xs text-zinc-500">{info.vendor}</span>
       </div>
       <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">{m.guardrails}</p>
@@ -246,7 +246,7 @@ function ListBlock({ title, items, tone = 'zinc' }: { title: string; items: stri
   const dot = { zinc: 'bg-zinc-600', green: 'bg-green-500', amber: 'bg-amber-500' }[tone]
   return (
     <div>
-      <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</h4>
+      <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</h3>
       <ul className="space-y-1">
         {items.map((it, i) => (
           <li key={i} className="flex gap-2 text-xs leading-relaxed text-zinc-300">
