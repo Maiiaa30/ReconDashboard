@@ -76,6 +76,7 @@ vi.mock('../api', () => {
     capturesSummary: { total: 0, byMethod: {} },
     captureStatus: { enabled: false, extensionSeenAt: null },
     drawings: { drawings: [] },
+    leaks: { enabled: false, provider: null, autoDaily: false, pending: false, lastCheckedAt: null, findings: [] },
   }
   const api = new Proxy(
     {},
@@ -125,6 +126,8 @@ const { Traffic } = await import('./Traffic')
 const { Canvas } = await import('./Canvas')
 const { AssessmentRuns } = await import('./AssessmentRuns')
 const { ScanProfiles } = await import('./ScanProfiles')
+const { Readiness } = await import('./Readiness')
+const { DataLeaks } = await import('./DataLeaks')
 
 const navigate = vi.fn()
 
@@ -330,6 +333,18 @@ describe('page accessibility sweep', () => {
   it('Assessment profiles (ScanProfiles) has no violations', async () => {
     const { container } = renderPage(<ScanProfiles navigate={navigate} />)
     await screen.findByRole('heading', { name: 'Assessment profiles' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Readiness has no violations', async () => {
+    const { container } = renderPage(<Readiness />)
+    await screen.findByRole('heading', { name: 'Readiness' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Data Leaks has no violations', async () => {
+    const { container } = renderPage(<DataLeaks />)
+    await screen.findByRole('heading', { name: 'Data Leaks' })
     await expectNoAxeViolations(container)
   })
 })

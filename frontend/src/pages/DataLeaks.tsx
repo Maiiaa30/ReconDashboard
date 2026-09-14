@@ -141,7 +141,7 @@ export function DataLeaks() {
 
       {!state?.enabled && (
         <Card className="mb-5 border-hair-strong">
-          <h3 className="text-sm font-semibold text-zinc-100">No breach provider configured</h3>
+          <h2 className="text-sm font-semibold text-zinc-100">No breach provider configured</h2>
           <p className="mt-1.5 text-xs leading-relaxed text-zinc-400">
             Set <code className="rounded bg-ink-900 px-1 text-zinc-300">LEAK_PROVIDER</code> (one of{' '}
             <code className="rounded bg-ink-900 px-1 text-zinc-300">hibp</code>,{' '}
@@ -216,7 +216,7 @@ export function DataLeaks() {
       <Card className="mt-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-zinc-100">Code leaks — public code (GitHub)</h3>
+            <h2 className="text-sm font-semibold text-zinc-100">Code leaks — public code (GitHub)</h2>
             <p className="mt-1 text-xs leading-relaxed text-zinc-500">
               Searches public code for this domain and possible leaked keys/URLs. Requires a configured GitHub token.
             </p>
@@ -342,7 +342,7 @@ function FreeTools({ domainId, domainHost, onStored }: { domainId: number; domai
   return (
     <Card className="mb-5">
       <div className="mb-1 flex items-center gap-2">
-        <h3 className="text-sm font-semibold text-zinc-100">Free lookups</h3>
+        <h2 className="text-sm font-semibold text-zinc-100">Free lookups</h2>
         <Badge tone="green">no API key</Badge>
       </div>
       <p className="mb-3 text-xs text-zinc-500">
