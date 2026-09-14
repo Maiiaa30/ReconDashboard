@@ -11,6 +11,7 @@ import { dedupeExistingFindings } from './findings/store'
 import { authRoutes } from './auth/routes'
 import { authGuard } from './auth/guard'
 import { originGuard } from './auth/originGuard'
+import { registerResponseValidation } from './types/responseValidation'
 import { sqliteSessionStore, startSessionPruner } from './auth/sessionStore'
 import { registerJobHandlers } from './jobs/register'
 import { getScorer } from './scoring'
@@ -118,6 +119,11 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Auth guard runs after the session plugin has loaded the session.
   app.addHook('onRequest', authGuard)
+
+  // Validate flagged routes' responses against their transport contracts before
+  // serialization. Registered before the feature routes so it applies to their
+  // encapsulated contexts. No-op for any route without a registered schema.
+  registerResponseValidation(app)
 
   // Public + auth routes.
   app.get('/api/health', async () => ({ status: 'ok' }))
