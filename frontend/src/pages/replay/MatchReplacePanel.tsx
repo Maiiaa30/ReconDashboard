@@ -84,11 +84,11 @@ export function MatchReplacePanel({ domainId, domainHost, toast }: { domainId: n
           )}
           <div className="flex flex-wrap items-end gap-2 text-xs">
             <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="rule name" className="w-32 rounded-lg border border-hair bg-ink-950 px-2 py-1.5 outline-none focus:border-accent-500" />
-            <select value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value as 'global' | 'domain' })} className="rounded-lg border border-hair bg-ink-950 px-2 py-1.5 outline-none focus:border-accent-500">
+            <select aria-label="Rule scope" value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value as 'global' | 'domain' })} className="rounded-lg border border-hair bg-ink-950 px-2 py-1.5 outline-none focus:border-accent-500">
               <option value="domain">{domainHost}</option>
               <option value="global">global</option>
             </select>
-            <select value={form.part} onChange={(e) => setForm({ ...form, part: e.target.value as 'url' | 'header' | 'body' })} className="rounded-lg border border-hair bg-ink-950 px-2 py-1.5 outline-none focus:border-accent-500">
+            <select aria-label="Rule part" value={form.part} onChange={(e) => setForm({ ...form, part: e.target.value as 'url' | 'header' | 'body' })} className="rounded-lg border border-hair bg-ink-950 px-2 py-1.5 outline-none focus:border-accent-500">
               <option value="header">header</option>
               <option value="url">url</option>
               <option value="body">body</option>

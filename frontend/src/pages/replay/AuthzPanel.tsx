@@ -93,6 +93,7 @@ export function AuthzPanel({
         <label className="mb-1 block text-[10px] uppercase tracking-wide text-zinc-600">Identity B</label>
         {identities.length > 0 && (
           <select
+            aria-label="Identity B"
             value={identityBId ?? ''}
             onChange={(e) => setIdentityBId(e.target.value ? Number(e.target.value) : null)}
             className="mb-2 block w-full rounded-lg border border-hair bg-ink-950 px-2 py-1.5 text-xs outline-none focus:border-accent-500"

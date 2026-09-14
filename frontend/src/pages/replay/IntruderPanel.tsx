@@ -159,6 +159,7 @@ export function IntruderPanel({
         {/* Attack mode */}
         <div className="flex flex-wrap items-center gap-2">
           <select
+            aria-label="Attack mode"
             value={attackMode}
             onChange={(e) => setAttackMode(e.target.value as AttackMode)}
             className="rounded-lg border border-hair bg-ink-950 px-2 py-1.5 text-xs outline-none focus:border-accent-500"
@@ -220,6 +221,7 @@ export function IntruderPanel({
             </p>
           ) : (
             <select
+              aria-label="Wordlist"
               value={wordlist}
               onChange={(e) => setWordlist(e.target.value)}
               className="block w-full rounded-lg border border-hair bg-ink-950 px-2 py-2 text-xs outline-none focus:border-accent-500"
@@ -325,6 +327,7 @@ export function IntruderPanel({
             <span className="ml-auto inline-flex items-center gap-1">
               sort
               <select
+                aria-label="Sort results by"
                 value={sortKey}
                 onChange={(e) => setSortKey(e.target.value as typeof sortKey)}
                 className="rounded border border-hair bg-ink-950 px-1.5 py-0.5 text-[11px] outline-none"

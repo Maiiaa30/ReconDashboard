@@ -56,6 +56,7 @@ export function PayloadLibrary({
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <select
+        aria-label="Load payloads from library"
         value={pick}
         onChange={(e) => loadSet(e.target.value)}
         className="rounded-lg border border-hair bg-ink-950 px-2 py-1.5 outline-none focus:border-accent-500"

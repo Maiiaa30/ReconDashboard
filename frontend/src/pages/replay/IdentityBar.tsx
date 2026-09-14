@@ -63,6 +63,7 @@ export function IdentityBar({
         </span>
         {selectable ? (
           <select
+            aria-label="Send request as identity"
             value={identityId ?? ''}
             onChange={(e) => setIdentityId(e.target.value ? Number(e.target.value) : null)}
             className="rounded-lg border border-hair bg-ink-950 px-2 py-1 text-xs outline-none focus:border-accent-500"

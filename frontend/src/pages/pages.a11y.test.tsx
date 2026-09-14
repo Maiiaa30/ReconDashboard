@@ -52,12 +52,30 @@ vi.mock('../api', () => {
       },
     },
     findings: { findings: [], nextCursor: null },
+    findingsSummary: { total: 0, byStatus: {}, bySeverity: {} },
     subdomainsPage: { subdomains: [], nextCursor: null },
+    subdomainsSummary: { total: 0, newCount: 0 },
     subdomains: { subdomains: [] },
     screenshots: { screenshots: [] },
     owaspCatalog: { catalog: [], profileKeys: [] },
     backupStatus: { serverPassphraseConfigured: false },
     job: null,
+    // rich data pages
+    home: { overview: [], topFindings: [], recentChanges: [] },
+    today: null,
+    domainsOverview: { overview: [] },
+    correlate: { paths: [], signatureClusters: [] },
+    chainSuggestions: { chains: [] },
+    nextActions: { actions: [] },
+    methodology: { tech: [], ports: [], skills: [] },
+    assessmentRuns: { runs: [] },
+    snapshots: { snapshots: [] },
+    identities: { identities: [] },
+    assets: { assets: [] },
+    captures: { captures: [], nextCursor: null },
+    capturesSummary: { total: 0, byMethod: {} },
+    captureStatus: { enabled: false, extensionSeenAt: null },
+    drawings: { drawings: [] },
   }
   const api = new Proxy(
     {},
@@ -66,6 +84,11 @@ vi.mock('../api', () => {
   class ApiError extends Error {}
   return { api, ApiError }
 })
+
+// Excalidraw needs a real canvas/ResizeObserver, which jsdom lacks. The Canvas
+// page lazy-loads it inside a Suspense boundary; stub it so the page shell (the
+// part we audit) renders without pulling in the real editor.
+vi.mock('@excalidraw/excalidraw', () => ({ Excalidraw: () => null }))
 
 // Imported after the mock is registered (vi.mock is hoisted above imports anyway).
 const { Whois } = await import('./Whois')
@@ -86,6 +109,22 @@ const { Scans } = await import('./Scans')
 const { Tools } = await import('./Tools')
 const { Owasp } = await import('./Owasp')
 const { Settings } = await import('./Settings')
+const { Home } = await import('./Home')
+const { Findings } = await import('./Findings')
+const { Domains } = await import('./Domains')
+const { Intel } = await import('./Intel')
+const { Replay } = await import('./Replay')
+const { ApiSurface } = await import('./ApiSurface')
+const { Assets } = await import('./Assets')
+const { Reports } = await import('./Reports')
+const { Methodology } = await import('./Methodology')
+const { NextActions } = await import('./NextActions')
+const { CommandCenter } = await import('./CommandCenter')
+const { Subdomains } = await import('./Subdomains')
+const { Traffic } = await import('./Traffic')
+const { Canvas } = await import('./Canvas')
+const { AssessmentRuns } = await import('./AssessmentRuns')
+const { ScanProfiles } = await import('./ScanProfiles')
 
 const navigate = vi.fn()
 
@@ -195,6 +234,102 @@ describe('page accessibility sweep', () => {
   it('Settings has no violations', async () => {
     const { container } = renderPage(<Settings totpEnabled={false} />)
     await screen.findByRole('heading', { name: 'Settings' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Engagement overview (Home) has no violations', async () => {
+    const { container } = renderPage(<Home navigate={navigate} />)
+    await screen.findByRole('heading', { name: 'Engagement overview' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Findings has no violations', async () => {
+    const { container } = renderPage(<Findings navigate={navigate} />)
+    await screen.findByRole('heading', { name: 'Findings' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Scope & targets (Domains) has no violations', async () => {
+    const { container } = renderPage(<Domains />)
+    await screen.findByRole('heading', { name: 'Scope & targets' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Intel has no violations', async () => {
+    const { container } = renderPage(<Intel navigate={navigate} />)
+    await screen.findByRole('heading', { name: 'Intel' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Replay has no violations', async () => {
+    const { container } = renderPage(<Replay />)
+    await screen.findByRole('heading', { name: 'Replay' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('API Surface has no violations', async () => {
+    const { container } = renderPage(<ApiSurface navigate={navigate} />)
+    await screen.findByRole('heading', { name: 'API Surface' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Asset inventory has no violations', async () => {
+    const { container } = renderPage(<Assets navigate={navigate} />)
+    await screen.findByRole('heading', { name: 'Asset inventory' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Reports has no violations', async () => {
+    const { container } = renderPage(<Reports navigate={navigate} />)
+    await screen.findByRole('heading', { name: 'Reports' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Methodology has no violations', async () => {
+    const { container } = renderPage(<Methodology navigate={navigate} />)
+    await screen.findByRole('heading', { name: 'Methodology' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Next actions has no violations', async () => {
+    const { container } = renderPage(<NextActions navigate={navigate} />)
+    await screen.findByRole('heading', { name: 'Next actions' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Command center has no violations', async () => {
+    const { container } = renderPage(<CommandCenter navigate={navigate} />)
+    await screen.findByRole('heading', { name: 'Command center' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Subdomains has no violations', async () => {
+    const { container } = renderPage(<Subdomains />)
+    await screen.findByRole('heading', { name: 'Subdomains' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Traffic has no violations', async () => {
+    const { container } = renderPage(<Traffic navigate={navigate} />)
+    await screen.findByRole('heading', { name: 'Traffic' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Canvas has no violations', async () => {
+    const { container } = renderPage(<Canvas />)
+    await screen.findByRole('heading', { name: 'Canvas' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Assessment runs has no violations', async () => {
+    const { container } = renderPage(<AssessmentRuns navigate={navigate} />)
+    await screen.findByRole('heading', { name: 'Assessment runs' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Assessment profiles (ScanProfiles) has no violations', async () => {
+    const { container } = renderPage(<ScanProfiles navigate={navigate} />)
+    await screen.findByRole('heading', { name: 'Assessment profiles' })
     await expectNoAxeViolations(container)
   })
 })

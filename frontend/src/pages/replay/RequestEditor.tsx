@@ -19,6 +19,7 @@ export function RequestEditor(props: {
     <Card className="flex h-full min-h-0 flex-col">
       <div className="mb-2 flex items-center gap-2">
         <select
+          aria-label="HTTP method"
           value={props.method}
           onChange={(e) => props.setMethod(e.target.value as (typeof METHODS)[number])}
           className="rounded-lg border border-hair bg-ink-950 px-2 py-2 font-mono text-xs outline-none focus:border-accent-500"
@@ -67,6 +68,7 @@ export function RequestEditor(props: {
       )}
       <label className="mb-1 block text-[10px] uppercase tracking-wide text-zinc-600">Headers (one per line: Name: Value)</label>
       <textarea
+        aria-label="Request headers"
         value={props.headersText}
         onChange={(e) => props.setHeadersText(e.target.value)}
         placeholder={'Cookie: session=…\nAuthorization: Bearer …\nContent-Type: application/json'}
@@ -78,6 +80,7 @@ export function RequestEditor(props: {
         Body {bodyless && <span className="text-zinc-600">(ignored for {props.method})</span>}
       </label>
       <textarea
+        aria-label="Request body"
         value={props.bodyText}
         onChange={(e) => props.setBodyText(e.target.value)}
         placeholder={bodyless ? '' : '{"code":"' + PAYLOAD_MARKER + '"}'}

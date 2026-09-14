@@ -234,6 +234,7 @@ export function ApiSurface({ navigate }: { navigate: (page: string, domainId?: n
             <select
               value={scanHost}
               onChange={(e) => setScanHost(e.target.value)}
+              aria-label="Limit API discovery to a single host, or scan the whole domain"
               title="Limit API discovery to a single host, or scan the whole domain"
               className="rounded-lg border border-hair bg-ink-950 px-2.5 py-2 text-sm text-zinc-300 outline-none focus:border-accent-500"
             >
