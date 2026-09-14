@@ -77,10 +77,18 @@ vi.mock('../api', () => {
     captureStatus: { enabled: false, extensionSeenAt: null },
     drawings: { drawings: [] },
     leaks: { enabled: false, provider: null, autoDaily: false, pending: false, lastCheckedAt: null, findings: [] },
+    matchReplaceRules: { rules: [] },
   }
+  // Any method a default-rendered panel loads that is not in `returns` resolves to
+  // this: a value whose every property reads as an empty array, so a
+  // `.then((r) => setX(r.some))` followed by `r.some.filter(...)` cannot crash the
+  // render regardless of promise timing (an unmapped call would otherwise be a
+  // flaky, act-window-dependent failure). Explicit fixtures above still win where
+  // the shape matters.
+  const safeEmpty = new Proxy({}, { get: () => [] })
   const api = new Proxy(
     {},
-    { get: (_t, prop: string) => vi.fn(async () => (prop in returns ? returns[prop] : {})) },
+    { get: (_t, prop: string) => vi.fn(async () => (prop in returns ? returns[prop] : safeEmpty)) },
   )
   class ApiError extends Error {}
   return { api, ApiError }
