@@ -29,9 +29,34 @@ vi.mock('../api', () => {
     auditSummary: { total: 0, byAction: {} },
     jobs: { jobs: [] },
     notes: { notes: [] },
-    meta: { discordConfigured: false },
+    meta: {
+      scorer: 'rules', aiProvider: 'rules',
+      scheduler: { enabled: false, intervalMinutes: 0 },
+      discordConfigured: false,
+      llm: { enabled: false, model: null },
+      leaks: { enabled: false, provider: null },
+      tools: {
+        subfinder: true, nmap: true, nuclei: true, ffuf: true, chromium: true, dig: true,
+        sqlmap: false, sslscan: false, katana: false, naabu: false, dalfox: false,
+        wpenum: false, bypass403: false, methods: false, datastores: false,
+      },
+      wordlists: [],
+      readiness: {
+        checkedAt: 0,
+        database: { ok: true, sizeBytes: 1000 },
+        storage: { freeBytes: 5 * 1024 ** 3 },
+        worker: { running: true, startedAt: 0, lastTickAt: 0, lanes: { passive: true, loud: true } },
+        queue: { queued: 0, running: 0, failed: 0, lastActivityAt: null },
+        capture: { enabled: false, extensionSeenAt: null },
+        backup: { serverPassphraseConfigured: false },
+      },
+    },
     findings: { findings: [], nextCursor: null },
     subdomainsPage: { subdomains: [], nextCursor: null },
+    subdomains: { subdomains: [] },
+    screenshots: { screenshots: [] },
+    owaspCatalog: { catalog: [], profileKeys: [] },
+    backupStatus: { serverPassphraseConfigured: false },
     job: null,
   }
   const api = new Proxy(
@@ -55,6 +80,12 @@ const { Osint } = await import('./Osint')
 const { Exposure } = await import('./Exposure')
 const { Origin } = await import('./Origin')
 const { Changes } = await import('./Changes')
+const { Screenshots } = await import('./Screenshots')
+const { Fuzzing } = await import('./Fuzzing')
+const { Scans } = await import('./Scans')
+const { Tools } = await import('./Tools')
+const { Owasp } = await import('./Owasp')
+const { Settings } = await import('./Settings')
 
 const navigate = vi.fn()
 
@@ -128,6 +159,42 @@ describe('page accessibility sweep', () => {
   it('Change history has no violations', async () => {
     const { container } = renderPage(<Changes navigate={navigate} />)
     await screen.findByRole('heading', { name: 'Change history' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Screenshots has no violations', async () => {
+    const { container } = renderPage(<Screenshots />)
+    await screen.findByRole('heading', { name: 'Screenshots' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Fuzzing has no violations', async () => {
+    const { container } = renderPage(<Fuzzing />)
+    await screen.findByRole('heading', { name: 'Fuzzing' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Scans has no violations', async () => {
+    const { container } = renderPage(<Scans />)
+    await screen.findByRole('heading', { name: 'Scans' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Tools has no violations', async () => {
+    const { container } = renderPage(<Tools />)
+    await screen.findByRole('heading', { name: 'Tools' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('OWASP Top 10 has no violations', async () => {
+    const { container } = renderPage(<Owasp />)
+    await screen.findByRole('heading', { name: 'OWASP Top 10' })
+    await expectNoAxeViolations(container)
+  })
+
+  it('Settings has no violations', async () => {
+    const { container } = renderPage(<Settings totpEnabled={false} />)
+    await screen.findByRole('heading', { name: 'Settings' })
     await expectNoAxeViolations(container)
   })
 })

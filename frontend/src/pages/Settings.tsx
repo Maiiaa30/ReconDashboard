@@ -352,6 +352,7 @@ function BackupPanel() {
         </p>
         <input
           type="file"
+          aria-label="Backup file to verify or restore"
           accept=".rdb,application/octet-stream"
           onChange={(e) => {
             setFile(e.target.files?.[0] ?? null)
