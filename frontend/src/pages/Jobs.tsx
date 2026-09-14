@@ -184,6 +184,7 @@ export function Jobs() {
           </button>
         ))}
         <select
+          aria-label="Filter by domain"
           value={domainFilter}
           onChange={(e) => setDomainFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
           className="ml-auto rounded-lg border border-hair bg-ink-950 px-2.5 py-1 text-xs text-zinc-300 outline-none focus:border-accent-500"
@@ -196,6 +197,7 @@ export function Jobs() {
           ))}
         </select>
         <select
+          aria-label="Filter by job type"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
           className="rounded-lg border border-hair bg-ink-950 px-2.5 py-1 text-xs text-zinc-300 outline-none focus:border-accent-500"

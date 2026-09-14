@@ -108,6 +108,7 @@ export function Audit() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <select
+              aria-label="Filter by target"
               value={String(scope)}
               onChange={(e) => setScope(e.target.value === 'all' ? 'all' : Number(e.target.value))}
               className={inputCls}
@@ -119,7 +120,7 @@ export function Audit() {
                 </option>
               ))}
             </select>
-            <select value={action} onChange={(e) => setAction(e.target.value)} className={inputCls}>
+            <select aria-label="Filter by action" value={action} onChange={(e) => setAction(e.target.value)} className={inputCls}>
               <option value="">All actions{summary ? ` (${summary.total})` : ''}</option>
               {actionOptions.map(([a, n]) => (
                 <option key={a} value={a}>

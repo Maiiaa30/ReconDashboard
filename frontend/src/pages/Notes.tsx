@@ -90,6 +90,7 @@ export function Notes() {
         subtitle="Markdown notes, global or per-domain"
         actions={
           <select
+            aria-label="Note scope"
             value={scope}
             onChange={(e) => setScope(e.target.value as 'global' | 'domain')}
             className="rounded-lg border border-hair bg-ink-950 px-3 py-1.5 text-sm"
