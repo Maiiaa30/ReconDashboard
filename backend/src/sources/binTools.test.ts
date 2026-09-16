@@ -28,6 +28,7 @@ import {
   runBypass403,
   runDatastores,
   sameAsDenied,
+  sqlmapLooksBlocked,
 } from './binTools'
 
 const mockRun = vi.mocked(run)
@@ -140,6 +141,21 @@ describe('runSslscan', () => {
   })
 })
 
+describe('sqlmapLooksBlocked', () => {
+  it('is true on an explicit WAF/IPS notice', () => {
+    expect(sqlmapLooksBlocked('the target is protected by some kind of WAF/IPS')).toBe(true)
+  })
+  it('is true when several requests are refused with 403/406/429', () => {
+    const out = ['HTTP error code 403 (Forbidden)', 'HTTP error code 429', 'HTTP error code 403'].join('\n')
+    expect(sqlmapLooksBlocked(out)).toBe(true)
+  })
+  it('is false for a clean no-injection run', () => {
+    expect(sqlmapLooksBlocked('all tested parameters do not appear to be injectable')).toBe(false)
+    // A single stray 403 is not enough to call it blocked.
+    expect(sqlmapLooksBlocked('HTTP error code 403 (Forbidden)')).toBe(false)
+  })
+})
+
 describe('runSqlmap', () => {
   it('extracts injectable parameters, DBMS and technique', async () => {
     mockRun.mockResolvedValue({
@@ -151,16 +167,25 @@ describe('runSqlmap', () => {
       ].join('\n'),
       stderr: '',
     })
-    const f = await runSqlmap('https', 'a.com')
+    const { finding: f } = await runSqlmap('https', 'a.com')
     expect(f?.severity).toBe('high')
     expect(f?.items).toContain('Injectable parameter: id')
     expect(f?.items).toContain('Back-end DBMS: MySQL >= 5.0.12')
     expect(f?.items).toContain('Technique: boolean-based blind')
   })
 
-  it('returns null when sqlmap reports no injection', async () => {
+  it('returns a null finding when sqlmap reports no injection', async () => {
     mockRun.mockResolvedValue({ stdout: 'all tested parameters do not appear to be injectable', stderr: '' })
-    expect(await runSqlmap('https', 'a.com')).toBeNull()
+    const res = await runSqlmap('https', 'a.com')
+    expect(res.finding).toBeNull()
+    expect(res.blocked).toBe(false)
+  })
+
+  it('flags blocked=true on a WAF/IPS notice (no injection)', async () => {
+    mockRun.mockResolvedValue({ stdout: 'it appears that the target is protected by some kind of WAF/IPS', stderr: '' })
+    const res = await runSqlmap('https', 'a.com')
+    expect(res.finding).toBeNull()
+    expect(res.blocked).toBe(true)
   })
 
   it('rethrows ToolNotFoundError instead of swallowing it', async () => {
@@ -170,7 +195,7 @@ describe('runSqlmap', () => {
 
   it('falls back to a generic item when the point is confirmed but unparsed', async () => {
     mockRun.mockResolvedValue({ stdout: 'target appears to be injectable', stderr: '' })
-    const f = await runSqlmap('https', 'a.com')
+    const { finding: f } = await runSqlmap('https', 'a.com')
     expect(f?.items).toEqual(['sqlmap flagged the target as injectable'])
   })
 })

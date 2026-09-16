@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GENERIC_TAMPER, tamperForBrand } from './sqlmapTamper'
+import { escalatedTamper, GENERIC_TAMPER, HEAVY_TAMPER, tamperForBrand } from './sqlmapTamper'
 
 describe('tamperForBrand', () => {
   it('returns null when no brand is given', () => {
@@ -30,5 +30,14 @@ describe('tamperForBrand', () => {
 
   it('falls back to the generic chain for an unknown but present WAF', () => {
     expect(tamperForBrand('SomeVendorNeverSeen')).toEqual(GENERIC_TAMPER)
+  })
+})
+
+describe('escalatedTamper', () => {
+  it('returns the heavy superset chain for the retry, regardless of brand', () => {
+    expect(escalatedTamper('cloudflare')).toBe(HEAVY_TAMPER)
+    expect(escalatedTamper(null)).toBe(HEAVY_TAMPER)
+    // Heavier than the per-vendor chain it escalates from.
+    expect(HEAVY_TAMPER.split(',').length).toBeGreaterThan(tamperForBrand('cloudflare')!.tamper.split(',').length)
   })
 })

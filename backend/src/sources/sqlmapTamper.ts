@@ -79,6 +79,20 @@ const PRESETS: Array<{ keyword: string; preset: TamperPreset }> = [
   },
 ]
 
+// A heavier, vendor-agnostic chain for the escalation retry when the first
+// (lighter) chain was still being blocked. Superset of the per-vendor chains,
+// stacking encoding + comment + case + keyword-morphing tampers.
+export const HEAVY_TAMPER = 'space2comment,charencode,charunicodeencode,randomcase,between,percentage,randomcomments,equaltolike'
+
+/**
+ * The escalated tamper chain to retry with after the initial chain was blocked.
+ * Vendor-agnostic today (the heavy superset); the brand is accepted so a future
+ * per-vendor escalation can key off it without changing callers.
+ */
+export function escalatedTamper(_brand?: string | null): string {
+  return HEAVY_TAMPER
+}
+
 /**
  * Pick a tamper preset for a detected WAF brand. Returns the generic chain when
  * the brand is unknown but a WAF is present, or `null` when no brand is given

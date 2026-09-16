@@ -167,12 +167,28 @@ export interface SqlmapOpts {
   risk?: number // 1-3 (default 1)
 }
 
+export interface SqlmapResult {
+  finding: ToolFinding | null
+  // True when the output shows the run was being blocked (WAF/IPS notice or a
+  // wall of 4xx blocks) rather than cleanly finding nothing — the signal the
+  // caller uses to decide whether escalating the tamper chain is worth a retry.
+  blocked: boolean
+}
+
+// Pure heuristic: did sqlmap look WAF-blocked? An explicit WAF/IPS notice, or
+// enough HTTP error codes (403/406/429) that the payloads were being refused.
+export function sqlmapLooksBlocked(stdout: string): boolean {
+  if (/WAF\/IPS|protected by some kind of|might be protected by/i.test(stdout)) return true
+  const blocks = (stdout.match(/HTTP error code[^\n]*\b(403|406|429)\b/gi) ?? []).length
+  return blocks >= 3
+}
+
 export async function runSqlmap(
   scheme: string,
   host: string,
   signal?: AbortSignal,
   opts: SqlmapOpts = {},
-): Promise<ToolFinding | null> {
+): Promise<SqlmapResult> {
   let stdout = ''
   // Cloudflare bypass: sqlmap uses --cookie/--user-agent (not -H). When the host
   // is challenged, pass the solved clearance + its matching UA and drop
@@ -210,7 +226,8 @@ export async function runSqlmap(
     stdout = (err as { stdout?: string }).stdout ?? '' // sqlmap can exit non-zero with useful output
   }
 
-  if (!/injection point|is vulnerable|appears to be injectable/i.test(stdout)) return null
+  const blocked = sqlmapLooksBlocked(stdout)
+  if (!/injection point|is vulnerable|appears to be injectable/i.test(stdout)) return { finding: null, blocked }
 
   const params = [...new Set([...stdout.matchAll(/Parameter:\s*([^\n(]+?)\s*\(/gi)].map((m) => m[1].trim()))]
   const dbms = stdout.match(/back-end DBMS:\s*(.+)/i)?.[1]?.trim()
@@ -221,12 +238,15 @@ export async function runSqlmap(
     ...techniques.map((t) => `Technique: ${t}`),
   ]
   return {
-    tool: 'sqlmap',
-    target: host,
-    severity: 'high',
-    title: `SQL injection — ${params.length || 1} parameter(s)`,
-    detail: dbms ? `Confirmed SQLi (back-end DBMS: ${dbms})` : 'sqlmap confirmed SQL injection',
-    items: items.length ? items.slice(0, MAX_ITEMS) : ['sqlmap flagged the target as injectable'],
+    finding: {
+      tool: 'sqlmap',
+      target: host,
+      severity: 'high',
+      title: `SQL injection — ${params.length || 1} parameter(s)`,
+      detail: dbms ? `Confirmed SQLi (back-end DBMS: ${dbms})` : 'sqlmap confirmed SQL injection',
+      items: items.length ? items.slice(0, MAX_ITEMS) : ['sqlmap flagged the target as injectable'],
+    },
+    blocked: false,
   }
 }
 

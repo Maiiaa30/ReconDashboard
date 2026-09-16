@@ -3,7 +3,7 @@ import { addScoredFinding } from '../../findings/score'
 import { runBypass403, runDalfox, runDatastores, runHttpMethods, runKatana, runNaabu, runSqlmap, runSslscan, runWpEnum, type SqlmapOpts, type ToolFinding } from '../../sources/binTools'
 import { assertPublicHost } from '../../sources/guard'
 import { fingerprintWaf } from '../../sources/wafFingerprint'
-import { tamperForBrand } from '../../sources/sqlmapTamper'
+import { escalatedTamper, tamperForBrand } from '../../sources/sqlmapTamper'
 import { throttleForBrand } from '../../sources/wafThrottle'
 import { getHostWaf } from '../../subdomains/store'
 import { ToolNotFoundError } from '../../util/exec'
@@ -62,8 +62,12 @@ export async function toolScanHandler({ params, log, signal, progress }: JobCont
         // chain for that vendor, and raise depth so evasion has vectors to try.
         // An explicit `tamper` param overrides the auto-picked chain.
         const opts: SqlmapOpts = {}
+        let wafDetected = false
+        let wafBrand: string | null = null
         if (params.evade) {
           const fp = await fingerprintWaf(scheme, target, signal)
+          wafDetected = fp.detected
+          wafBrand = fp.brand
           const preset = tamperForBrand(fp.brand)
           const tamper = typeof params.tamper === 'string' && params.tamper.trim()
             ? params.tamper.trim()
@@ -84,7 +88,18 @@ export async function toolScanHandler({ params, log, signal, progress }: JobCont
               : 'no WAF identified — running sqlmap without tamper',
           )
         }
-        finding = await runSqlmap(scheme, target, signal, opts)
+        let res = await runSqlmap(scheme, target, signal, opts)
+        finding = res.finding
+        // Auto-escalate: the first (lighter) chain found nothing but the run was
+        // being blocked behind a known WAF — retry ONCE with a heavier chain at
+        // higher depth. Bounded to a single extra run (still under the job cap).
+        if (!finding && opts.tamper && wafDetected && res.blocked) {
+          const heavy = escalatedTamper(wafBrand)
+          progress(`sqlmap: still blocked with ${opts.tamper} — escalating to ${heavy} (level 3)`)
+          res = await runSqlmap(scheme, target, signal, { tamper: heavy, level: 3, risk: 3, delay: opts.delay })
+          finding = res.finding
+          if (finding) wafNote = `${wafNote ?? 'WAF'} — found only after tamper escalation`
+        }
         break
       }
       case 'wpenum':
