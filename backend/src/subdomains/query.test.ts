@@ -45,7 +45,7 @@ vi.mock('../db/index', async () => {
   return { db: drizzle(sqlite), sqlite }
 })
 
-import { querySubdomains, summarizeSubdomains, updateWaf, type SubdomainQuery } from './store'
+import { getHostWaf, querySubdomains, summarizeSubdomains, updateWaf, type SubdomainQuery } from './store'
 
 const ids = (r: { subdomains: { id: number }[] }) => r.subdomains.map((s) => s.id)
 const run = (q: Partial<SubdomainQuery> = {}) => querySubdomains({ domainId: 1, ...q })
@@ -134,5 +134,14 @@ describe('updateWaf', () => {
     expect(row.wafBrand).toBe('ModSecurity')
     expect(row.wafVersion).toBe('2.9.3')
     expect(row.waf).toBeNull() // seed had no waf; slug null leaves it untouched
+  })
+})
+
+describe('getHostWaf', () => {
+  it('returns the stored brand (preferred) or slug, else null', () => {
+    updateWaf(1, 'a.example.com', { brand: 'Cloudflare', version: null, source: 'wafw00f', slug: 'cloudflare' })
+    expect(getHostWaf(1, 'a.example.com')).toBe('Cloudflare') // brand wins
+    expect(getHostWaf(1, 'c.example.com')).toBeNull() // untouched host
+    expect(getHostWaf(1, 'no.such.host')).toBeNull()
   })
 })

@@ -4,6 +4,8 @@ import { runBypass403, runDalfox, runDatastores, runHttpMethods, runKatana, runN
 import { assertPublicHost } from '../../sources/guard'
 import { fingerprintWaf } from '../../sources/wafFingerprint'
 import { tamperForBrand } from '../../sources/sqlmapTamper'
+import { throttleForBrand } from '../../sources/wafThrottle'
+import { getHostWaf } from '../../subdomains/store'
 import { ToolNotFoundError } from '../../util/exec'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
 import type { JobContext } from '../worker'
@@ -44,9 +46,14 @@ export async function toolScanHandler({ params, log, signal, progress }: JobCont
       case 'naabu':
         finding = await runNaabu(target, signal)
         break
-      case 'dalfox':
-        finding = await runDalfox(scheme, target, signal)
+      case 'dalfox': {
+        // WAF throttle: known WAF-fronted host → fewer workers + inter-request
+        // delay so dalfox's XSS probes don't trip rate-based rules.
+        const throttle = throttleForBrand(getHostWaf(domainId, target))
+        if (throttle) progress(`dalfox: ${throttle.reason} for ${target}`)
+        finding = await runDalfox(scheme, target, signal, throttle ? { worker: throttle.dalfoxWorker, delayMs: throttle.dalfoxDelayMs } : {})
         break
+      }
       case 'sslscan':
         finding = await runSslscan(target, signal)
         break

@@ -295,6 +295,20 @@ export function updateWaf(
   db.update(subdomains).set(set).where(and(eq(subdomains.domainId, domainId), eq(subdomains.host, host))).run()
 }
 
+/**
+ * The WAF label stored for a host (the richer wafBrand if present, else the
+ * passive slug), or null when none is known. Used to decide tool throttling
+ * without re-probing.
+ */
+export function getHostWaf(domainId: number, host: string): string | null {
+  const row = db
+    .select({ waf: subdomains.waf, wafBrand: subdomains.wafBrand })
+    .from(subdomains)
+    .where(and(eq(subdomains.domainId, domainId), eq(subdomains.host, host)))
+    .get()
+  return row?.wafBrand ?? row?.waf ?? null
+}
+
 /** Store correlation signatures (TLS cert fingerprint + mmh3 favicon hash). */
 export function updateSignature(domainId: number, host: string, sig: { certFp?: string | null; faviconHash?: number | null }): void {
   const set: Record<string, unknown> = {}

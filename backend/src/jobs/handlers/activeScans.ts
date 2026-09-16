@@ -8,6 +8,8 @@ import { addScoredFinding } from '../../findings/score'
 import { fingerprintHost } from '../../sources/fingerprint'
 import { assertPublicHost } from '../../sources/guard'
 import { clearanceCliArgs } from '../../sources/cfClearance'
+import { getHostWaf } from '../../subdomains/store'
+import { throttleForBrand } from '../../sources/wafThrottle'
 import { run, toolExists } from '../../util/exec'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
 import type { JobContext } from '../worker'
@@ -185,6 +187,13 @@ export async function nucleiHandler({ params, log, signal, progress }: JobContex
     args.push(...cfArgs)
     progress(`nuclei: using solved Cloudflare clearance for ${target}`)
   }
+  // WAF throttle: if the host is known to be WAF-fronted (stored, no re-probe),
+  // lower nuclei's request rate so rate-based rules don't 403 every template.
+  const nucleiThrottle = throttleForBrand(getHostWaf(domainId, target))
+  if (nucleiThrottle) {
+    args.push('-rl', String(nucleiThrottle.rateLimit))
+    progress(`nuclei: ${nucleiThrottle.reason} for ${target} (${nucleiThrottle.rateLimit} req/s)`)
+  }
   if (params.severity && /^[a-z,]+$/.test(String(params.severity))) {
     args.push('-severity', String(params.severity))
   }
@@ -336,6 +345,14 @@ export async function ffufHandler({ params, log, signal, progress }: JobContext)
       args.push(...cfArgs)
       progress(`ffuf: using solved Cloudflare clearance for ${target}`)
     }
+  }
+
+  // WAF throttle: known WAF-fronted host → add inter-request delay/jitter (ffuf
+  // -p) so rate-based rules don't blanket-403 the fuzz and poison calibration.
+  const ffufThrottle = throttleForBrand(getHostWaf(domainId, target))
+  if (ffufThrottle) {
+    args.push('-p', ffufThrottle.ffufDelay)
+    progress(`ffuf: ${ffufThrottle.reason} for ${target} (delay ${ffufThrottle.ffufDelay}s)`)
   }
 
   try {

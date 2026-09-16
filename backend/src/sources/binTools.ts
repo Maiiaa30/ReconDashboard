@@ -75,15 +75,27 @@ export async function runNaabu(host: string, signal?: AbortSignal): Promise<Tool
 }
 
 // --- dalfox (XSS) ------------------------------------------------------------
-export async function runDalfox(scheme: string, host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
+export interface DalfoxOpts {
+  worker?: number // concurrency (--worker); lowered for a WAF-fronted host
+  delayMs?: number // ms between requests (--delay), for rate-based WAF rules
+}
+
+export async function runDalfox(
+  scheme: string,
+  host: string,
+  signal?: AbortSignal,
+  opts: DalfoxOpts = {},
+): Promise<ToolFinding | null> {
   let stdout = ''
   // Cloudflare bypass: dalfox takes repeatable -H, so pass cf_clearance + UA when
   // the target is challenged (else empty). Without it every probe hits the 403.
   const cf = await clearanceCliArgs(host, signal)
+  const worker = opts.worker && opts.worker > 0 ? opts.worker : 30
+  const delay = opts.delayMs && opts.delayMs > 0 ? ['--delay', String(opts.delayMs)] : []
   try {
     const res = await run(
       'dalfox',
-      ['url', `${scheme}://${host}`, '--silence', '--no-color', '--skip-bav', '--timeout', '10', '--worker', '30', ...cf],
+      ['url', `${scheme}://${host}`, '--silence', '--no-color', '--skip-bav', '--timeout', '10', '--worker', String(worker), ...delay, ...cf],
       { timeoutMs: 300_000, signal },
     )
     stdout = res.stdout
