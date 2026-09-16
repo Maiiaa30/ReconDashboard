@@ -48,6 +48,41 @@ export const reconRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
+  // WAF fingerprint: identify the WAF (wafw00f) in front of one host or the live
+  // estate and persist the brand/version on the subdomains. wafw00f actively
+  // probes for the vendor's block-page, so it is gated like the other loud work.
+  app.post<{ Params: { id: string }; Body: { target?: string; confirm?: boolean } }>(
+    '/api/domains/:id/waf-scan',
+    async (request, reply) => {
+      const id = Number(request.params.id)
+      const explicitTarget = typeof request.body?.target === 'string' && request.body.target ? request.body.target : undefined
+      try {
+        const { domain, target } = await assertScanAllowed({
+          domainId: id,
+          target: explicitTarget,
+          confirm: request.body?.confirm === true,
+          jobType: 'waf_fingerprint',
+        })
+        const jobId = enqueueJob('waf_fingerprint', { domainId: id, ...(explicitTarget ? { target } : {}) })
+        writeAudit({
+          actor: actorName(request.session.userId),
+          action: 'enqueue:waf_fingerprint',
+          domainId: id,
+          target: explicitTarget ? target : `${domain.host} (estate)`,
+          mode: domain.mode,
+          jobId,
+        })
+        return reply.code(202).send({ jobId, target: explicitTarget ? target : null })
+      } catch (err) {
+        if (err instanceof ScanPolicyError) {
+          if (err.retryAfterSec) reply.header('Retry-After', String(err.retryAfterSec))
+          return reply.code(err.status).send({ error: err.message, code: err.code })
+        }
+        throw err
+      }
+    },
+  )
+
   // Passive code-leak search: look for the domain (+ optional seeds) in public
   // code (GitHub). Queries GitHub, not the target — safe on any domain.
   app.post<{ Params: { id: string }; Body: { seeds?: string[] } }>('/api/domains/:id/code-leaks', async (request, reply) => {

@@ -20,6 +20,9 @@ vi.mock('../db/index', async () => {
       server text,
       scheme text,
       waf text,
+      waf_brand text,
+      waf_version text,
+      waf_source text,
       cert_fp text,
       favicon_hash integer,
       login_hint integer NOT NULL DEFAULT 0,
@@ -42,7 +45,7 @@ vi.mock('../db/index', async () => {
   return { db: drizzle(sqlite), sqlite }
 })
 
-import { querySubdomains, summarizeSubdomains, type SubdomainQuery } from './store'
+import { querySubdomains, summarizeSubdomains, updateWaf, type SubdomainQuery } from './store'
 
 const ids = (r: { subdomains: { id: number }[] }) => r.subdomains.map((s) => s.id)
 const run = (q: Partial<SubdomainQuery> = {}) => querySubdomains({ domainId: 1, ...q })
@@ -112,5 +115,24 @@ describe('summarizeSubdomains', () => {
 
   it('applies the host filter but ignores the newOnly facet', () => {
     expect(summarizeSubdomains({ domainId: 1, q: 'example' })).toEqual({ total: 4, newCount: 2 })
+  })
+})
+
+describe('updateWaf', () => {
+  it('persists brand/version/source and backfills the passive slug', () => {
+    updateWaf(1, 'a.example.com', { brand: 'Cloudflare', version: null, source: 'wafw00f', slug: 'cloudflare' })
+    const row = run({ domainId: 1 }).subdomains.find((s) => s.id === 1)!
+    expect(row.wafBrand).toBe('Cloudflare')
+    expect(row.wafVersion).toBeNull()
+    expect(row.wafSource).toBe('wafw00f')
+    expect(row.waf).toBe('cloudflare') // slug backfilled
+  })
+
+  it('does not overwrite the existing slug when no slug is given', () => {
+    updateWaf(1, 'b.example.com', { brand: 'ModSecurity', version: '2.9.3', source: 'headers', slug: null })
+    const row = run({ domainId: 1 }).subdomains.find((s) => s.id === 2)!
+    expect(row.wafBrand).toBe('ModSecurity')
+    expect(row.wafVersion).toBe('2.9.3')
+    expect(row.waf).toBeNull() // seed had no waf; slug null leaves it untouched
   })
 })

@@ -278,6 +278,23 @@ export function updateProbe(domainId: number, host: string, p: ProbeData): void 
     .run()
 }
 
+/** Store a WAF fingerprint (brand/version/source) for a host, from a WAF scan. */
+export function updateWaf(
+  domainId: number,
+  host: string,
+  waf: { brand: string | null; version: string | null; source: string | null; slug?: string | null },
+): void {
+  const set: Record<string, unknown> = {
+    wafBrand: waf.brand,
+    wafVersion: waf.version,
+    wafSource: waf.source,
+  }
+  // Backfill the passive slug too when the fingerprint found one and the probe
+  // had not (keeps the existing badge/filter working for hosts probed earlier).
+  if (waf.slug) set.waf = waf.slug
+  db.update(subdomains).set(set).where(and(eq(subdomains.domainId, domainId), eq(subdomains.host, host))).run()
+}
+
 /** Store correlation signatures (TLS cert fingerprint + mmh3 favicon hash). */
 export function updateSignature(domainId: number, host: string, sig: { certFp?: string | null; faviconHash?: number | null }): void {
   const set: Record<string, unknown> = {}

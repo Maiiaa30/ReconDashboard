@@ -267,6 +267,13 @@
       "when": 1788807854751,
       "tag": "0037_equal_killmonger",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1789586117036,
+      "tag": "0038_waf_fingerprint",
+      "breakpoints": true
     }
   ]
 }

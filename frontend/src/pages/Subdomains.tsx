@@ -4,6 +4,7 @@ import { api, type Subdomain, type SubdomainSort } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Empty, ExportLinks, PageHeader } from '../components/ui'
 import { useToast } from '../components/Toast'
+import { useConfirm } from '../components/Confirm'
 import { copyText } from '../lib/clipboard'
 import { safeHttpUrl } from '../lib/url'
 
@@ -67,6 +68,7 @@ function CopyLink({ url }: { url: string }) {
 export function Subdomains() {
   const { selected } = useApp()
   const toast = useToast()
+  const ask = useConfirm()
   const [subs, setSubs] = useState<Subdomain[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -180,6 +182,26 @@ export function Subdomains() {
     }
   }
 
+  async function runWafScan() {
+    if (!selected) return
+    if (selected.mode !== 'active_authorized') {
+      const ok = await ask({
+        title: 'Run a WAF fingerprint?',
+        message: `${selected.host} is passive_only.\n\nwafw00f sends active probes to identify the WAF vendor. Only run it if you are authorized to actively test this target.`,
+        confirmLabel: 'Run anyway',
+        tone: 'danger',
+      })
+      if (!ok) return
+    }
+    setRunning(true)
+    try {
+      const { jobId } = await api.wafScan(selected.id, { confirm: selected.mode !== 'active_authorized' })
+      setLastJob(jobId)
+    } catch {
+      setRunning(false)
+    }
+  }
+
   async function ack() {
     if (!selected) return
     try {
@@ -215,6 +237,9 @@ export function Subdomains() {
             )}
             <Button variant="ghost" onClick={runPermute} disabled={running} title="Permute names from the wordlist + inventory and brute-resolve (wildcard-guarded)">
               Permute DNS
+            </Button>
+            <Button variant="ghost" onClick={runWafScan} disabled={running} title="Identify the WAF vendor + version in front of live hosts (wafw00f)">
+              Identify WAF
             </Button>
             <Button onClick={runDiscovery} disabled={running}>
               {running ? 'Discovering…' : 'Run discovery now'}
@@ -290,9 +315,10 @@ export function Subdomains() {
                       </span>
                     )}
                     {!s.title && <span className="flex-1" />}
-                    {s.waf && (
+                    {(s.wafBrand || s.waf) && (
                       <Badge tone="amber">
-                        {(s.httpStatus === 403 || s.httpStatus === 503 || s.httpStatus === 429) ? `${s.waf} · protected` : s.waf}
+                        {`${s.wafBrand || s.waf}${s.wafVersion ? ` ${s.wafVersion}` : ''}`}
+                        {(s.httpStatus === 403 || s.httpStatus === 503 || s.httpStatus === 429) ? ' · protected' : ''}
                       </Badge>
                     )}
                     {s.isNew && <Badge tone="blue">new</Badge>}
@@ -304,7 +330,14 @@ export function Subdomains() {
                     <div className="grid grid-cols-2 gap-x-6 gap-y-3 border-t border-hair/60 bg-ink-900/50 px-3 py-3 sm:grid-cols-3">
                       <Field label="IP address" value={s.ipAddress ?? '—'} mono />
                       <Field label="Server" value={s.server ?? '—'} mono />
-                      <Field label="WAF / CDN" value={s.waf ?? '—'} />
+                      <Field
+                        label="WAF / CDN"
+                        value={
+                          s.wafBrand
+                            ? `${s.wafBrand}${s.wafVersion ? ` ${s.wafVersion}` : ''}${s.wafSource ? ` (${s.wafSource})` : ''}`
+                            : s.waf ?? '—'
+                        }
+                      />
                       <Field label="Scheme" value={s.scheme ?? '—'} mono />
                       <Field label="Source" value={s.source ?? '—'} />
                       <Field label="First seen" value={new Date(s.firstSeen).toLocaleString()} />

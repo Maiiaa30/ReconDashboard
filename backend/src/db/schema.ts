@@ -105,7 +105,13 @@ export const subdomains = sqliteTable(
     scheme: text('scheme'),
     // WAF/CDN vendor detected in front of the host (e.g. 'cloudflare'). With a
     // 403/503 http_status this marks the host as alive-but-protected, not dead.
+    // `waf` is the passive header-derived slug set on every probe; the richer
+    // brand/version/source below are filled only by an explicit WAF fingerprint
+    // run (wafw00f). Version is usually null — most cloud WAFs are versionless.
     waf: text('waf'),
+    wafBrand: text('waf_brand'),
+    wafVersion: text('waf_version'),
+    wafSource: text('waf_source'), // 'wafw00f' | 'headers'
     // Correlation signatures that survive CDN fronting: the TLS cert fingerprint
     // and the mmh3 favicon hash. Two hosts sharing either are the same asset even
     // on different IPs (correlate.ts clusters by these).

@@ -17,6 +17,7 @@ import { paramDiscoveryHandler } from './handlers/paramDiscovery'
 import { injectConfirmHandler } from './handlers/injectConfirm'
 import { jwtConfuseHandler } from './handlers/jwtConfuse'
 import { dnsPermuteHandler } from './handlers/dnsPermute'
+import { wafFingerprintHandler } from './handlers/wafFingerprint'
 
 // Wire every job type to its handler. Called once at startup.
 export function registerJobHandlers(): void {
@@ -40,4 +41,5 @@ export function registerJobHandlers(): void {
   registerHandler('inject_confirm', injectConfirmHandler)
   registerHandler('jwt_confuse', jwtConfuseHandler)
   registerHandler('dns_permute', dnsPermuteHandler)
+  registerHandler('waf_fingerprint', wafFingerprintHandler)
 }

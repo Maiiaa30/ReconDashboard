@@ -134,6 +134,10 @@ export const reconApi = {
   // origin discovery (WAF/CDN bypass)
   findOrigin: (id: number, confirm = false) => post<{ jobId: number }>(`/domains/${id}/origin`, { confirm }),
 
+  // WAF fingerprint (wafw00f): brand/version for one host or the live estate.
+  wafScan: (id: number, opts: { target?: string; confirm?: boolean } = {}) =>
+    post<{ jobId: number; target: string | null }>(`/domains/${id}/waf-scan`, opts),
+
   // passive API-surface discovery (OpenAPI/Swagger + GraphQL). Optional host
   // restricts the scan to one apex/subdomain; omitted = apex + all live subs.
   apiDiscovery: (id: number, host?: string) =>
