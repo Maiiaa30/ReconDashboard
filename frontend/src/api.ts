@@ -31,6 +31,8 @@ export type {
   FindingStatus,
   FindingStatusFilter,
   FindingSummary,
+  ImportFormat,
+  ImportResult,
   ReportSnapshot,
   RetestRescan,
   SnapshotMeta,

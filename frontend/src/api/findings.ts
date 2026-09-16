@@ -43,8 +43,10 @@ export interface FindingQuery {
 // Outcome of the auto-rescan the retest action tries to enqueue: none for a type
 // with no clean re-detection, queued when a scan was launched, or blocked (e.g. a
 // passive domain needs `confirm`, or a cooldown/scope rule stopped it).
+export type ImportFormat = 'nuclei' | 'nmap' | 'findings' | 'subdomains' | 'httpx' | 'urls'
+
 export interface ImportResult {
-  format: 'nuclei' | 'nmap' | 'findings'
+  format: ImportFormat
   parsed: number
   imported: number
   skipped: number
@@ -89,7 +91,7 @@ export const findingsApi = {
   },
   // Import externally-produced scan output (Nuclei JSONL / Nmap XML / findings
   // JSON) into a domain's findings. Returns how many were parsed/imported/skipped.
-  importScan: (domainId: number, body: { format: 'nuclei' | 'nmap' | 'findings'; content: string }) =>
+  importScan: (domainId: number, body: { format: ImportFormat; content: string }) =>
     post<ImportResult>(`/domains/${domainId}/import`, body),
   updateFinding: (id: number, patchBody: { status?: FindingStatus; note?: string | null }) =>
     patch<{ finding: Finding }>(`/findings/${id}`, patchBody),

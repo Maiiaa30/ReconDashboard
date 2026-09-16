@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseFindingsJson, parseNmapXml, parseNucleiJsonl } from './import'
+import { parseFindingsJson, parseHostList, parseNmapXml, parseNucleiJsonl, parseUrlList } from './import'
 
 describe('parseNucleiJsonl', () => {
   it('maps each JSONL line to a nuclei finding shape that matches native scans', () => {
@@ -84,5 +84,40 @@ describe('parseFindingsJson', () => {
   it('reports an error for non-array, non-envelope input', () => {
     expect(parseFindingsJson('42').errors.length).toBeGreaterThan(0)
     expect(parseFindingsJson('{bad').errors.length).toBeGreaterThan(0)
+  })
+})
+
+describe('parseHostList', () => {
+  it('reads plain host-per-line output and dedupes', () => {
+    const { hosts, skipped } = parseHostList('a.example.com\nb.example.com\na.example.com\n')
+    expect(hosts.sort()).toEqual(['a.example.com', 'b.example.com'])
+    expect(skipped).toBe(0)
+  })
+
+  it('reads JSONL objects (httpx/subfinder) and strips scheme/port/path', () => {
+    const jsonl = [
+      JSON.stringify({ host: 'x.example.com', status_code: 200 }),
+      JSON.stringify({ url: 'https://y.example.com:8443/login' }),
+      JSON.stringify({ input: 'z.example.com' }),
+    ].join('\n')
+    expect(parseHostList(jsonl).hosts.sort()).toEqual(['x.example.com', 'y.example.com', 'z.example.com'])
+  })
+
+  it('skips invalid hostnames', () => {
+    const { hosts, skipped } = parseHostList('good.example.com\nnot a host!!\n\n')
+    expect(hosts).toEqual(['good.example.com'])
+    expect(skipped).toBe(1)
+  })
+})
+
+describe('parseUrlList', () => {
+  it('keeps valid http(s) URLs and dedupes, dropping the rest', () => {
+    const { urls, skipped } = parseUrlList(['https://a/x', 'http://b/y', 'ftp://c/z', 'not-a-url', 'https://a/x'].join('\n'))
+    expect(urls.sort()).toEqual(['http://b/y', 'https://a/x'])
+    expect(skipped).toBe(2) // ftp + not-a-url
+  })
+
+  it('reads a url field from JSONL', () => {
+    expect(parseUrlList(JSON.stringify({ url: 'https://a.example.com/api' })).urls).toEqual(['https://a.example.com/api'])
   })
 })

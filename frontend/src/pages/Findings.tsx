@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { Bot, Sparkles, AlertTriangle } from 'lucide-react'
-import { api, type Finding, type FindingStatus, type FindingSummary, type TriageSuggestion } from '../api'
+import { api, type Finding, type FindingStatus, type FindingSummary, type ImportFormat, type TriageSuggestion } from '../api'
 import { useApp } from '../state'
 import { Card, Empty, ExportLinks, PageHeader, SkeletonList } from '../components/ui'
 import { useToast } from '../components/Toast'
@@ -53,6 +53,7 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
   cursorRef.current = nextCursor
   const [llmOn, setLlmOn] = useState(false)
   const [importBusy, setImportBusy] = useState(false)
+  const [importFormat, setImportFormat] = useState<ImportFormat | 'auto'>('auto')
   const importInputRef = useRef<HTMLInputElement>(null)
   const [narrative, setNarrative] = useState<{ text: string; note: string } | null>(null)
   const [narrBusy, setNarrBusy] = useState(false)
@@ -217,7 +218,15 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
       e.target.value = '' // let the same file be re-picked later
       if (!file || domainId === '') return
       const name = file.name.toLowerCase()
-      const format = name.endsWith('.xml') ? 'nmap' : name.endsWith('.jsonl') ? 'nuclei' : 'findings'
+      // Explicit picker wins; 'auto' guesses from the extension (finding formats).
+      const format: ImportFormat =
+        importFormat !== 'auto'
+          ? importFormat
+          : name.endsWith('.xml')
+            ? 'nmap'
+            : name.endsWith('.jsonl')
+              ? 'nuclei'
+              : 'findings'
       setImportBusy(true)
       try {
         const content = await file.text()
@@ -232,7 +241,7 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
         setImportBusy(false)
       }
     },
-    [domainId, toast, load, loadSummary],
+    [domainId, importFormat, toast, load, loadSummary],
   )
 
   // Debounced so typing in the tag/asset inputs doesn't fire a request per key.
@@ -431,16 +440,31 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
               type="file"
               accept=".xml,.jsonl,.json,.txt"
               onChange={onImportFile}
-              aria-label="Import scan file (Nmap XML, Nuclei JSONL, or findings JSON)"
+              aria-label="Import scan file"
               className="hidden"
             />
+            <select
+              value={importFormat}
+              onChange={(e) => setImportFormat(e.target.value as ImportFormat | 'auto')}
+              aria-label="Import format"
+              className="rounded-lg border border-hair bg-ink-950 px-2 py-1 text-xs text-zinc-300 outline-none focus:border-accent-500"
+              title="What kind of file you're importing"
+            >
+              <option value="auto">Auto (by extension)</option>
+              <option value="nuclei">Nuclei JSONL</option>
+              <option value="nmap">Nmap XML</option>
+              <option value="findings">Findings JSON</option>
+              <option value="subdomains">Hosts / subdomains</option>
+              <option value="httpx">httpx JSONL</option>
+              <option value="urls">URL list</option>
+            </select>
             <button
               onClick={() => importInputRef.current?.click()}
               disabled={domainId === '' || importBusy}
               className="rounded-lg border border-hair px-2.5 py-1 text-xs text-zinc-300 transition hover:border-hair-strong hover:bg-ink-800 disabled:opacity-50"
-              title="Import an external scan into this domain — Nmap XML (.xml), Nuclei JSONL (.jsonl), or a findings JSON bundle (.json)"
+              title="Import an external scan/recon file into this domain — findings (Nuclei/Nmap/JSON) or recon (hosts, httpx, URL lists)"
             >
-              {importBusy ? 'Importing…' : 'Import scan'}
+              {importBusy ? 'Importing…' : 'Import'}
             </button>
           </div>
         }

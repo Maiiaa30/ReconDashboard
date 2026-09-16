@@ -3,7 +3,7 @@ import { getDomain } from '../domains/store'
 import { importScanData, type ImportFormat } from '../findings/import'
 import { actorName, writeAudit } from '../audit/store'
 
-const FORMATS: ReadonlySet<string> = new Set(['nuclei', 'nmap', 'findings'])
+const FORMATS: ReadonlySet<string> = new Set(['nuclei', 'nmap', 'findings', 'subdomains', 'httpx', 'urls'])
 
 // Import externally-produced scan output (Nuclei JSONL, Nmap XML, or a generic
 // findings JSON bundle) into a domain's findings. This is passive ingest of data
