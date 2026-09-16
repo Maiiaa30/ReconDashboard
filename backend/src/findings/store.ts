@@ -4,6 +4,7 @@ import { findingLinks, findings } from '../db/schema'
 import { safeJsonParse } from '../util/json'
 import { severityBucket } from './severity'
 import { currentJobId } from '../jobs/jobContext'
+import { emitFindings } from '../events/bus'
 
 // Finding types currently produced by the system.
 export type FindingType =
@@ -238,11 +239,13 @@ export function addFinding(f: NewFinding): number {
         })
         .where(eq(findings.id, existing.id))
         .run()
+      emitFindings(f.domainId)
       return existing.id
     }
   }
 
   const res = db.insert(findings).values(values).run()
+  emitFindings(f.domainId)
   return Number(res.lastInsertRowid)
 }
 

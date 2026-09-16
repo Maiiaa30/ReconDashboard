@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, lt, notInArray, sql } from 'drizzle-orm'
 import { db } from '../db/index'
 import { jobs } from '../db/schema'
+import { emitJobs } from '../events/bus'
 
 export type JobType =
   | 'subdomain_discovery'
@@ -72,6 +73,7 @@ export function enqueueJob(type: JobType, params: unknown): number {
     .insert(jobs)
     .values({ type, status: 'queued', params: JSON.stringify(params ?? {}), domainId: domainIdOf(params) })
     .run()
+  emitJobs()
   return Number(res.lastInsertRowid)
 }
 
@@ -165,6 +167,7 @@ export function claimNextQueued(lane?: JobLane) {
     .run()
 
   if (res.changes === 0) return undefined // lost the race
+  emitJobs()
   return getJob(next.id)
 }
 
@@ -183,6 +186,7 @@ export function finishJob(id: number, result: unknown): boolean {
     })
     .where(and(eq(jobs.id, id), eq(jobs.status, 'running')))
     .run()
+  if (res.changes > 0) emitJobs()
   return res.changes > 0
 }
 
@@ -195,16 +199,18 @@ export function cancelJob(id: number): boolean {
     .set({ status: 'cancelled', finishedAt: new Date(), updatedAt: new Date() })
     .where(and(eq(jobs.id, id), eq(jobs.status, 'queued')))
     .run()
+  if (res.changes > 0) emitJobs()
   return res.changes > 0
 }
 
 // Coarse progress line for a running job (bumps updatedAt so a stale detector
 // and the UI can distinguish a slow job from a wedged one).
 export function setJobProgress(id: number, progress: string): void {
-  db.update(jobs)
+  const res = db.update(jobs)
     .set({ progress: progress.slice(0, 500), updatedAt: new Date() })
     .where(and(eq(jobs.id, id), eq(jobs.status, 'running')))
     .run()
+  if (res.changes > 0) emitJobs()
 }
 
 // Persist an operator's cancel request on a queued/running job. Durable so it
@@ -227,6 +233,7 @@ export function markJobCancelled(id: number): boolean {
     .set({ status: 'cancelled', error: 'cancelled by operator', finishedAt: new Date(), updatedAt: new Date() })
     .where(and(eq(jobs.id, id), eq(jobs.status, 'running')))
     .run()
+  if (res.changes > 0) emitJobs()
   return res.changes > 0
 }
 
@@ -236,6 +243,7 @@ export function failJob(id: number, error: string): boolean {
     .set({ status: 'error', error, finishedAt: new Date(), updatedAt: new Date() })
     .where(and(eq(jobs.id, id), eq(jobs.status, 'running')))
     .run()
+  if (res.changes > 0) emitJobs()
   return res.changes > 0
 }
 

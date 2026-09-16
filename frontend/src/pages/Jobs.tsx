@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { api, type Job } from '../api'
 import { useApp, usePoll } from '../state'
+import { useAppEvent } from '../lib/events'
 import { Button, Empty, JobStatusBadge, PageHeader } from '../components/ui'
 import { summarizeJob, timeAgo } from '../lib/format'
 
@@ -83,6 +84,8 @@ export function Jobs() {
     api.jobs().then((r) => setJobs(r.jobs)).catch(() => {})
   }, [])
   usePoll(load, 2500)
+  // Live refresh on any job change (queue/status/progress); poll is the fallback.
+  useAppEvent('jobs', load)
 
   async function cancel(id: number, e: MouseEvent) {
     e.stopPropagation()

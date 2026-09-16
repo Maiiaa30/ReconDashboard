@@ -7,6 +7,7 @@ import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/Confirm'
 import { summarizeFinding } from '../lib/format'
 import { takePendingFindingFilter } from '../lib/navigationHandoff'
+import { useAppEvent } from '../lib/events'
 import {
   PAGE_SIZE,
   SEVERITY_OPTIONS,
@@ -243,6 +244,13 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
     },
     [domainId, importFormat, toast, load, loadSummary],
   )
+
+  // Live refresh: when the backend reports a findings change, reload now instead
+  // of waiting for the next poll. Polling stays as the fallback.
+  useAppEvent('findings', () => {
+    load()
+    loadSummary()
+  })
 
   // Debounced so typing in the tag/asset inputs doesn't fire a request per key.
   useEffect(() => {
