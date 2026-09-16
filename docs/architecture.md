@@ -44,7 +44,8 @@ Origin guard is a no-op unless `TRUSTED_ORIGINS` is set (production only).
   an in-process job worker (no Redis). Auth is argon2 (@node-rs/argon2) +
   @fastify/session (SQLite store) + optional TOTP (otplib) + @fastify/rate-limit.
 - **Recon tooling** baked into the backend image: subfinder, nuclei, ffuf, nmap,
-  whois, dig, sslscan, sqlmap, chromium, and best-effort katana, naabu, dalfox.
+  whois, dig, sslscan, sqlmap, chromium, and best-effort katana, naabu, dalfox,
+  wafw00f (WAF fingerprinting; header-based fallback when absent).
 - **Tests**: vitest on both sides; Testing Library + jsdom + axe-core on the
   frontend.
 
@@ -170,6 +171,23 @@ layers that any new job must satisfy:
 The definition of done for a new loud job is therefore: add the `JobType` and put
 it in `LOUD_TYPES`, register the handler, gate the route, write the audit row, add
 a `FindingType`/`findingKey` if new, and unit-test the pure core.
+
+## Live updates
+
+Live pages stay current by polling, with a **server-sent-events channel layered on
+top** so a change is reflected without waiting for the next poll:
+
+- **Event bus** (`events/bus.ts`): an in-process emitter. Job transitions and
+  `addFinding` publish a coarse change signal (`{ kind: jobs | findings | runs }`) -
+  no payload, just "something in this class changed".
+- **Stream** (`GET /api/events`): a single session-guarded Server-Sent-Events route
+  that forwards those signals to the browser. Job-progress emits are throttled
+  (~1/s) so a chatty scan does not flood the stream.
+- **Frontend** (`lib/events.ts`, `useAppEvent`): subscribes and refreshes the
+  relevant view on a matching signal. It is **additive to `usePoll`, not a
+  replacement** - a dropped stream degrades to the existing poll, so the UI never
+  shows stale data as fresh. Wired into Jobs and Findings so far; other live views
+  still poll only.
 
 ## Frontend structure
 

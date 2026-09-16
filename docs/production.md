@@ -11,7 +11,13 @@ See [`docker-compose.prod.yml`](../docker-compose.prod.yml) for the topology and
 
 - **One origin, one port.** The frontend is built to static assets and served by
   the backend (`@fastify/static`) alongside the API. Only `3001` is published,
-  reachable through the host's tailnet address.
+  reachable through the host's tailnet address. `@fastify/static` scans the SPA
+  directory at startup, so the SPA is built into its volume (by the exited
+  `frontend-build` service) before the backend boots.
+- **Recon tooling in the image.** The backend image bakes in the scanner CLIs; it
+  also **best-effort installs `wafw00f`** (WAF brand fingerprinting). If that pip
+  install is unavailable the app falls back to the header-based WAF detection, so a
+  missing binary degrades gracefully rather than breaking the WAF features.
 - **`NODE_ENV=production`**, no read-write source bind mounts — the image is the
   artifact.
 - **CSRF Origin check** enforced on state-changing session requests
@@ -53,6 +59,10 @@ See [`docker-compose.prod.yml`](../docker-compose.prod.yml) for the topology and
   first-run migrations).
 - Consolidated readiness (scanners, providers, DB, worker, queue, backup age) is
   in the **Readiness** page in the UI.
+- Live UI updates ride a single session-guarded `GET /api/events` (Server-Sent
+  Events) stream, so the reverse path / tailnet must allow a long-lived streaming
+  response. It is authenticated like any other route and degrades to polling if the
+  stream drops, so it is not a health dependency.
 
 ## Upgrade
 
@@ -61,8 +71,10 @@ git pull
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Migrations apply automatically on backend boot. The `spa-dist` volume is
-repopulated by the rebuilt `frontend-build` service, so the UI updates too. Watch
+Migrations apply automatically on backend boot (currently through `0038`, which
+adds the `subdomains.waf_brand` / `waf_version` / `waf_source` columns). The
+`spa-dist` volume is repopulated by the rebuilt `frontend-build` service, so the UI
+updates too. Watch
 `docker compose -f docker-compose.prod.yml logs -f backend` until it reports
 listening and the healthcheck is green.
 

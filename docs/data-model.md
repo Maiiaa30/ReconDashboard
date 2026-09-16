@@ -13,7 +13,7 @@ is used see [architecture.md](./architecture.md).
 - **JSON columns** are `text` holding a serialized blob; the comment on each notes
   its shape.
 - **Migrations** live in `backend/drizzle/*.sql` and apply on boot
-  (`runMigrations()`). They currently run through `0037`. Add one after a schema
+  (`runMigrations()`). They currently run through `0038`. Add one after a schema
   edit with `npx drizzle-kit generate`; if an `ADD COLUMN` needs a non-constant
   default, hand-append the backfill `UPDATE` to the generated `.sql`.
 - **Foreign keys** mostly cascade on domain delete. Two deliberate exceptions:
@@ -59,7 +59,11 @@ legal cover for an authorized engagement. Indexed by `ts` and `domain_id`.
 Discovered hosts under a domain (unique per `(domain_id, host)`). `source`,
 `is_new`, and HTTP-probe enrichment (`ip_address`, `http_status`, `title`,
 `server`, `scheme`). `waf` marks a host as alive-but-protected behind a WAF/CDN
-rather than dead. `cert_fp` and `favicon_hash` are CDN-surviving correlation
+rather than dead; `waf_brand`/`waf_version`/`waf_source` (migration `0038`) record
+the identified WAF vendor from an "Identify WAF" run (`wafw00f` when available, else
+the header-based detector - hence `waf_source`; `waf_version` is best-effort and
+usually absent for versionless SaaS WAFs). `cert_fp` and `favicon_hash` are
+CDN-surviving correlation
 signatures (two hosts sharing either are the same asset even on different IPs).
 `login_hint` flags a host whose probe saw a login form. Screenshot path/time and
 `first_seen`/`last_seen` complete the row.
@@ -143,6 +147,11 @@ same row. `created_at` is first-seen (never touched by the upsert); `last_seen_a
 is refreshed on every upsert, so the pair gives discovery age plus freshness.
 `retest_requested_at` stamps when the operator marked it for retest. Indexed by
 domain, `(score, created_at)` (the keyset sort), dedupe lookup, status, and type.
+Rows created by the scan-import path (`POST /api/domains/:id/import`, e.g. Nuclei
+JSONL / Nmap XML / generic findings JSON) upsert through the same `addFinding` /
+`dedupe_key` machinery the native scanners use and carry an `imported` tag; imported
+recon (host lists, httpx JSONL, URL lists) instead lands in `subdomains` /
+`url_corpus`, scoped to the domain with out-of-scope entries dropped.
 
 ### `finding_links`
 Typed relational edges between findings (unique per `(from_id, to_id, kind)`):
