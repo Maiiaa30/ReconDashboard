@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, type MetaStatus, type ScreenshotEntry } from '../api'
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Empty, PageHeader } from '../components/ui'
+import { useToast } from '../components/Toast'
 import { timeAgo } from '../lib/format'
 import { safeHttpUrl } from '../lib/url'
 
@@ -16,7 +17,9 @@ function statusTone(status: number | null): 'green' | 'blue' | 'amber' | 'red' |
 
 export function Screenshots() {
   const { selected } = useApp()
+  const toast = useToast()
   const [shots, setShots] = useState<ScreenshotEntry[]>([])
+  const [loadError, setLoadError] = useState(false)
   const [meta, setMeta] = useState<MetaStatus | null>(null)
   const [running, setRunning] = useState(false)
   const [lastJob, setLastJob] = useState<number | null>(null)
@@ -29,7 +32,7 @@ export function Screenshots() {
 
   const load = useCallback(() => {
     if (!selected) return
-    api.screenshots(selected.id).then((r) => setShots(r.screenshots)).catch(() => {})
+    api.screenshots(selected.id).then((r) => { setShots(r.screenshots); setLoadError(false) }).catch(() => setLoadError(true))
     // Track the capture job so the button reflects real completion.
     if (lastJob != null) {
       api.job(lastJob).then((r) => {
@@ -67,8 +70,9 @@ export function Screenshots() {
     try {
       const { jobId } = await api.captureScreenshots(selected.id)
       setLastJob(jobId) // cleared when the job reaches a terminal status
-    } catch {
+    } catch (e) {
       setRunning(false)
+      toast.error(e instanceof Error ? e.message : 'Failed to start capture.')
     }
   }
 
@@ -90,7 +94,9 @@ export function Screenshots() {
         </p>
       )}
 
-      {shots.length === 0 ? (
+      {loadError && shots.length === 0 ? (
+        <Empty>Couldn’t load screenshots — will retry.</Empty>
+      ) : shots.length === 0 ? (
         <Empty>
           No screenshots yet. Click “Capture live hosts” to screenshot every subdomain that responded to
           the HTTP probe. (Run discovery first so there are live hosts.)

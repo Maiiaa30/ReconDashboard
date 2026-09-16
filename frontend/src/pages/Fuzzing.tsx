@@ -75,6 +75,7 @@ export function Fuzzing() {
   const ask = useConfirm()
   const hosts = useHosts(selected)
   const [hits, setHits] = useState<Finding[]>([])
+  const [loadError, setLoadError] = useState(false)
   const [meta, setMeta] = useState<MetaStatus | null>(null)
   const [target, setTarget] = useState('')
   const [path, setPath] = useState('FUZZ')
@@ -98,8 +99,8 @@ export function Fuzzing() {
     if (!selected) return
     api
       .findings({ domainId: selected.id, type: 'ffuf', limit: 1000 })
-      .then((r) => setHits(r.findings))
-      .catch(() => {})
+      .then((r) => { setHits(r.findings); setLoadError(false) })
+      .catch(() => setLoadError(true))
   }, [selected])
   usePoll(load, 4000, !!selected)
 
@@ -284,7 +285,9 @@ export function Fuzzing() {
         {msg && <p className={`mt-2 text-sm ${msg.ok ? 'text-green-400' : 'text-red-400'}`}>{msg.text}</p>}
       </Card>
 
-      {hits.length === 0 ? (
+      {loadError && hits.length === 0 ? (
+        <Empty>Couldn’t load fuzzing hits — will retry.</Empty>
+      ) : hits.length === 0 ? (
         <Empty>No fuzzing hits yet for {selected.host}.</Empty>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-hair">

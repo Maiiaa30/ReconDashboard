@@ -12,6 +12,7 @@ export function Assets({ navigate }: { navigate: (page: string, domainId?: numbe
   const { selected } = useApp()
   const [assets, setAssets] = useState<Asset[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const [query, setQuery] = useState('')
   const [kind, setKind] = useState<KindFilter>('all')
   const [onlyRisk, setOnlyRisk] = useState(false)
@@ -19,7 +20,7 @@ export function Assets({ navigate }: { navigate: (page: string, domainId?: numbe
 
   const load = useCallback(() => {
     if (!selected) return
-    api.assets(selected.id).then((result) => setAssets(result.assets)).catch(() => setAssets([])).finally(() => setLoaded(true))
+    api.assets(selected.id).then((result) => { setAssets(result.assets); setLoadError(false) }).catch(() => setLoadError(true)).finally(() => setLoaded(true))
   }, [selected])
   usePoll(load, 8000, !!selected, selected?.id)
 
@@ -67,7 +68,7 @@ export function Assets({ navigate }: { navigate: (page: string, domainId?: numbe
         <div className="flex flex-wrap items-center gap-2">
           <label className="relative min-w-[220px] flex-1">
             <Search size={15} className="pointer-events-none absolute left-3 top-2.5 text-zinc-500" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search host, IP, service, ASN or technology…" className="w-full rounded-lg border border-hair bg-ink-950 py-2 pl-9 pr-3 text-sm outline-none focus:border-accent-500" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search host, IP, service, ASN or technology…" aria-label="Search assets" className="w-full rounded-lg border border-hair bg-ink-950 py-2 pl-9 pr-3 text-sm outline-none focus:border-accent-500" />
           </label>
           <div className="flex items-center gap-1 rounded-lg border border-hair bg-ink-950 p-1">
             {(['all', 'host', 'ip', 'service'] as KindFilter[]).map((value) => (
@@ -80,7 +81,7 @@ export function Assets({ navigate }: { navigate: (page: string, domainId?: numbe
         </div>
       </Card>
 
-      {!loaded ? <SkeletonList rows={6} /> : filtered.length === 0 ? <Empty>No assets match the current filters. Run discovery and exposure collection to populate the inventory.</Empty> : (
+      {!loaded ? <SkeletonList rows={6} /> : loadError && assets.length === 0 ? <Empty>Couldn’t load the asset inventory — will retry.</Empty> : filtered.length === 0 ? <Empty>No assets match the current filters. Run discovery and exposure collection to populate the inventory.</Empty> : (
         <div className="overflow-hidden rounded-xl border border-hair bg-ink-900/40">
           <div className="hidden grid-cols-[90px_minmax(180px,1.4fr)_minmax(150px,1fr)_minmax(130px,1fr)_100px_180px] gap-3 border-b border-hair bg-ink-850 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 lg:grid">
             <span>Kind</span><span>Asset</span><span>Context</span><span>Technology</span><span>Risk</span><span className="text-right">Actions</span>

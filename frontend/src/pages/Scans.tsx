@@ -74,6 +74,7 @@ export function Scans() {
   const [paramBusy, setParamBusy] = useState(false)
 
   const [results, setResults] = useState<Finding[]>([])
+  const [resultsError, setResultsError] = useState(false)
 
   const loadMeta = useCallback(() => {
     api.meta().then(setMeta).catch(() => {})
@@ -89,14 +90,15 @@ export function Scans() {
       api.findings({ domainId: selectedId, type: 'nmap', limit: 50 }),
       api.findings({ domainId: selectedId, type: 'nuclei', limit: 100 }),
     ])
-      .then(([a, b]) =>
+      .then(([a, b]) => {
         setResults(
           [...a.findings, ...b.findings].sort(
             (x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime(),
           ),
-        ),
-      )
-      .catch(() => {})
+        )
+        setResultsError(false)
+      })
+      .catch(() => setResultsError(true))
   }, [selectedId])
   usePoll(loadResults, 5000, selectedId != null)
 
@@ -456,7 +458,9 @@ export function Scans() {
         </h2>
         <span className="text-xs text-zinc-600">auto-refreshing · full history in Findings</span>
       </div>
-      {results.length === 0 ? (
+      {resultsError && results.length === 0 ? (
+        <Empty>Couldn’t load scan results — will retry.</Empty>
+      ) : results.length === 0 ? (
         <Empty>No nmap/nuclei results yet for {selected.host}. Run a scan above — findings appear here live.</Empty>
       ) : (
         <div className="mt-3 space-y-2">

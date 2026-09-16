@@ -10,6 +10,7 @@ import { AttackGraph } from '../components/AttackGraph'
 export function Intel({ navigate }: { navigate?: (page: string, domainId?: number) => void }) {
   const { domains, selected } = useApp()
   const [findings, setFindings] = useState<Finding[]>([])
+  const [loadError, setLoadError] = useState(false)
   const [paths, setPaths] = useState<AttackPath[]>([])
   const [clusters, setClusters] = useState<SignatureCluster[]>([])
   const [chains, setChains] = useState<ChainSuggestion[]>([])
@@ -43,7 +44,7 @@ export function Intel({ navigate }: { navigate?: (page: string, domainId?: numbe
   // Scoped to the selected domain (matches the header target). No selection =
   // triage across all domains.
   const load = useCallback(() => {
-    api.findings({ domainId: selected?.id, limit: 500 }).then((r) => setFindings(r.findings)).catch(() => {})
+    api.findings({ domainId: selected?.id, limit: 500 }).then((r) => { setFindings(r.findings); setLoadError(false) }).catch(() => setLoadError(true))
   }, [selected])
   usePoll(load, 8000, true)
 
@@ -146,7 +147,9 @@ export function Intel({ navigate }: { navigate?: (page: string, domainId?: numbe
 
       {selected && chains.length > 0 && <ChainsSection chains={chains} domainId={selected.id} navigate={navigate} />}
 
-      {findings.length === 0 ? (
+      {loadError && findings.length === 0 ? (
+        <Empty>Couldn’t load intel — will retry.</Empty>
+      ) : findings.length === 0 ? (
         <Empty>No findings yet. Run discovery / exposure / OSINT on a domain to populate intel.</Empty>
       ) : (
         <div className="space-y-6">

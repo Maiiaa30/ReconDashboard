@@ -20,6 +20,7 @@ interface OriginData {
 export function Origin() {
   const { selected } = useApp()
   const [latest, setLatest] = useState<Finding | null>(null)
+  const [loadError, setLoadError] = useState(false)
   const [running, setRunning] = useState(false)
   const [lastJob, setLastJob] = useState<number | null>(null)
   const confirm = useConfirm()
@@ -27,7 +28,7 @@ export function Origin() {
 
   const load = useCallback(() => {
     if (!selected) return
-    api.findings({ domainId: selected.id, type: 'origin', limit: 1 }).then((r) => setLatest(r.findings[0] ?? null)).catch(() => {})
+    api.findings({ domainId: selected.id, type: 'origin', limit: 1 }).then((r) => { setLatest(r.findings[0] ?? null); setLoadError(false) }).catch(() => setLoadError(true))
     if (lastJob != null) {
       api.job(lastJob).then((r) => {
         if (['done', 'error', 'cancelled', 'dead'].includes(r.job.status)) {
@@ -85,7 +86,9 @@ export function Origin() {
         Use only on targets you’re authorized to test.
       </p>
 
-      {!data ? (
+      {loadError && !data ? (
+        <Empty>Couldn’t load origin data — will retry.</Empty>
+      ) : !data ? (
         <Empty>No origin scan yet. Click “Find origin”. (Run discovery first for best results — it uses your subdomains’ IPs.)</Empty>
       ) : (
         <div className="space-y-4">

@@ -219,9 +219,11 @@ export function Owasp() {
   const ask = useConfirm()
 
   const [catalog, setCatalog] = useState<OwaspCategory[]>([])
+  const [catalogError, setCatalogError] = useState(false)
   const [profileKeys, setProfileKeys] = useState<OwaspProfileKey[]>([])
   const [nucleiInstalled, setNucleiInstalled] = useState<boolean | null>(null)
   const [findings, setFindings] = useState<Finding[]>([])
+  const [findingsError, setFindingsError] = useState(false)
   // False until the first fetch for the current target resolves — lets us show a
   // loading state instead of the previous domain's results or a false "empty".
   const [findingsReady, setFindingsReady] = useState(false)
@@ -253,8 +255,9 @@ export function Owasp() {
       .then((r) => {
         setCatalog(r.catalog)
         setProfileKeys(r.profileKeys)
+        setCatalogError(false)
       })
-      .catch(() => {})
+      .catch(() => setCatalogError(true))
     api
       .meta()
       .then((m) => setNucleiInstalled(m.tools.nuclei))
@@ -272,8 +275,9 @@ export function Owasp() {
       .then(([a, b]) => {
         const merged = [...a.findings, ...b.findings].sort((x, y) => (y.score ?? 0) - (x.score ?? 0))
         setFindings(merged)
+        setFindingsError(false)
       })
-      .catch(() => {})
+      .catch(() => setFindingsError(true))
       .finally(() => setFindingsReady(true))
   }, [selectedId])
 
@@ -445,7 +449,9 @@ export function Owasp() {
       {runError && <p className="mb-3 text-sm text-red-400">{runError}</p>}
 
       {/* Category cards */}
-      {catalog.length === 0 ? (
+      {catalogError && catalog.length === 0 ? (
+        <Empty>Couldn’t load the OWASP catalog — reload to retry.</Empty>
+      ) : catalog.length === 0 ? (
         <Empty>Loading OWASP catalog…</Empty>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
@@ -467,6 +473,8 @@ export function Owasp() {
       <h2 className="mb-3 mt-8 text-sm font-semibold text-zinc-200">Results</h2>
       {!findingsReady ? (
         <Empty>Loading results…</Empty>
+      ) : findingsError && findings.length === 0 ? (
+        <Empty>Couldn’t load OWASP results — will retry.</Empty>
       ) : findings.length === 0 ? (
         <Empty>No OWASP findings yet. Configure the profile and run tests.</Empty>
       ) : (

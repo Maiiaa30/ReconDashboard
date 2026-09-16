@@ -1,6 +1,7 @@
 // Compact relative time, e.g. "just now", "5m ago", "3h ago", "2d ago".
 export function timeAgo(ms: number | null | undefined): string {
   if (!ms) return 'never'
+  if (!Number.isFinite(ms)) return '—'
   const diff = Date.now() - ms
   if (diff < 0) return 'just now'
   const s = Math.floor(diff / 1000)

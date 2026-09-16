@@ -132,6 +132,7 @@ export function Audit() {
               value={target}
               onChange={(e) => setTarget(e.target.value)}
               placeholder="Filter target…"
+              aria-label="Filter by target"
               className={`${inputCls} w-44`}
             />
           </div>

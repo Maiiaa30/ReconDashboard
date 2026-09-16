@@ -15,6 +15,7 @@ export function DataLeaks() {
   const { selected } = useApp()
   const toast = useToast()
   const [state, setState] = useState<LeaksResponse | null>(null)
+  const [loadError, setLoadError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [reveal, setReveal] = useState(false)
@@ -30,7 +31,7 @@ export function DataLeaks() {
       setSecretFindings([])
       return
     }
-    api.leaks(selected.id).then(setState).catch(() => setState(null))
+    api.leaks(selected.id).then((r) => { setState(r); setLoadError(false) }).catch(() => setLoadError(true))
     api
       .findings({ domainId: selected.id, type: 'secret', limit: 200 })
       .then((r) => setSecretFindings(r.findings))
@@ -156,7 +157,9 @@ export function DataLeaks() {
       )}
 
       {/* Results */}
-      {(state?.findings ?? []).length === 0 ? (
+      {loadError && state == null ? (
+        <Empty>Couldn’t load breach data — will retry.</Empty>
+      ) : (state?.findings ?? []).length === 0 ? (
         <Empty>
           {state?.enabled
             ? 'No leaked records recorded yet. Run “Check now”.'
@@ -184,6 +187,7 @@ export function DataLeaks() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Filter…"
+                  aria-label="Filter leaked records"
                   className="w-40 rounded-lg border border-hair bg-ink-850 py-1.5 pl-8 pr-2 text-xs outline-none transition placeholder:text-zinc-600 focus:border-accent-500"
                 />
               </div>

@@ -12,6 +12,7 @@ import {
 import { useApp, usePoll } from '../state'
 import { Badge, Button, Card, Empty, PageHeader } from '../components/ui'
 import { useConfirm } from '../components/Confirm'
+import { useToast } from '../components/Toast'
 
 const STATUS: Record<StepStatus, { label: string; cls: string; icon: typeof Circle; spin?: boolean }> = {
   found: { label: 'found', cls: 'text-green-400', icon: CheckCircle2 },
@@ -103,8 +104,9 @@ function OverrideControls({
   step: MethodologyStep
   onUpdate: (m: MethodologyData) => void
 }) {
+  const toast = useToast()
   const set = (s: 'done' | 'skipped' | 'clear') =>
-    api.setMethodologyStep(domainId, skillId, step.key, s).then(onUpdate).catch(() => {})
+    api.setMethodologyStep(domainId, skillId, step.key, s).then(onUpdate).catch(() => toast.error('Failed to update the step. Try again.'))
   if (step.manual) {
     return (
       <button onClick={() => set('clear')} className="text-[11px] text-zinc-500 transition hover:text-zinc-300">
@@ -191,10 +193,11 @@ function SkillCard({
 export function Methodology({ navigate }: { navigate: (page: string, domainId?: number) => void }) {
   const { selected } = useApp()
   const [data, setData] = useState<MethodologyData | null>(null)
+  const [loadError, setLoadError] = useState(false)
 
   const load = useCallback(() => {
     if (!selected) return
-    api.methodology(selected.id).then(setData).catch(() => {})
+    api.methodology(selected.id).then((d) => { setData(d); setLoadError(false) }).catch(() => setLoadError(true))
   }, [selected])
   usePoll(load, 8000, !!selected)
 
@@ -234,7 +237,9 @@ export function Methodology({ navigate }: { navigate: (page: string, domainId?: 
         </Card>
       )}
 
-      {!data ? (
+      {loadError && !data ? (
+        <Empty>Couldn’t load methodology — will retry.</Empty>
+      ) : !data ? (
         <Empty>Loading methodology…</Empty>
       ) : (
         <div className="space-y-4">

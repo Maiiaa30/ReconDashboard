@@ -74,6 +74,7 @@ function Kpi({ icon: Icon, tone, label, value }: { icon: LucideIcon; tone: strin
 export function Jobs() {
   const { domains } = useApp()
   const [jobs, setJobs] = useState<Job[]>([])
+  const [loadError, setLoadError] = useState(false)
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [typeFilter, setTypeFilter] = useState('')
   const [domainFilter, setDomainFilter] = useState<number | 'all'>('all')
@@ -81,7 +82,7 @@ export function Jobs() {
   const [cancelling, setCancelling] = useState<number | null>(null)
 
   const load = useCallback(() => {
-    api.jobs().then((r) => setJobs(r.jobs)).catch(() => {})
+    api.jobs().then((r) => { setJobs(r.jobs); setLoadError(false) }).catch(() => setLoadError(true))
   }, [])
   usePoll(load, 2500)
   // Live refresh on any job change (queue/status/progress); poll is the fallback.
@@ -214,7 +215,9 @@ export function Jobs() {
         </select>
       </div>
 
-      {shown.length === 0 ? (
+      {loadError && jobs.length === 0 ? (
+        <Empty>Couldn’t load the activity log — will retry.</Empty>
+      ) : shown.length === 0 ? (
         <Empty>No jobs{filter !== 'all' || typeFilter || domainFilter !== 'all' ? ' match these filters' : ' yet'}.</Empty>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-hair">

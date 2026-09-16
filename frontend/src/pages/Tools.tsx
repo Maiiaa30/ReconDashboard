@@ -45,6 +45,7 @@ export function Tools() {
   const [meta, setMeta] = useState<MetaStatus | null>(null)
   const [target, setTarget] = useState('')
   const [findings, setFindings] = useState<Finding[]>([])
+  const [loadError, setLoadError] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   // sqlmap WAF evasion: identify the WAF, auto-pick a stock tamper chain, raise
@@ -62,7 +63,7 @@ export function Tools() {
   const selectedId = selected?.id ?? null
   const load = useCallback(() => {
     if (selectedId == null) return
-    api.findings({ domainId: selectedId, type: 'tool', limit: 100 }).then((r) => setFindings(r.findings)).catch(() => {})
+    api.findings({ domainId: selectedId, type: 'tool', limit: 100 }).then((r) => { setFindings(r.findings); setLoadError(false) }).catch(() => setLoadError(true))
   }, [selectedId])
   usePoll(load, 4000, selectedId != null)
 
@@ -162,7 +163,9 @@ export function Tools() {
       </div>
 
       <h2 className="mb-3 mt-8 text-sm font-semibold text-zinc-200">Results</h2>
-      {findings.length === 0 ? (
+      {loadError && findings.length === 0 ? (
+        <Empty>Couldn’t load tool results — will retry.</Empty>
+      ) : findings.length === 0 ? (
         <Empty>No tool findings yet. Run a tool above.</Empty>
       ) : (
         <div className="space-y-2">

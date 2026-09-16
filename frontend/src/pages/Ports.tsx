@@ -73,6 +73,8 @@ export function Ports() {
   const { selected } = useApp()
   const [exposure, setExposure] = useState<Finding[]>([])
   const [nmap, setNmap] = useState<Finding[]>([])
+  const [exposureError, setExposureError] = useState(false)
+  const [nmapError, setNmapError] = useState(false)
   const [cat, setCat] = useState<PortCategory | 'all' | 'notable'>('all')
   const [query, setQuery] = useState('')
 
@@ -81,13 +83,15 @@ export function Ports() {
   useEffect(() => {
     setExposure([])
     setNmap([])
+    setExposureError(false)
+    setNmapError(false)
   }, [selected?.id])
 
   usePoll(
     () => {
       if (!selected) return
-      api.findings({ domainId: selected.id, type: 'exposure', limit: 500 }).then((r) => setExposure(r.findings)).catch(() => {})
-      api.findings({ domainId: selected.id, type: 'nmap', limit: 500 }).then((r) => setNmap(r.findings)).catch(() => {})
+      api.findings({ domainId: selected.id, type: 'exposure', limit: 500 }).then((r) => { setExposure(r.findings); setExposureError(false) }).catch(() => setExposureError(true))
+      api.findings({ domainId: selected.id, type: 'nmap', limit: 500 }).then((r) => { setNmap(r.findings); setNmapError(false) }).catch(() => setNmapError(true))
     },
     5000,
     !!selected,
@@ -95,6 +99,7 @@ export function Ports() {
   )
 
   const rows = useMemo(() => buildRows(exposure, nmap), [exposure, nmap])
+  const loadError = exposureError || nmapError
 
   // Which categories are actually present, for the filter chips.
   const present = useMemo(() => {
@@ -162,7 +167,9 @@ export function Ports() {
         />
       </div>
 
-      {rows.length === 0 ? (
+      {loadError && rows.length === 0 ? (
+        <Empty>Couldn’t load port data — will retry.</Empty>
+      ) : rows.length === 0 ? (
         <Empty>No port data yet. Run an Exposure scan (passive) or an nmap scan (active) on this target.</Empty>
       ) : filtered.length === 0 ? (
         <Empty>No ports match this filter.</Empty>
