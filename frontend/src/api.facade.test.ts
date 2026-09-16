@@ -78,6 +78,7 @@ const EXPECTED_METHODS = [
   'generateNarrative',
   'home',
   'identities',
+  'importScan',
   'injectConfirm',
   'intruder',
   'job',

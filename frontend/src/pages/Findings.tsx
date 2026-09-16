@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { Bot, Sparkles, AlertTriangle } from 'lucide-react'
 import { api, type Finding, type FindingStatus, type FindingSummary, type TriageSuggestion } from '../api'
 import { useApp } from '../state'
@@ -52,6 +52,8 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
   const cursorRef = useRef<string | null>(null)
   cursorRef.current = nextCursor
   const [llmOn, setLlmOn] = useState(false)
+  const [importBusy, setImportBusy] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const [narrative, setNarrative] = useState<{ text: string; note: string } | null>(null)
   const [narrBusy, setNarrBusy] = useState(false)
   // AI triage suggestions — suggest-only; nothing is applied until the operator clicks Apply.
@@ -206,6 +208,32 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
       .then(setSummary)
       .catch(() => setSummary(null))
   }, [query])
+
+  // Import an external scan file. Format is inferred from the extension:
+  // .xml → Nmap, .jsonl → Nuclei, anything else → generic findings JSON.
+  const onImportFile = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      e.target.value = '' // let the same file be re-picked later
+      if (!file || domainId === '') return
+      const name = file.name.toLowerCase()
+      const format = name.endsWith('.xml') ? 'nmap' : name.endsWith('.jsonl') ? 'nuclei' : 'findings'
+      setImportBusy(true)
+      try {
+        const content = await file.text()
+        const r = await api.importScan(Number(domainId), { format, content })
+        toast.success(`Imported ${r.imported} ${format} finding(s)${r.skipped ? ` — ${r.skipped} skipped` : ''}`)
+        if (r.errors.length) toast.info(r.errors[0])
+        load()
+        loadSummary()
+      } catch (err) {
+        toast.error(`Import failed: ${err instanceof Error ? err.message : 'error'}`)
+      } finally {
+        setImportBusy(false)
+      }
+    },
+    [domainId, toast, load, loadSummary],
+  )
 
   // Debounced so typing in the tag/asset inputs doesn't fire a request per key.
   useEffect(() => {
@@ -398,6 +426,22 @@ export function Findings({ navigate }: { navigate?: (page: string, domainId?: nu
               params={{ domainId: domainId === '' ? undefined : domainId, type: type || undefined }}
               formats={['csv', 'json']}
             />
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".xml,.jsonl,.json,.txt"
+              onChange={onImportFile}
+              aria-label="Import scan file (Nmap XML, Nuclei JSONL, or findings JSON)"
+              className="hidden"
+            />
+            <button
+              onClick={() => importInputRef.current?.click()}
+              disabled={domainId === '' || importBusy}
+              className="rounded-lg border border-hair px-2.5 py-1 text-xs text-zinc-300 transition hover:border-hair-strong hover:bg-ink-800 disabled:opacity-50"
+              title="Import an external scan into this domain — Nmap XML (.xml), Nuclei JSONL (.jsonl), or a findings JSON bundle (.json)"
+            >
+              {importBusy ? 'Importing…' : 'Import scan'}
+            </button>
           </div>
         }
       />

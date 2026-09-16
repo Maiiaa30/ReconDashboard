@@ -27,6 +27,7 @@ import { scanRoutes } from './routes/scans'
 import { toolScanRoutes } from './routes/toolScan'
 import { owaspRoutes } from './routes/owasp'
 import { exportRoutes } from './routes/export'
+import { importRoutes } from './routes/import'
 import { screenshotRoutes } from './routes/screenshots'
 import { noteRoutes } from './routes/notes'
 import { drawingRoutes } from './routes/drawings'
@@ -139,6 +140,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(toolScanRoutes)
   await app.register(owaspRoutes)
   await app.register(exportRoutes)
+  await app.register(importRoutes)
   await app.register(screenshotRoutes)
   await app.register(jobRoutes)
   await app.register(findingRoutes)
