@@ -134,6 +134,7 @@ const EXPECTED_METHODS = [
   'updateNextAction',
   'updateNote',
   'verifyCve',
+  'wafScan',
   'whois',
 ].sort()
 
