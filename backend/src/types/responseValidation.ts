@@ -43,7 +43,20 @@ export function registerResponseValidation(app: FastifyInstance): void {
       if (!schema) return payload
       if (payload == null || typeof payload !== 'object') return payload
 
-      const issues = formatIssues(schema, payload)
+      // Validate the WIRE form, not the in-memory object: the schemas describe
+      // the serialized JSON (e.g. dates are z.string()), but at preSerialization
+      // a Drizzle row still holds Date objects, numbers, etc. A JSON round-trip
+      // normalizes to exactly what the client receives (Date -> ISO string) so
+      // the contract is checked against the real payload. If it can't serialize
+      // (circular ref), skip — that is a different problem, not a contract drift.
+      let wire: unknown
+      try {
+        wire = JSON.parse(JSON.stringify(payload))
+      } catch {
+        return payload
+      }
+
+      const issues = formatIssues(schema, wire)
       if (!issues) return payload
 
       const route = `${request.method} ${routeUrl}`

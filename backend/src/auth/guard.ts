@@ -19,6 +19,11 @@ const PUBLIC = new Set([
 export async function authGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const path = request.url.split('?')[0]
   if (PUBLIC.has(`${request.method} ${path}`)) return
+  // Single-origin serving: a GET that is not an API call is the SPA shell, its
+  // static assets, or a client-side route — all public by nature (the bundle is
+  // not secret; every data route lives under /api and stays guarded below).
+  // Without this the default-deny blocks the login page itself in production.
+  if (request.method === 'GET' && !path.startsWith('/api/')) return
   if (!request.session?.userId) {
     reply.code(401).send({ error: 'unauthorized' })
   }

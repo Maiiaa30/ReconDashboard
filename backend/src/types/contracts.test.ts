@@ -56,6 +56,18 @@ describe('preSerialization contract hook', () => {
     app.get('/api/jobs', async (_req, reply) => {
       if (reply.request.headers['x-bad'] === '1') return { jobs: [{ id: 'not-a-number' }] }
       if (reply.request.headers['x-error'] === '1') return reply.code(400).send({ jobs: 'wrong-but-error' })
+      // A realistic row still holds Date objects at preSerialization time — the
+      // schema wants strings (the wire form). The hook must normalize before it
+      // validates, or this 500s (the real bug live-testing caught).
+      if (reply.request.headers['x-dates'] === '1') {
+        return {
+          jobs: [{
+            id: 1, type: 'nmap_scan', status: 'done', domainId: 3, params: {}, result: {},
+            error: null, progress: null,
+            createdAt: new Date(), startedAt: new Date(), finishedAt: new Date(), updatedAt: new Date(),
+          }],
+        }
+      }
       return { jobs: [] }
     })
     // NOT in the registry → never validated, even if the shape is junk.
@@ -76,6 +88,15 @@ describe('preSerialization contract hook', () => {
     const app = await buildHooked()
     const res = await app.inject({ method: 'GET', url: '/api/jobs', headers: { 'x-bad': '1' } })
     expect(res.statusCode).toBe(500)
+    await app.close()
+  })
+
+  it('normalizes Date fields to the wire form before validating (200)', async () => {
+    const app = await buildHooked()
+    const res = await app.inject({ method: 'GET', url: '/api/jobs', headers: { 'x-dates': '1' } })
+    expect(res.statusCode).toBe(200)
+    // Dates serialize to ISO strings, matching the z.string() contract.
+    expect(typeof res.json().jobs[0].createdAt).toBe('string')
     await app.close()
   })
 

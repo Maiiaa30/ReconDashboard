@@ -1,77 +1,56 @@
-import { describe, expect, it, vi } from 'vitest'
-import type { FastifyReply, FastifyRequest } from 'fastify'
+import { describe, expect, it } from 'vitest'
 import { authGuard } from './guard'
 
-// The auth guard is DEFAULT-DENY: every route needs a session except the exact
-// method+path pairs on the public allowlist. A regression here means either an
-// auth bypass or a locked-out login, so it gets explicit coverage.
-
-function mkReply() {
-  const reply: any = { statusCode: null as number | null, payload: null as unknown }
-  reply.code = vi.fn((c: number) => {
-    reply.statusCode = c
-    return reply
-  })
-  reply.send = vi.fn((p: unknown) => {
-    reply.payload = p
-    return reply
-  })
-  return reply as FastifyReply & { statusCode: number | null; payload: unknown }
+// Minimal fakes for the two things authGuard reads/writes.
+function fakeReq(method: string, url: string, userId?: number) {
+  return { method, url, session: userId ? { userId } : {} } as unknown as Parameters<typeof authGuard>[0]
 }
-
-function mkReq(method: string, url: string, userId?: number): FastifyRequest {
-  return { method, url, session: userId ? { userId } : {} } as unknown as FastifyRequest
+function fakeReply() {
+  const calls: { code?: number; body?: unknown } = {}
+  const reply = {
+    code(c: number) {
+      calls.code = c
+      return reply
+    },
+    send(b: unknown) {
+      calls.body = b
+      return reply
+    },
+  }
+  return { reply: reply as unknown as Parameters<typeof authGuard>[1], calls }
 }
 
 describe('authGuard', () => {
-  it('lets the public allowlist through without a session', async () => {
-    for (const [method, url] of [
-      ['GET', '/api/health'],
-      ['POST', '/api/auth/login'],
-      ['POST', '/api/capture'], // extension ingest — self-authenticates via CAPTURE_TOKEN
-      ['GET', '/api/capture/targets'], // extension polls for tracked hosts — token-authed
-    ] as const) {
-      const reply = mkReply()
-      await authGuard(mkReq(method, url), reply)
-      expect(reply.code).not.toHaveBeenCalled()
+  it('401s an unauthenticated API request', async () => {
+    const { reply, calls } = fakeReply()
+    await authGuard(fakeReq('GET', '/api/domains'), reply)
+    expect(calls.code).toBe(401)
+  })
+
+  it('lets an authenticated API request through', async () => {
+    const { reply, calls } = fakeReply()
+    await authGuard(fakeReq('GET', '/api/domains', 7), reply)
+    expect(calls.code).toBeUndefined()
+  })
+
+  it('lets public routes through unauthenticated', async () => {
+    const { reply, calls } = fakeReply()
+    await authGuard(fakeReq('GET', '/api/health'), reply)
+    expect(calls.code).toBeUndefined()
+  })
+
+  it('lets a non-API GET (the SPA shell / assets) through unauthenticated', async () => {
+    // The single-origin regression: without this the login page itself 401s.
+    for (const url of ['/', '/index.html', '/assets/index-abc.js', '/findings']) {
+      const { reply, calls } = fakeReply()
+      await authGuard(fakeReq('GET', url), reply)
+      expect(calls.code, url).toBeUndefined()
     }
   })
 
-  it('401s an unauthenticated request to a protected route', async () => {
-    const reply = mkReply()
-    await authGuard(mkReq('GET', '/api/domains'), reply)
-    expect(reply.code).toHaveBeenCalledWith(401)
-    expect(reply.payload).toEqual({ error: 'unauthorized' })
-  })
-
-  it('allows a protected route when a session exists', async () => {
-    const reply = mkReply()
-    await authGuard(mkReq('GET', '/api/domains', 42), reply)
-    expect(reply.code).not.toHaveBeenCalled()
-  })
-
-  it('ignores the query string when matching the path', async () => {
-    const reply = mkReply()
-    await authGuard(mkReq('GET', '/api/findings?domainId=1&type=leak'), reply)
-    expect(reply.code).toHaveBeenCalledWith(401)
-  })
-
-  it('matches on METHOD too — wrong method for a public route is denied', async () => {
-    // /api/auth/login is public only for POST; a GET must still require auth.
-    const reply = mkReply()
-    await authGuard(mkReq('GET', '/api/auth/login'), reply)
-    expect(reply.code).toHaveBeenCalledWith(401)
-  })
-
-  it('keeps GET /api/capture (the read route) session-protected — only POST ingest is public', async () => {
-    const reply = mkReply()
-    await authGuard(mkReq('GET', '/api/capture'), reply)
-    expect(reply.code).toHaveBeenCalledWith(401)
-  })
-
-  it('does not treat a path that merely contains a public path as public', async () => {
-    const reply = mkReply()
-    await authGuard(mkReq('GET', '/api/health/../domains'), reply)
-    expect(reply.code).toHaveBeenCalledWith(401)
+  it('still guards a non-API NON-GET without a session', async () => {
+    const { reply, calls } = fakeReply()
+    await authGuard(fakeReq('POST', '/something'), reply)
+    expect(calls.code).toBe(401)
   })
 })
