@@ -133,6 +133,10 @@ export function usePoll(fn: (signal: AbortSignal) => void | Promise<void>, inter
       // Slow endpoints must not build up overlapping requests. Besides wasting
       // work, an older response can otherwise overwrite newer page state.
       if (running) return
+      // Don't poll while the tab is hidden/backgrounded — an unattended dashboard
+      // would otherwise hammer the backend 24/7. A visibilitychange catch-up
+      // (below) refreshes the moment the operator comes back.
+      if (typeof document !== 'undefined' && document.hidden) return
       running = true
       try {
         await fnRef.current(controller.signal)
@@ -147,9 +151,15 @@ export function usePoll(fn: (signal: AbortSignal) => void | Promise<void>, inter
     }
     void poll()
     const t = setInterval(() => void poll(), intervalMs)
+    // Immediate refresh when the tab regains focus (it was skipped while hidden).
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && !document.hidden) void poll()
+    }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       controller.abort()
       clearInterval(t)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [active, intervalMs, resetKey])
 }

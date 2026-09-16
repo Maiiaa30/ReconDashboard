@@ -205,7 +205,21 @@ export function cancelJob(id: number): boolean {
 
 // Coarse progress line for a running job (bumps updatedAt so a stale detector
 // and the UI can distinguish a slow job from a wedged one).
+//
+// Throttled to ~1 write+event per second per job: a noisy scanner (nuclei/ffuf
+// streaming many progress lines) would otherwise amplify into unbounded SQLite
+// writes and SSE frames. Progress is cosmetic, so dropping intermediate lines is
+// fine — terminal status changes (finish/fail/cancel) always write + emit.
+const lastProgressAt = new Map<number, number>()
+const PROGRESS_MIN_INTERVAL_MS = 1000
 export function setJobProgress(id: number, progress: string): void {
+  const now = Date.now()
+  if (now - (lastProgressAt.get(id) ?? 0) < PROGRESS_MIN_INTERVAL_MS) return
+  // Bound memory: the map holds one timestamp per job that ever reported progress.
+  // Terminal jobs never emit again, so stale entries are harmless — clear the map
+  // wholesale if it somehow grows large (only resets throttle, never data).
+  if (lastProgressAt.size > 5000) lastProgressAt.clear()
+  lastProgressAt.set(id, now)
   const res = db.update(jobs)
     .set({ progress: progress.slice(0, 500), updatedAt: new Date() })
     .where(and(eq(jobs.id, id), eq(jobs.status, 'running')))
