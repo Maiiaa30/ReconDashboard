@@ -1,7 +1,9 @@
 import { getDomain } from '../../domains/store'
 import { addScoredFinding } from '../../findings/score'
-import { runBypass403, runDalfox, runDatastores, runHttpMethods, runKatana, runNaabu, runSqlmap, runSslscan, runWpEnum, type ToolFinding } from '../../sources/binTools'
+import { runBypass403, runDalfox, runDatastores, runHttpMethods, runKatana, runNaabu, runSqlmap, runSslscan, runWpEnum, type SqlmapOpts, type ToolFinding } from '../../sources/binTools'
 import { assertPublicHost } from '../../sources/guard'
+import { fingerprintWaf } from '../../sources/wafFingerprint'
+import { tamperForBrand } from '../../sources/sqlmapTamper'
 import { ToolNotFoundError } from '../../util/exec'
 import { hostBelongsToDomain, isValidDomain, isValidHostname } from '../../util/validate'
 import type { JobContext } from '../worker'
@@ -32,6 +34,9 @@ export async function toolScanHandler({ params, log, signal, progress }: JobCont
 
   try {
     let finding: ToolFinding | null
+    // Set by the sqlmap evasion path so the identified WAF is preserved on the
+    // finding (operators asked to SEE the brand/version, not just in the logs).
+    let wafNote: string | null = null
     switch (tool) {
       case 'katana':
         finding = await runKatana(scheme, target, signal)
@@ -45,9 +50,36 @@ export async function toolScanHandler({ params, log, signal, progress }: JobCont
       case 'sslscan':
         finding = await runSslscan(target, signal)
         break
-      case 'sqlmap':
-        finding = await runSqlmap(scheme, target, signal)
+      case 'sqlmap': {
+        // WAF evasion (opt-in). Identify the WAF, pick a stock sqlmap tamper
+        // chain for that vendor, and raise depth so evasion has vectors to try.
+        // An explicit `tamper` param overrides the auto-picked chain.
+        const opts: SqlmapOpts = {}
+        if (params.evade) {
+          const fp = await fingerprintWaf(scheme, target, signal)
+          const preset = tamperForBrand(fp.brand)
+          const tamper = typeof params.tamper === 'string' && params.tamper.trim()
+            ? params.tamper.trim()
+            : preset?.tamper
+          if (tamper) {
+            opts.tamper = tamper
+            opts.level = 2
+            opts.risk = 2
+            opts.delay = typeof params.delay === 'number' ? params.delay : (preset?.delay ?? 0)
+          }
+          if (fp.detected) {
+            wafNote = `WAF: ${fp.brand}${fp.version ? ` ${fp.version}` : ''}`
+              + `${fp.manufacturer ? ` — ${fp.manufacturer}` : ''} (via ${fp.source})`
+          }
+          progress(
+            wafNote
+              ? `${wafNote} — tamper: ${opts.tamper ?? 'none'}`
+              : 'no WAF identified — running sqlmap without tamper',
+          )
+        }
+        finding = await runSqlmap(scheme, target, signal, opts)
         break
+      }
       case 'wpenum':
         finding = await runWpEnum(scheme, target, signal)
         break
@@ -71,6 +103,9 @@ export async function toolScanHandler({ params, log, signal, progress }: JobCont
       default:
         throw new Error(`unknown tool: ${tool}`)
     }
+
+    // Preserve the identified WAF on the finding even when sqlmap slipped it.
+    if (finding && wafNote) finding.items = [wafNote, ...finding.items]
 
     if (finding) {
       await addScoredFinding({

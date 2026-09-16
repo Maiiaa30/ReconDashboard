@@ -23,8 +23,10 @@ export const scansApi = {
     post<{ jobId: number; categories: string[]; tags: string[] }>(`/domains/${id}/owasp`, { categoryIds, scheme, confirm, target }),
 
   // extra active tools (katana/naabu/dalfox/sslscan/wpenum), gated like scans
-  runTool: (id: number, opts: { tool: string; target?: string; scheme?: string; confirm?: boolean; path?: string }) =>
-    post<{ jobId: number; tool: string; target: string }>(`/domains/${id}/tool`, opts),
+  runTool: (
+    id: number,
+    opts: { tool: string; target?: string; scheme?: string; confirm?: boolean; path?: string; evade?: boolean; tamper?: string; delay?: number },
+  ) => post<{ jobId: number; tool: string; target: string }>(`/domains/${id}/tool`, opts),
 
   // active scans (gated server-side; passive domains require confirm:true)
   nmap: (id: number, opts: { target?: string; ports?: string; deep?: boolean; confirm?: boolean } = {}) =>

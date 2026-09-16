@@ -7,7 +7,10 @@ import { actorName, writeAudit } from '../audit/store'
 // Run one of the extra active tools (katana/naabu/dalfox/sslscan/wpenum) against
 // a target. Gating + audit go through the shared scan policy.
 export const toolScanRoutes: FastifyPluginAsync = async (app) => {
-  app.post<{ Params: { id: string }; Body: { tool?: string; target?: string; scheme?: string; confirm?: boolean; path?: string } }>(
+  app.post<{
+    Params: { id: string }
+    Body: { tool?: string; target?: string; scheme?: string; confirm?: boolean; path?: string; evade?: boolean; tamper?: string; delay?: number }
+  }>(
     '/api/domains/:id/tool',
     async (request, reply) => {
       const id = Number(request.params.id)
@@ -21,6 +24,17 @@ export const toolScanRoutes: FastifyPluginAsync = async (app) => {
       const rawPath = typeof request.body?.path === 'string' ? request.body.path.trim() : ''
       const path = /^\/[A-Za-z0-9._~%\-/?#&=]{0,300}$/.test(rawPath) ? rawPath : undefined
 
+      // sqlmap WAF-evasion (opt-in). An optional tamper override is restricted to
+      // the stock-tamper charset (comma-separated script names); a bad value is
+      // dropped and the handler auto-picks a chain from the detected WAF instead.
+      const evade = request.body?.evade === true
+      const rawTamper = typeof request.body?.tamper === 'string' ? request.body.tamper.trim() : ''
+      const tamper = /^[a-z0-9_]+(,[a-z0-9_]+)*$/i.test(rawTamper) ? rawTamper : undefined
+      const delay = typeof request.body?.delay === 'number' && request.body.delay >= 0 && request.body.delay <= 10
+        ? Math.floor(request.body.delay)
+        : undefined
+      const evadeParams = evade ? { evade: true, ...(tamper ? { tamper } : {}), ...(delay != null ? { delay } : {}) } : {}
+
       try {
         const { domain, target } = await assertScanAllowed({
           domainId: id,
@@ -29,7 +43,7 @@ export const toolScanRoutes: FastifyPluginAsync = async (app) => {
           jobType: 'tool_scan',
         })
         const scheme = request.body?.scheme === 'http' ? 'http' : 'https'
-        const jobId = enqueueJob('tool_scan', { domainId: id, tool, target, scheme, ...(path ? { path } : {}) })
+        const jobId = enqueueJob('tool_scan', { domainId: id, tool, target, scheme, ...(path ? { path } : {}), ...evadeParams })
         writeAudit({
           actor: actorName(request.session.userId),
           action: `enqueue:tool_scan`,
@@ -37,7 +51,7 @@ export const toolScanRoutes: FastifyPluginAsync = async (app) => {
           target,
           mode: domain.mode,
           jobId,
-          detail: { tool, scheme, ...(path ? { path } : {}) },
+          detail: { tool, scheme, ...(path ? { path } : {}), ...(evade ? { evade: true, ...(tamper ? { tamper } : {}) } : {}) },
         })
         return reply.code(202).send({ jobId, tool, target })
       } catch (err) {

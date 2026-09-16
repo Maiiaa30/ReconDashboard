@@ -4,9 +4,16 @@ FROM node:22-bookworm-slim
 # Build dependencies, distro utilities, and runtime libraries.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-       python3 make g++ git zlib1g-dev libssl-dev libssh2-1-dev ca-certificates curl unzip nmap whois gosu \
+       python3 python3-pip make g++ git zlib1g-dev libssl-dev libssh2-1-dev ca-certificates curl unzip nmap whois gosu \
        dnsutils iputils-ping sslscan sqlmap libpcap0.8 chromium chromium-sandbox fonts-liberation \
   && rm -rf /var/lib/apt/lists/*
+
+# wafw00f — richer WAF brand identification (150+ signatures) than the header
+# check, used to auto-pick the sqlmap tamper chain. Best-effort: a failed install
+# just leaves the tool absent and the code falls back to header detection.
+# --break-system-packages: bookworm marks the system env PEP 668 externally-managed.
+RUN pip3 install --no-cache-dir --break-system-packages wafw00f \
+    || echo "wafw00f install failed — WAF fingerprint falls back to header detection"
 
 # Where headless Chromium lives, for the screenshot job.
 ENV CHROMIUM_PATH=/usr/bin/chromium

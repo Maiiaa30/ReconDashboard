@@ -47,6 +47,10 @@ export function Tools() {
   const [findings, setFindings] = useState<Finding[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  // sqlmap WAF evasion: identify the WAF, auto-pick a stock tamper chain, raise
+  // depth and throttle. On by default since a WAF is the usual reason a plain
+  // sqlmap run finds nothing.
+  const [evadeWaf, setEvadeWaf] = useState(true)
 
   useEffect(() => {
     api.meta().then(setMeta).catch(() => setMeta(null))
@@ -80,7 +84,12 @@ export function Tools() {
     setBusy(tool)
     setMsg(null)
     try {
-      const { jobId } = await api.runTool(selected.id, { tool, target, confirm: !active })
+      const { jobId } = await api.runTool(selected.id, {
+        tool,
+        target,
+        confirm: !active,
+        ...(tool === 'sqlmap' && evadeWaf ? { evade: true } : {}),
+      })
       setMsg({ ok: true, text: `Queued ${tool} job #${jobId} on ${target} — results appear below.` })
     } catch (err) {
       setMsg({ ok: false, text: err instanceof ApiError ? err.message : 'failed to start tool' })
@@ -131,6 +140,17 @@ export function Tools() {
                 {!available && <span className="text-xs text-zinc-500">not installed</span>}
               </div>
               <p className="text-sm text-zinc-400">{t.desc}</p>
+              {t.id === 'sqlmap' && (
+                <label className="flex items-center gap-2 text-xs text-zinc-400">
+                  <input
+                    type="checkbox"
+                    checked={evadeWaf}
+                    onChange={(e) => setEvadeWaf(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-hair bg-ink-950 accent-accent-500"
+                  />
+                  Evade WAF — identify the vendor (wafw00f) and auto-apply a sqlmap tamper chain
+                </label>
+              )}
               <div>
                 <Button variant="loud" disabled={!available || busy != null || !target} onClick={() => runTool(t.id)}>
                   {runLabel(t.id, t.label)}

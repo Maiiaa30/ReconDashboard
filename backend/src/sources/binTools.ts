@@ -145,12 +145,36 @@ export async function runSslscan(host: string, signal?: AbortSignal): Promise<To
 // probe them for SQLi at the default (light) level/risk. --batch makes it fully
 // non-interactive. sqlmap can be slow, so a longer 10-min cap (the job worker's
 // 20-min timeout + AbortSignal still bound it and allow operator cancel).
-export async function runSqlmap(scheme: string, host: string, signal?: AbortSignal): Promise<ToolFinding | null> {
+export interface SqlmapOpts {
+  // WAF-evasion: a stock sqlmap `--tamper` chain (see sources/sqlmapTamper.ts).
+  // When set, sqlmap's own WAF self-identification is skipped (we already know
+  // the vendor) and the depth is raised so evasion actually has vectors to try.
+  tamper?: string
+  delay?: number // seconds between requests, for rate-based WAF rules
+  level?: number // 1-5 (default 1)
+  risk?: number // 1-3 (default 1)
+}
+
+export async function runSqlmap(
+  scheme: string,
+  host: string,
+  signal?: AbortSignal,
+  opts: SqlmapOpts = {},
+): Promise<ToolFinding | null> {
   let stdout = ''
   // Cloudflare bypass: sqlmap uses --cookie/--user-agent (not -H). When the host
   // is challenged, pass the solved clearance + its matching UA and drop
   // --random-agent (a random UA wouldn't match the cf_clearance binding).
   const cf = await clearanceCookieArgs(host, signal)
+  const level = opts.level ?? 1
+  const risk = opts.risk ?? 1
+  const evasion: string[] = []
+  if (opts.tamper) {
+    // Payload-signature evasion. --skip-waf drops sqlmap's noisy WAF-detection
+    // pre-flight since the caller has already identified the vendor.
+    evasion.push(`--tamper=${opts.tamper}`, '--skip-waf')
+  }
+  if (opts.delay && opts.delay > 0) evasion.push(`--delay=${Math.floor(opts.delay)}`, '--threads=1')
   try {
     const res = await run(
       'sqlmap',
@@ -159,7 +183,8 @@ export async function runSqlmap(scheme: string, host: string, signal?: AbortSign
         '--batch', // non-interactive: accept the safe defaults
         '--crawl=2', // discover testable URLs under the host
         '--forms', // also submit + test HTML forms
-        '--level=1', '--risk=1', // keep it light (default depth/aggressiveness)
+        `--level=${level}`, `--risk=${risk}`,
+        ...evasion,
         ...(cf.length ? cf : ['--random-agent']),
         '--disable-coloring',
         '--timeout=10', '--retries=1',
