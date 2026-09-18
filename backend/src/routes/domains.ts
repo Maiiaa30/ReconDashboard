@@ -22,14 +22,24 @@ import { llmEnabled } from '../util/llm'
 import { safeJsonParse } from '../util/json'
 import { listNextActions, setNextActionState, type NextActionStatus } from '../domains/nextActions'
 
+// The domains table stores profile/owaspConfig/scopeConfig as raw JSON text.
+// The transport contract (frontend domainSchema) expects parsed objects, so
+// every route that returns a domain row must serialize it through here — not
+// just the list. Skipping it (create/patch used to) ships a JSON string where
+// the client expects an object, which trips the frontend contract validator.
+type DomainRow = NonNullable<ReturnType<typeof getDomain>>
+function serializeDomain(d: DomainRow) {
+  return {
+    ...d,
+    profile: safeJsonParse<Record<string, boolean>>(d.profile, {}),
+    owaspConfig: safeJsonParse<Record<string, unknown>>(d.owaspConfig, {}),
+    scopeConfig: safeJsonParse<Record<string, unknown>>(d.scopeConfig, {}),
+  }
+}
+
 export const domainRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/domains', async () => ({
-    domains: listDomains().map((d) => ({
-      ...d,
-      profile: safeJsonParse<Record<string, boolean>>(d.profile, {}),
-      owaspConfig: safeJsonParse<Record<string, unknown>>(d.owaspConfig, {}),
-      scopeConfig: safeJsonParse<Record<string, unknown>>(d.scopeConfig, {}),
-    })),
+    domains: listDomains().map(serializeDomain),
   }))
 
   // At-a-glance per-domain stats for the dashboard cards.
@@ -57,7 +67,7 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
           label: request.body.label,
           mode: request.body.mode,
         })
-        return reply.code(201).send({ domain })
+        return reply.code(201).send({ domain: serializeDomain(domain!) })
       } catch (err) {
         if (err instanceof DomainValidationError) return reply.code(400).send({ error: err.message })
         throw err
@@ -130,7 +140,7 @@ export const domainRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const id = Number(request.params.id)
       if (!getDomain(id)) return reply.code(404).send({ error: 'domain not found' })
-      return { domain: updateDomain(id, request.body ?? {}) }
+      return { domain: serializeDomain(updateDomain(id, request.body ?? {})!) }
     },
   )
 

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useState, type MouseEvent } from 'react'
+import { Fragment, useCallback, useState, type MouseEvent, type ReactNode } from 'react'
 import {
   Network, Radar, Eye, ScanSearch, ShieldCheck, ShieldAlert, Crosshair, Camera, Wrench,
   Activity, ListChecks, Loader, CheckCircle2, XCircle, Clock, Webhook, type LucideIcon,
@@ -48,6 +48,77 @@ function duration(job: Job): string {
   if (ms < 1000) return `${ms}ms`
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
   return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`
+}
+
+// Absolute + relative timestamp for the detail panel ("14:32:09 · 3m ago").
+function fmtTime(iso: string | null): string {
+  if (!iso) return '—'
+  const t = new Date(iso).getTime()
+  if (!Number.isFinite(t)) return '—'
+  return `${new Date(t).toLocaleString()} · ${timeAgo(t)}`
+}
+
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex gap-2">
+      <span className="w-24 shrink-0 text-zinc-500">{label}</span>
+      <span className="min-w-0 flex-1 break-all text-zinc-300">{children}</span>
+    </div>
+  )
+}
+
+function Block({ label, body, tone = 'zinc' }: { label: string; body: string; tone?: 'zinc' | 'red' }) {
+  return (
+    <div>
+      <div className="mb-1 text-xs uppercase tracking-wide text-zinc-500">{label}</div>
+      <pre
+        className={`max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-hair bg-ink-950/70 p-2.5 text-xs ${
+          tone === 'red' ? 'text-red-300' : 'text-zinc-400'
+        }`}
+      >
+        {body}
+      </pre>
+    </div>
+  )
+}
+
+// Expanded per-job detail: timing, target + effective invocation, params, and
+// the result or error payload. Everything the operator needs to understand what
+// a scan actually did without leaving the log.
+function JobDetail({
+  job, target, host, queueLabel,
+}: { job: Job; target: string; host: string | null; queueLabel: string | null }) {
+  const asText = (v: unknown): string =>
+    v == null ? '(none)' : typeof v === 'string' ? v : JSON.stringify(v, null, 2)
+  const outcome = job.status === 'done' ? summarizeJob(job.type, job.result) : null
+  return (
+    <div className="grid gap-4 text-xs md:grid-cols-2">
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <DetailRow label="Job">{jobLabel(job)} <span className="text-zinc-600">· {job.type}</span></DetailRow>
+          <DetailRow label="Target">{target}</DetailRow>
+          {host && <DetailRow label="Domain">{host}</DetailRow>}
+          <DetailRow label="Status">{job.status}{queueLabel ? ` · ${queueLabel}` : ''}</DetailRow>
+          {outcome && <DetailRow label="Outcome">{outcome}</DetailRow>}
+        </div>
+        <div className="flex flex-col gap-1">
+          <DetailRow label="Created">{fmtTime(job.createdAt)}</DetailRow>
+          <DetailRow label="Started">{fmtTime(job.startedAt)}</DetailRow>
+          <DetailRow label="Finished">{fmtTime(job.finishedAt)}</DetailRow>
+          <DetailRow label="Duration">{duration(job)}</DetailRow>
+          {job.progress && <DetailRow label="Progress">{job.progress}</DetailRow>}
+        </div>
+        <Block label="Parameters / command" body={asText(job.params)} />
+      </div>
+      <div className="flex flex-col gap-3">
+        {job.error && <Block label="Error" body={job.error} tone="red" />}
+        {job.result != null && <Block label="Result" body={asText(job.result)} />}
+        {!job.error && job.result == null && (
+          <div className="text-zinc-600">No result payload{job.status === 'running' ? ' yet — job is running.' : '.'}</div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function Kpi({ icon: Icon, tone, label, value }: { icon: LucideIcon; tone: string; label: string; value: number }) {
@@ -237,7 +308,6 @@ export function Jobs() {
             <tbody>
               {shown.map((j) => {
                 const open = expanded.has(j.id)
-                const detailObj = j.status === 'error' ? j.error : j.result
                 const meta = jobMeta(j.type)
                 const Icon = meta.icon
                 const running = j.status === 'running'
@@ -288,13 +358,12 @@ export function Jobs() {
                     {open && (
                       <tr className="border-t border-hair/60 bg-ink-950/60">
                         <td colSpan={8} className="px-3 py-3">
-                          <pre
-                            className={`max-h-96 overflow-auto whitespace-pre-wrap break-all text-xs ${
-                              j.error ? 'text-red-300' : 'text-zinc-400'
-                            }`}
-                          >
-                            {detailObj ? (typeof detailObj === 'string' ? detailObj : JSON.stringify(detailObj, null, 2)) : '(no detail)'}
-                          </pre>
+                          <JobDetail
+                            job={j}
+                            target={jobTarget(j)}
+                            host={jobDomainId(j) != null ? domains.find((d) => d.id === jobDomainId(j))?.host ?? null : null}
+                            queueLabel={j.status === 'queued' ? `#${queuePos.get(j.id) ?? '?'} in queue` : null}
+                          />
                         </td>
                       </tr>
                     )}

@@ -130,14 +130,14 @@ export function CommandCenter({ navigate }: { navigate: (page: string, domainId?
       </Card>
 
       <div className="grid gap-5 xl:grid-cols-[1.15fr_.85fr]">
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <Card>
             <div className="mb-3 flex items-center gap-2"><Sparkles size={15} className="text-blue-400" /><h2 className="text-sm font-semibold">Recent changes</h2></div>
             {data.changes.length === 0 ? <p className="text-sm text-zinc-500">No material asset changes recorded yet.</p> : <div className="space-y-2">{data.changes.map((finding) => <button key={finding.id} onClick={() => navigate('findings', selected.id)} className="flex w-full items-start gap-3 rounded-lg border border-hair/60 px-3 py-2 text-left hover:bg-ink-850"><Clock size={14} className="mt-0.5 shrink-0 text-zinc-500" /><span className="min-w-0 flex-1"><span className="block truncate text-sm text-zinc-200">{summarizeFinding(finding.type, finding.data)}</span><span className="text-xs text-zinc-600">{timeAgo(new Date(finding.createdAt).getTime())}</span></span></button>)}</div>}
           </Card>
         </div>
 
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <Card>
             <div className="mb-3 flex items-center gap-2"><Activity size={15} className="text-emerald-400" /><h2 className="text-sm font-semibold">Current activity</h2></div>
             {data.running.length === 0 ? <p className="text-sm text-zinc-500">No queued or running jobs.</p> : <div className="space-y-2">{data.running.slice(0, 6).map((job) => <button key={job.id} onClick={() => navigate('jobs', selected.id)} className="w-full rounded-lg border border-hair/60 px-3 py-2 text-left"><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${job.status === 'running' ? 'animate-pulse bg-amber-400' : 'bg-zinc-500'}`} /><span className="text-sm text-zinc-200">{job.type.replaceAll('_', ' ')}</span><span className="ml-auto text-xs text-zinc-600">#{job.id}</span></div>{job.progress && <p className="mt-1 truncate text-xs text-zinc-500">{job.progress}</p>}</button>)}</div>}

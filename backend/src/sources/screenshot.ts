@@ -39,6 +39,13 @@ export async function captureScreenshot(url: string, outPath: string, signal?: A
       CHROMIUM,
       [
         '--headless=new',
+        // The container entrypoint drops root (gosu), and Chromium's setuid
+        // sandbox cannot initialize as a non-root user without extra kernel
+        // setup, so it exits without writing a file. Disabling the sandbox is
+        // safe here: the target address is already vetted and pinned via
+        // --host-resolver-rules below (no arbitrary navigation).
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
         '--disable-gpu',
         '--disable-dev-shm-usage',
         '--hide-scrollbars',
@@ -84,6 +91,10 @@ export async function renderHtmlToPdf(html: string): Promise<Buffer | null> {
         CHROMIUM,
         [
           '--headless=new',
+          // Same non-root sandbox constraint as captureScreenshot; the input is
+          // a local trusted HTML file, so disabling the sandbox is safe.
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
           '--disable-gpu',
           '--disable-dev-shm-usage',
           '--no-pdf-header-footer',

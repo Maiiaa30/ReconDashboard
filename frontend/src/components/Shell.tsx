@@ -305,10 +305,7 @@ export function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
                 return (
                   <button
                     key={m.key}
-                    onClick={() => {
-                      setActive(m.key)
-                      setNavOpen(false)
-                    }}
+                    onClick={() => navigate(m.key)}
                     title={status ? `${m.label} — ${status === 'running' ? 'running…' : 'new results'}` : m.label}
                     className={`relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition ${
                       collapsed ? 'md:justify-center md:px-0' : ''
